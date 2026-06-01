@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole @default(STAFF)
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockLogs StockLog[]
+}
+
+// ─── INVENTORY ────────────────────────────────────────────────────────────────
+
+model Material {
+  id               String   @id @default(cuid())
+  name             String
+  unit             String   // kg, litre, roll, etc.
+  currentStock     Float    @default(0)
+  reorderThreshold Float    @default(100)
+  supplierId       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  supplier      Vendor?        @relation(fields: [supplierId], references: [id])
+  stockLogs     StockLog[]
+  purchaseOrders PurchaseOrder[]
+  vendorMaterials VendorMaterial[]
+}
+
+model StockLog {
+  id         String   @id @default(cuid())
+  materialId String
+  type       StockLogType
+  quantity   Float
+  notes      String?
+  staffName  String
+  staffId    String?
+  createdAt  DateTime @default(now())
+
+  material Material @relation(fields: [materialId], references: [id])
+  staff    User?    @relation(fields: [staffId], references: [id])
+}
+
+enum StockLogType {
+  IN
+  OUT
+}
+
+// ─── ORDERS ───────────────────────────────────────────────────────────────────
+
+enum OrderStatus {
+  RECEIVED
+  IN_PRODUCTION
+  QC_CHECK
+  READY
+  DISPATCHED
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  gstNumber String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders   Order[]
+  invoices Invoice[]
+  leads    Lead[]
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  orderId      String      @unique // PKG-YYYYMMDD-XXXX
+  clientId     String
+  productType  String
+  quantity     Float
+  unit         String      @default("units")
+  deliveryDate DateTime
+  status       OrderStatus @default(RECEIVED)
+  notes        String?
+  dispatchedAt DateTime?
+  readyAt      DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  client   Client    @relation(fields: [clientId], references: [id])
+  jobs     Job[]
+  invoices Invoice[]
+}
+
+// ─── PRODUCTION ───────────────────────────────────────────────────────────────
+
+enum MachineStatus {
+  ACTIVE
+  IDLE
+  MAINTENANCE
+  DOWN
+}
+
+enum JobStatus {
+  IN_PROGRESS
+  COMPLETED
+  QC_PENDING
+  ON_HOLD
+}
+
+enum JobPriority {
+  HIGH
+  NORMAL
+  LOW
+}
+
+model Machine {
+  id                String        @id @default(cuid())
+  name              String
+  type              String
+  capacity          String?
+  status            MachineStatus @default(ACTIVE)
+  lastMaintenanceAt DateTime?
+  nextMaintenanceAt DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  jobs         Job[]
+  downtimeLogs DowntimeLog[]
+}
+
+model Job {
+  id             String      @id @default(cuid())
+  orderId        String
+  machineId      String
+  priority       JobPriority @default(NORMAL)
+  startTime      DateTime    @default(now())
+  expectedEnd    DateTime
+  completedAt    DateTime?
+  status         JobStatus   @default(IN_PROGRESS)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  machine Machine @relation(fields: [machineId], references: [id])
+}
+
+model DowntimeLog {
+  id        String   @id @default(cuid())
+  machineId String
+  reason    String
+  startTime DateTime
+  endTime   DateTime?
+  createdAt DateTime @default(now())
+
+  machine Machine @relation(fields: [machineId], references: [id])
+}
+
+// ─── CRM ──────────────────────────────────────────────────────────────────────
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  PROPOSAL_SENT
+  WON
+  LOST
+}
+
+enum LeadSource {
+  COLD_CALL
+  REFERRAL
+  TRADE_SHOW
+  WEBSITE
+  OTHER
+}
+
+model Lead {
+  id                 String     @id @default(cuid())
+  companyName        String
+  contactPerson      String
+  phone              String
+  email              String?
+  source             LeadSource @default(COLD_CALL)
+  productInterest    String?
+  estimatedOrderSize Float?
+  status             LeadStatus @default(NEW)
+  notes              String?
+  lastContactedAt    DateTime?
+  clientId           String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  client Client? @relation(fields: [clientId], references: [id])
+}
+
+// ─── FINANCE ──────────────────────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique // INV-YYYYMMDD-XXXX
+  orderId       String
+  clientId      String
+  subtotal      Float
+  gstRate       Float         @default(18)
+  gstAmount     Float
+  totalAmount   Float
+  dueDate       DateTime
+  paidAt        DateTime?
+  paidAmount    Float?
+  status        InvoiceStatus @default(DRAFT)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order  Order  @relation(fields: [orderId], references: [id])
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+// ─── VENDOR & PURCHASE ────────────────────────────────────────────────────────
+
+enum POStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+}
+
+model Vendor {
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  phone        String
+  email        String?
+  address      String?
+  rating       Float    @default(3)
+  paymentTerms String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  materials      Material[]
+  vendorMaterials VendorMaterial[]
+  purchaseOrders  PurchaseOrder[]
+}
+
+model VendorMaterial {
+  id            String  @id @default(cuid())
+  vendorId      String
+  materialId    String
+  pricePerUnit  Float
+  leadTimeDays  Int     @default(7)
+  reliability   Float   @default(3) // 1-5 score
+  isDefault     Boolean @default(false)
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  material Material @relation(fields: [materialId], references: [id])
+
+  @@unique([vendorId, materialId])
+}
+
+model PurchaseOrder {
+  id               String   @id @default(cuid())
+  poNumber         String   @unique // PO-YYYYMMDD-XXXX
+  vendorId         String
+  materialId       String
+  quantity         Float
+  unit             String
+  pricePerUnit     Float?
+  totalAmount      Float?
+  expectedDelivery DateTime
+  deliveredAt      DateTime?
+  status           POStatus @default(DRAFT)
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  material Material @relation(fields: [materialId], references: [id])
+}
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────────
+
+enum AlertType {
+  LOW_STOCK
+  OVERDUE_ORDER
+  MACHINE_DOWN
+  PAYMENT_DEFAULT
+  DISPATCH_DELAY
+  SYSTEM
+}
+
+enum AlertChannel {
+  WHATSAPP
+  IN_APP
+  BOTH
+}
+
+model Alert {
+  id        String       @id @default(cuid())
+  type      AlertType
+  title     String
+  message   String
+  channel   AlertChannel @default(BOTH)
+  seen      Boolean      @default(false)
+  sentAt    DateTime     @default(now())
+  metadata  Json?        // store related IDs, extra context
+
+  @@index([seen])
+  @@index([type])
+}
+
+// ─── SETTINGS ─────────────────────────────────────────────────────────────────
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  updatedAt DateTime @updatedAt
+}

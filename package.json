@@ -1,0 +1,14 @@
+{
+  "name": "packflow-erp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "setup": "npm run install:all && cd server && npx prisma generate",
+    "db:migrate": "cd server && npx prisma migrate dev --name init",
+    "db:seed": "cd server && npx ts-node -r tsconfig-paths/register prisma/seed.ts",
+    "db:studio": "cd server && npx prisma studio"
+  }
+}
