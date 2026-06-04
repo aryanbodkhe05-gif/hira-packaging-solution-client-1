@@ -17,7 +17,7 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      login();
       toast.success('Welcome back!');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })

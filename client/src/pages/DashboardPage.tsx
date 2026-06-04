@@ -1,195 +1,235 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  ShoppingCart, Truck, AlertTriangle, Package,
-  Factory, Users, DollarSign, TrendingUp,
-} from 'lucide-react';
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
+} from 'recharts';
+import { Package, ShoppingCart, Truck, Clock, TrendingUp, AlertTriangle } from 'lucide-react';
+import { rollsDb, consumablesDb, ordersDb } from '../lib/db';
+import { COMPANY, PRODUCT_TYPES } from '../config';
 import { StatCard } from '../components/ui/StatCard';
-import { PageLoader } from '../components/ui/LoadingSpinner';
-import { useAuth } from '../context/AuthContext';
-import { useAlerts } from '../context/AlertContext';
-import api from '../lib/api';
-import { formatCurrency, timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../lib/utils';
-import type { OrderStats, Alert } from '../types';
+import { format, parseISO } from 'date-fns';
+
+const PRODUCT_COLORS: Record<string, string> = {
+  BOPP: '#3131B5', UL: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+};
+
+function ChartTip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-navy border border-accent/30 rounded-lg p-3 text-xs shadow-xl">
+      <p className="text-white/60 mb-1">{label}</p>
+      {payload.map((p) => (
+        <p key={p.name} style={{ color: p.color }}>{p.name}: <span className="font-mono font-bold">{p.value}</span></p>
+      ))}
+    </div>
+  );
+}
 
 export function DashboardPage() {
-  const { user } = useAuth();
-  const { alerts, unreadCount } = useAlerts();
-  const [orderStats, setOrderStats] = useState<OrderStats | null>(null);
-  const [lowStockCount, setLowStockCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const rolls       = rollsDb.getAll();
+  const consumables = consumablesDb.getAll();
+  const orders      = ordersDb.getAll();
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [statsRes, matRes] = await Promise.all([
-          api.get('/orders/stats'),
-          api.get('/inventory/materials'),
-        ]);
-        setOrderStats(statsRes.data);
-        const lowStock = statsRes.data;
-        setLowStockCount(
-          matRes.data.filter((m: { currentStock: number; reorderThreshold: number }) =>
-            m.currentStock <= m.reorderThreshold
-          ).length
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
+  const stats = useMemo(() => {
+    const total      = orders.length;
+    const dispatched = orders.filter((o) => o.status === 'Dispatched').length;
+    const pending    = orders.filter((o) => o.status === 'Pending').length;
+    const inProd     = orders.filter((o) => o.status === 'In Production').length;
+    const ready      = orders.filter((o) => o.status === 'Ready').length;
+    const totalKg    = orders.reduce((s, o) => s + (o.quantityKg ?? 0), 0);
+    return { total, dispatched, pending, inProd, ready, totalKg };
+  }, [orders]);
 
-  if (loading) return <PageLoader />;
+  // Orders per month (last 6 months)
+  const monthlyOrders = useMemo(() => {
+    const map: Record<string, { month: string; orders: number; kg: number }> = {};
+    orders.forEach((o) => {
+      const m = format(parseISO(o.createdAt), 'MMM yy');
+      if (!map[m]) map[m] = { month: m, orders: 0, kg: 0 };
+      map[m].orders++;
+      map[m].kg += (o.quantityKg ?? 0);
+    });
+    return Object.values(map).slice(-6);
+  }, [orders]);
 
-  const recentAlerts = alerts.slice(0, 5);
+  // Product type breakdown
+  const productBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    orders.forEach((o) => { map[o.productType] = (map[o.productType] ?? 0) + 1; });
+    return PRODUCT_TYPES.map((t) => ({ name: t, value: map[t] ?? 0 })).filter((x) => x.value > 0);
+  }, [orders]);
+
+  // Dispatch trend (dispatched orders per month)
+  const dispatchTrend = useMemo(() => {
+    const map: Record<string, number> = {};
+    orders.filter((o) => o.status === 'Dispatched').forEach((o) => {
+      const m = format(parseISO(o.createdAt), 'MMM yy');
+      map[m] = (map[m] ?? 0) + 1;
+    });
+    return Object.entries(map).map(([month, dispatched]) => ({ month, dispatched })).slice(-6);
+  }, [orders]);
+
+  // KG output over time
+  const kgTrend = useMemo(() => {
+    const map: Record<string, number> = {};
+    orders.filter((o) => o.status === 'Dispatched').forEach((o) => {
+      const m = format(parseISO(o.createdAt), 'MMM yy');
+      map[m] = (map[m] ?? 0) + (o.quantityKg ?? 0);
+    });
+    return Object.entries(map).map(([month, kg]) => ({ month, kg })).slice(-6);
+  }, [orders]);
+
+  const lowConsumables = consumables.filter((c) => c.quantity < 20);
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Welcome */}
+      {/* Header */}
       <div>
-        <h1 className="page-header">
-          Good {getGreeting()}, {user?.name.split(' ')[0]} 👋
-        </h1>
-        <p className="text-muted text-sm mt-1">Here's what's happening at the factory today.</p>
+        <h1 className="page-header">Welcome, {COMPANY.owner} 👋</h1>
+        <p className="text-muted text-sm mt-1">{COMPANY.name} — Operations Overview</p>
       </div>
 
-      {/* Order stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Pending Orders"
-          value={orderStats?.pending ?? 0}
-          icon={ShoppingCart}
-          iconColor="text-blue-400"
-          mono
-        />
-        <StatCard
-          label="In Production"
-          value={orderStats?.inProduction ?? 0}
-          icon={Factory}
-          iconColor="text-yellow-400"
-          mono
-        />
-        <StatCard
-          label="Ready to Dispatch"
-          value={orderStats?.ready ?? 0}
-          icon={Package}
-          iconColor="text-accent"
-          mono
-        />
-        <StatCard
-          label="Dispatched Today"
-          value={orderStats?.dispatched ?? 0}
-          icon={Truck}
-          iconColor="text-success"
-          mono
-        />
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard label="Total Orders"     value={stats.total}          icon={ShoppingCart}  iconColor="text-accent"   mono />
+        <StatCard label="Dispatched"       value={stats.dispatched}     icon={Truck}         iconColor="text-success"  mono />
+        <StatCard label="Pending"          value={stats.pending}        icon={Clock}         iconColor="text-yellow-400" mono />
+        <StatCard label="In Production"    value={stats.inProd}         icon={TrendingUp}    iconColor="text-blue-400" mono />
+        <StatCard label="Rolls in Stock"   value={rolls.length}         icon={Package}       iconColor="text-purple-400" mono />
+        <StatCard label="Low Consumables"  value={lowConsumables.length} icon={AlertTriangle} iconColor="text-red-400"  mono />
       </div>
 
-      {/* Alert & stock row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Overdue Orders"
-          value={orderStats?.overdue ?? 0}
-          icon={AlertTriangle}
-          iconColor="text-red-400"
-          mono
-        />
-        <StatCard
-          label="Low Stock Items"
-          value={lowStockCount}
-          icon={Package}
-          iconColor="text-orange-400"
-          mono
-        />
-        <StatCard
-          label="Unread Alerts"
-          value={unreadCount}
-          icon={AlertTriangle}
-          iconColor="text-yellow-400"
-          mono
-        />
-        <StatCard
-          label="Active Users"
-          value={3}
-          icon={Users}
-          iconColor="text-purple-400"
-          mono
-        />
-      </div>
+      {/* Low stock alert */}
+      {lowConsumables.length > 0 && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/30">
+          <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0" />
+          <p className="text-orange-300 text-sm font-medium">
+            Low consumables: {lowConsumables.map((c) => `${c.name} (${c.quantity} ${c.unit})`).join(' · ')}
+          </p>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent alerts */}
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="section-title">Recent Alerts</h2>
-            <span className="badge bg-red-500/20 text-red-400 border border-red-500/30">
-              {unreadCount} unread
-            </span>
-          </div>
-          <div className="space-y-2">
-            {recentAlerts.length === 0 ? (
-              <p className="text-muted text-sm text-center py-6">No alerts — all systems normal ✅</p>
-            ) : (
-              recentAlerts.map((alert: Alert) => (
-                <div
-                  key={alert.id}
-                  className={cn(
-                    'flex items-start gap-3 p-3 rounded-lg border',
-                    !alert.seen ? 'bg-primary/10 border-primary/20' : 'bg-white/5 border-transparent'
-                  )}
-                >
-                  {!alert.seen && (
-                    <span className="w-2 h-2 mt-1.5 rounded-full bg-accent flex-shrink-0 alert-pulse" />
-                  )}
-                  <div className={cn('flex-1', alert.seen && 'ml-4')}>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={cn('badge text-[10px]', ALERT_TYPE_COLORS[alert.type])}>
-                        {ALERT_TYPE_LABELS[alert.type]}
-                      </span>
-                      <span className="text-muted text-[10px]">{timeAgo(alert.sentAt)}</span>
-                    </div>
-                    <p className="text-white/80 text-xs">{alert.title}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+      {/* Charts row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Orders per month */}
+        <div className="lg:col-span-2 glass-card p-5">
+          <p className="section-title mb-4">Orders per Month</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={monthlyOrders} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Bar dataKey="orders" name="Orders" fill="#3131B5" radius={[4,4,0,0]} maxBarSize={40} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
-        {/* Quick actions */}
+        {/* Product type pie */}
         <div className="glass-card p-5">
-          <h2 className="section-title mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'New Order',      icon: ShoppingCart, href: '/orders',     color: 'bg-blue-500/10 border-blue-500/20 hover:border-blue-500/40' },
-              { label: 'Stock In',       icon: Package,      href: '/inventory',  color: 'bg-success/10 border-success/20 hover:border-success/40' },
-              { label: 'Mark Dispatch',  icon: Truck,        href: '/dispatch',   color: 'bg-accent/10 border-accent/20 hover:border-accent/40' },
-              { label: 'View Finance',   icon: DollarSign,   href: '/finance',    color: 'bg-yellow-500/10 border-yellow-500/20 hover:border-yellow-500/40' },
-              { label: 'Production',     icon: Factory,      href: '/production', color: 'bg-purple-500/10 border-purple-500/20 hover:border-purple-500/40' },
-              { label: 'CRM Leads',      icon: TrendingUp,   href: '/crm',        color: 'bg-pink-500/10 border-pink-500/20 hover:border-pink-500/40' },
-            ].map(({ label, icon: Icon, href, color }) => (
-              <a
-                key={label}
-                href={href}
-                className={cn(
-                  'flex items-center gap-2 p-3 rounded-lg border transition-all duration-200 text-white/70 hover:text-white',
-                  color
-                )}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="text-xs font-medium">{label}</span>
-              </a>
+          <p className="section-title mb-4">Product Type Split</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+              <Pie data={productBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={3}>
+                {productBreakdown.map((entry) => (
+                  <Cell key={entry.name} fill={PRODUCT_COLORS[entry.name] ?? '#8888AA'} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: number, n: string) => [v + ' orders', n]} contentStyle={{ background: '#1A1A70', border: '1px solid rgba(94,94,232,0.3)', borderRadius: 8, fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {productBreakdown.map((e) => (
+              <div key={e.name} className="flex items-center gap-1.5 text-xs">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PRODUCT_COLORS[e.name] }} />
+                <span className="text-muted">{e.name}</span>
+                <span className="font-mono text-white">{e.value}</span>
+              </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Charts row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Dispatch trend */}
+        <div className="glass-card p-5">
+          <p className="section-title mb-4">Dispatch Trend</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={dispatchTrend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Line type="monotone" dataKey="dispatched" name="Dispatched" stroke="#12B76A" strokeWidth={2} dot={{ fill: '#12B76A', r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* KG output */}
+        <div className="glass-card p-5">
+          <p className="section-title mb-4">Output (KG) per Month</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={kgTrend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="month" tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#8888AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Bar dataKey="kg" name="KG" fill="#5E5EE8" radius={[4,4,0,0]} maxBarSize={40} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Recent orders */}
+      <div className="glass-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-accent/10">
+          <p className="section-title">Recent Orders</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-white/5">
+                <th className="table-header">Order ID</th>
+                <th className="table-header">Client</th>
+                <th className="table-header">Type</th>
+                <th className="table-header">Size</th>
+                <th className="table-header">Qty (KG)</th>
+                <th className="table-header">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.slice(0, 8).map((o) => (
+                <tr key={o.id} className="table-row">
+                  <td className="table-cell font-mono text-accent text-xs">{o.orderId}</td>
+                  <td className="table-cell font-medium">{o.clientName}</td>
+                  <td className="table-cell">
+                    <span className="badge" style={{ background: PRODUCT_COLORS[o.productType] + '22', color: PRODUCT_COLORS[o.productType], border: `1px solid ${PRODUCT_COLORS[o.productType]}44` }}>
+                      {o.productType}
+                    </span>
+                  </td>
+                  <td className="table-cell font-mono text-xs text-muted">{o.sizeDisplay}</td>
+                  <td className="table-cell font-mono">{o.quantityKg?.toLocaleString('en-IN')}</td>
+                  <td className="table-cell">
+                    <StatusBadge status={o.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   );
 }
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    'Dispatched':    'bg-success/20 text-success border-success/30',
+    'Ready':         'bg-accent/20 text-accent border-accent/30',
+    'In Production': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    'QC Check':      'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    'Pending':       'bg-white/10 text-white/60 border-white/10',
+  };
+  return <span className={`badge border ${map[status] ?? 'bg-white/10 text-muted'}`}>{status}</span>;
 }

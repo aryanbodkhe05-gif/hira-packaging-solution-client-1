@@ -1,379 +1,409 @@
-import { useEffect, useState, useCallback } from 'react';
-import {
-  ShoppingCart, Plus, Search, Filter, RefreshCw,
-  Clock, CheckCircle2, AlertTriangle, ChevronDown,
-} from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import { Plus, Pencil, Trash2, Truck, Search, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../lib/api';
-import { PageLoader } from '../components/ui/LoadingSpinner';
+import { format, parseISO, getMonth, getYear } from 'date-fns';
+import { ordersDb } from '../lib/db';
+import { PRODUCT_TYPES, ORDER_STATUSES } from '../config';
+import type { Order } from '../types/models';
+import type { ProductType, OrderStatus } from '../config';
 import { Modal } from '../components/ui/Modal';
-import { OrderStatusBadge } from '../components/ui/Badge';
-import { StatCard } from '../components/ui/StatCard';
 import { EmptyState } from '../components/ui/EmptyState';
-import { cn, formatDate, formatNumber, ORDER_STATUS_LABELS } from '../lib/utils';
-import type { Order, OrderStats, OrderStatus, Client } from '../types';
+import { cn } from '../lib/utils';
 
-const STATUS_PIPELINE: OrderStatus[] = ['RECEIVED', 'IN_PRODUCTION', 'QC_CHECK', 'READY', 'DISPATCHED'];
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const STATUS_COLORS: Record<string, string> = {
+  'Dispatched':    'bg-success/20 text-success border-success/30',
+  'Ready':         'bg-accent/20 text-accent border-accent/30',
+  'In Production': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  'QC Check':      'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  'Pending':       'bg-white/10 text-white/60 border-white/10',
+};
+const TYPE_COLORS: Record<string, string> = {
+  BOPP: '#3131B5', UL: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+};
 
-function OrderRow({ order, onUpdateStatus }: { order: Order; onUpdateStatus: (o: Order) => void }) {
-  return (
-    <tr className="table-row">
-      <td className="table-cell font-mono text-accent text-xs">{order.orderId}</td>
-      <td className="table-cell">
-        <div>
-          <p className="text-white font-medium">{order.client.name}</p>
-          <p className="text-muted text-xs">{order.client.phone}</p>
-        </div>
-      </td>
-      <td className="table-cell">{order.productType}</td>
-      <td className="table-cell font-mono">{formatNumber(order.quantity)} {order.unit}</td>
-      <td className="table-cell">
-        <span className={cn('font-medium text-sm', order.isOverdue ? 'text-red-400' : 'text-white/70')}>
-          {formatDate(order.deliveryDate)}
-        </span>
-      </td>
-      <td className="table-cell">
-        <OrderStatusBadge status={order.status} overdue={order.isOverdue} />
-      </td>
-      <td className="table-cell">
-        <button
-          onClick={() => onUpdateStatus(order)}
-          disabled={order.status === 'DISPATCHED'}
-          className={cn(
-            'px-2 py-1 rounded text-xs font-medium transition-colors',
-            order.status !== 'DISPATCHED'
-              ? 'bg-accent/10 hover:bg-accent/20 text-accent'
-              : 'opacity-30 cursor-not-allowed text-muted'
-          )}
-        >
-          Update Status
-        </button>
-      </td>
-    </tr>
-  );
+function genOrderId(): string {
+  const ymd = format(new Date(), 'yyyyMMdd');
+  const rand = String(Math.floor(1000 + Math.random() * 9000));
+  return `NF-${ymd}-${rand}`;
 }
 
-function NewOrderForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [form, setForm] = useState({
-    clientId: '', newClientName: '', productType: '',
-    quantity: '', unit: 'units', deliveryDate: '', notes: '',
-  });
-  const [isNewClient, setIsNewClient] = useState(false);
-  const [loading, setLoading] = useState(false);
+// ── Order Form ─────────────────────────────────────────────────────────────────
+const emptyOrder: Omit<Order, 'id'> = {
+  orderId: '', clientName: '', productType: 'BOPP',
+  length: 0, width: 0, gsm: 0, sizeDisplay: '',
+  quantityKg: undefined, quantityNos: undefined, quantityUnit: 'Both',
+  status: 'Pending', notes: '', createdAt: new Date().toISOString(),
+};
 
-  useEffect(() => {
-    api.get('/orders/clients/all').then((r) => setClients(r.data));
-  }, []);
+function OrderForm({ initial, onSave, onClose }: {
+  initial: Omit<Order, 'id'>;
+  onSave: (data: Omit<Order, 'id'>) => void;
+  onClose: () => void;
+}) {
+  const [f, setF] = useState({ ...initial, orderId: initial.orderId || genOrderId() });
+  const set = (k: keyof typeof f, v: unknown) => setF((p) => ({
+    ...p, [k]: v,
+    ...(k === 'length' || k === 'width' || k === 'gsm' ? {
+      sizeDisplay: `${k === 'length' ? v : p.length} × ${k === 'width' ? v : p.width} + ${k === 'gsm' ? v : p.gsm} gm`
+    } : {})
+  }));
 
-  async function submit() {
-    if (!form.productType || !form.quantity || !form.deliveryDate) {
-      toast.error('Please fill required fields');
-      return;
-    }
-    setLoading(true);
-    try {
-      let clientId = form.clientId;
-      if (isNewClient && form.newClientName) {
-        const { data } = await api.post('/orders/clients', { name: form.newClientName });
-        clientId = data.id;
-      }
-      if (!clientId) { toast.error('Please select or add a client'); return; }
-
-      await api.post('/orders', {
-        clientId,
-        productType: form.productType,
-        quantity: parseFloat(form.quantity),
-        unit: form.unit,
-        deliveryDate: form.deliveryDate,
-        notes: form.notes || undefined,
-      });
-      toast.success('Order created!');
-      onSuccess();
-      onClose();
-    } catch {
-      toast.error('Failed to create order');
-    } finally {
-      setLoading(false);
-    }
+  function submit() {
+    if (!f.clientName.trim()) { toast.error('Client name required'); return; }
+    if (!f.length || !f.width) { toast.error('Length and width required'); return; }
+    onSave({ ...f, sizeDisplay: `${f.length} × ${f.width} + ${f.gsm} gm` });
   }
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="label">Client</label>
-        <div className="flex gap-2 mb-2">
-          {['existing', 'new'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setIsNewClient(t === 'new')}
-              className={cn(
-                'px-3 py-1 rounded text-xs font-medium transition-colors capitalize',
-                isNewClient === (t === 'new') ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white'
-              )}
-            >
-              {t === 'existing' ? 'Existing Client' : 'New Client'}
-            </button>
-          ))}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Order ID</label>
+          <input className="input-field font-mono text-accent" value={f.orderId} readOnly />
         </div>
-        {isNewClient ? (
-          <input className="input-field" value={form.newClientName}
-            onChange={(e) => setForm({ ...form, newClientName: e.target.value })}
-            placeholder="Client company name" autoFocus />
-        ) : (
-          <select className="input-field" value={form.clientId}
-            onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
-            <option value="">Select client...</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        <div>
+          <label className="label">Product Type</label>
+          <select className="input-field" value={f.productType}
+            onChange={(e) => set('productType', e.target.value as ProductType)}>
+            {PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
-        )}
+        </div>
       </div>
 
       <div>
-        <label className="label">Product Type *</label>
-        <input className="input-field" value={form.productType}
-          onChange={(e) => setForm({ ...form, productType: e.target.value })}
-          placeholder="e.g., Corrugated Box, Poly Bag 1kg" />
+        <label className="label">Client Name *</label>
+        <input className="input-field" value={f.clientName}
+          onChange={(e) => set('clientName', e.target.value)}
+          placeholder="e.g. Amrit Snacks Pvt Ltd" autoFocus />
+      </div>
+
+      {/* Size inputs */}
+      <div>
+        <label className="label">Size (Length × Width + GSM)</label>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <input className="input-field font-mono" type="number" min="0" step="0.01"
+              value={f.length || ''} onChange={(e) => set('length', parseFloat(e.target.value) || 0)}
+              placeholder="Length" />
+            <p className="text-muted text-[10px] mt-0.5 ml-1">Length</p>
+          </div>
+          <div>
+            <input className="input-field font-mono" type="number" min="0" step="0.01"
+              value={f.width || ''} onChange={(e) => set('width', parseFloat(e.target.value) || 0)}
+              placeholder="Width" />
+            <p className="text-muted text-[10px] mt-0.5 ml-1">Width</p>
+          </div>
+          <div>
+            <input className="input-field font-mono" type="number" min="0" step="0.01"
+              value={f.gsm || ''} onChange={(e) => set('gsm', parseFloat(e.target.value) || 0)}
+              placeholder="0.96" />
+            <p className="text-muted text-[10px] mt-0.5 ml-1">GSM</p>
+          </div>
+        </div>
+        {f.length > 0 && f.width > 0 && (
+          <p className="text-accent text-xs font-mono mt-1.5 bg-accent/10 px-3 py-1 rounded-lg inline-block">
+            Preview: {f.length} × {f.width} + {f.gsm} gm
+          </p>
+        )}
+      </div>
+
+      {/* Quantity */}
+      <div>
+        <label className="label">Quantity Unit</label>
+        <div className="flex gap-2 mb-2">
+          {(['KG', 'Nos', 'Both'] as const).map((u) => (
+            <button key={u}
+              onClick={() => set('quantityUnit', u)}
+              className={cn('px-3 py-1 rounded text-xs font-medium transition-colors',
+                f.quantityUnit === u ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}
+            >{u}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {(f.quantityUnit === 'KG' || f.quantityUnit === 'Both') && (
+            <div>
+              <label className="label">Quantity (KG)</label>
+              <input className="input-field font-mono" type="number" min="0"
+                value={f.quantityKg || ''} onChange={(e) => set('quantityKg', parseFloat(e.target.value) || undefined)}
+                placeholder="450" />
+            </div>
+          )}
+          {(f.quantityUnit === 'Nos' || f.quantityUnit === 'Both') && (
+            <div>
+              <label className="label">Quantity (Nos)</label>
+              <input className="input-field font-mono" type="number" min="0"
+                value={f.quantityNos || ''} onChange={(e) => set('quantityNos', parseFloat(e.target.value) || undefined)}
+                placeholder="12000" />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="label">Quantity *</label>
-          <input className="input-field font-mono" type="number" min="1"
-            value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-            placeholder="0" />
-        </div>
-        <div>
-          <label className="label">Unit</label>
-          <select className="input-field" value={form.unit}
-            onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-            {['units', 'boxes', 'rolls', 'sheets', 'kg'].map((u) => (
-              <option key={u} value={u}>{u}</option>
-            ))}
+          <label className="label">Status</label>
+          <select className="input-field" value={f.status}
+            onChange={(e) => set('status', e.target.value as OrderStatus)}>
+            {ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}
           </select>
         </div>
-      </div>
-
-      <div>
-        <label className="label">Delivery Date *</label>
-        <input className="input-field" type="date" value={form.deliveryDate}
-          onChange={(e) => setForm({ ...form, deliveryDate: e.target.value })} />
+        <div>
+          <label className="label">Date</label>
+          <input className="input-field" type="date"
+            value={f.createdAt.slice(0, 10)}
+            onChange={(e) => set('createdAt', e.target.value + 'T09:00:00Z')} />
+        </div>
       </div>
 
       <div>
         <label className="label">Notes</label>
-        <textarea className="input-field resize-none" rows={2} value={form.notes}
-          onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          placeholder="Special instructions..." />
+        <textarea className="input-field resize-none" rows={2} value={f.notes}
+          onChange={(e) => set('notes', e.target.value)}
+          placeholder="Special instructions…" />
       </div>
 
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} disabled={loading} className="btn-primary flex-1 justify-center">
-          {loading ? 'Creating...' : 'Create Order'}
-        </button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center">Save Order</button>
       </div>
     </div>
   );
 }
 
-function UpdateStatusModal({ order, onClose, onSuccess }: { order: Order; onClose: () => void; onSuccess: () => void }) {
-  const currentIdx = STATUS_PIPELINE.indexOf(order.status);
-  const [status, setStatus] = useState<OrderStatus>(
-    currentIdx < STATUS_PIPELINE.length - 1 ? STATUS_PIPELINE[currentIdx + 1] : order.status
-  );
-  const [tracking, setTracking] = useState('');
-  const [loading, setLoading] = useState(false);
+// ── Dispatch modal ─────────────────────────────────────────────────────────────
+function DispatchModal({ order, onClose, onSuccess }: { order: Order; onClose: () => void; onSuccess: () => void }) {
+  const [billNo, setBillNo] = useState(order.billNo ?? '');
+  const [date, setDate] = useState(order.dispatchDate ?? format(new Date(), 'yyyy-MM-dd'));
 
-  async function submit() {
-    setLoading(true);
-    try {
-      await api.patch(`/orders/${order.id}/status`, {
-        status,
-        trackingNumber: tracking || undefined,
-      });
-      toast.success(`Order ${order.orderId} updated to ${ORDER_STATUS_LABELS[status]}`);
-      if (status === 'DISPATCHED') toast.success('WhatsApp notification sent to client!', { icon: '📱' });
-      onSuccess();
-      onClose();
-    } catch {
-      toast.error('Failed to update status');
-    } finally {
-      setLoading(false);
-    }
+  function submit() {
+    if (!billNo.trim()) { toast.error('Bill No. required'); return; }
+    ordersDb.update(order.id, {
+      status: 'Dispatched',
+      billNo,
+      dispatchDate: date,
+      dispatchedAt: new Date().toISOString(),
+    });
+    toast.success(`Order ${order.orderId} dispatched! Bill: ${billNo}`);
+    onSuccess();
+    onClose();
   }
 
   return (
     <div className="space-y-4">
       <div className="p-3 bg-white/5 rounded-lg">
-        <p className="text-muted text-xs mb-1">Order</p>
-        <p className="text-white font-mono font-medium">{order.orderId}</p>
-        <p className="text-white/70 text-sm">{order.client.name} · {order.productType}</p>
+        <p className="text-muted text-xs">Order</p>
+        <p className="font-mono text-accent font-medium">{order.orderId}</p>
+        <p className="text-white/70 text-sm">{order.clientName} · {order.sizeDisplay}</p>
       </div>
-
       <div>
-        <label className="label">New Status</label>
-        <div className="space-y-2">
-          {STATUS_PIPELINE.slice(currentIdx + 1).map((s) => (
-            <label key={s} className={cn(
-              'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all',
-              status === s ? 'border-accent/50 bg-accent/10' : 'border-white/10 hover:border-white/20'
-            )}>
-              <input type="radio" name="status" value={s} checked={status === s}
-                onChange={() => setStatus(s)} className="hidden" />
-              <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center',
-                status === s ? 'border-accent' : 'border-white/30')}>
-                {status === s && <div className="w-2 h-2 rounded-full bg-accent" />}
-              </div>
-              <OrderStatusBadge status={s} />
-            </label>
-          ))}
-        </div>
+        <label className="label">Bill No. *</label>
+        <input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="BILL-023" autoFocus />
       </div>
-
-      {status === 'DISPATCHED' && (
-        <div>
-          <label className="label">Tracking Number (optional)</label>
-          <input className="input-field font-mono" value={tracking}
-            onChange={(e) => setTracking(e.target.value)} placeholder="e.g., DTDC1234567890" />
-          <p className="text-muted text-xs mt-1 flex items-center gap-1">
-            📱 WhatsApp dispatch confirmation will be sent to client
-          </p>
-        </div>
-      )}
-
-      <div className="flex gap-3 pt-1">
+      <div>
+        <label className="label">Dispatch Date</label>
+        <input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+      <div className="flex gap-3">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} disabled={loading} className="btn-primary flex-1 justify-center">
-          {loading ? 'Updating...' : 'Update Status'}
+        <button onClick={submit} className="btn-primary flex-1 justify-center">
+          <Truck className="w-4 h-4" /> Mark Dispatched
         </button>
       </div>
     </div>
   );
 }
 
+// ── Main page ──────────────────────────────────────────────────────────────────
 export function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [stats, setStats] = useState<OrderStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [orders, setOrders] = useState<Order[]>(() => ordersDb.getAll());
+  const [search, setSearch]   = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [newOrderOpen, setNewOrderOpen] = useState(false);
-  const [statusUpdateOrder, setStatusUpdateOrder] = useState<Order | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(''); // 'YYYY-MM'
+  const [modal, setModal] = useState<{ type: 'add' | 'edit' | 'dispatch'; order?: Order } | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ limit: '50' });
-      if (statusFilter) params.set('status', statusFilter);
-      if (search) params.set('search', search);
-      const [ordersRes, statsRes] = await Promise.all([
-        api.get(`/orders?${params}`),
-        api.get('/orders/stats'),
-      ]);
-      setOrders(ordersRes.data.orders);
-      setStats(statsRes.data);
-    } catch {
-      toast.error('Failed to load orders');
-    } finally {
-      setLoading(false);
+  const reload = useCallback(() => setOrders(ordersDb.getAll()), []);
+
+  // Build month options from order dates
+  const months = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach((o) => set.add(o.createdAt.slice(0, 7)));
+    return [...set].sort().reverse();
+  }, [orders]);
+
+  const filtered = useMemo(() => orders.filter((o) => {
+    const ms = !search || o.clientName.toLowerCase().includes(search.toLowerCase()) || o.orderId.toLowerCase().includes(search.toLowerCase());
+    const mt = !typeFilter || o.productType === typeFilter;
+    const mst = !statusFilter || o.status === statusFilter;
+    const mm = !selectedMonth || o.createdAt.startsWith(selectedMonth);
+    return ms && mt && mst && mm;
+  }), [orders, search, typeFilter, statusFilter, selectedMonth]);
+
+  function handleSave(data: Omit<Order, 'id'>) {
+    if (modal?.type === 'edit' && modal.order) {
+      ordersDb.update(modal.order.id, data);
+      toast.success('Order updated');
+    } else {
+      ordersDb.create(data);
+      toast.success('Order created!');
     }
-  }, [search, statusFilter]);
+    reload();
+    setModal(null);
+  }
 
-  useEffect(() => { load(); }, [load]);
+  function handleDelete(id: string) {
+    ordersDb.delete(id);
+    toast.success('Order deleted');
+    reload();
+  }
 
-  if (loading) return <PageLoader />;
+  // Group by month for month-based view
+  const grouped = useMemo(() => {
+    const map: Record<string, Order[]> = {};
+    filtered.forEach((o) => {
+      const m = o.createdAt.slice(0, 7);
+      if (!map[m]) map[m] = [];
+      map[m].push(o);
+    });
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
+  }, [filtered]);
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="page-header">Order Management</h1>
-          <p className="text-muted text-sm mt-1">Track orders from receipt to dispatch</p>
+          <h1 className="page-header">Orders</h1>
+          <p className="text-muted text-sm mt-1">Manage orders with month-based tracking</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={load} className="btn-secondary"><RefreshCw className="w-4 h-4" /></button>
-          <button onClick={() => setNewOrderOpen(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> New Order
-          </button>
-        </div>
+        <button onClick={() => setModal({ type: 'add' })} className="btn-primary">
+          <Plus className="w-4 h-4" /> New Order
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <StatCard label="Received" value={stats?.pending ?? 0} icon={ShoppingCart} iconColor="text-blue-400" mono />
-        <StatCard label="In Production" value={stats?.inProduction ?? 0} icon={Clock} iconColor="text-yellow-400" mono />
-        <StatCard label="Ready" value={stats?.ready ?? 0} icon={CheckCircle2} iconColor="text-accent" mono />
-        <StatCard label="Dispatched Today" value={stats?.dispatched ?? 0} icon={CheckCircle2} iconColor="text-success" mono />
-        <StatCard label="Overdue" value={stats?.overdue ?? 0} icon={AlertTriangle} iconColor="text-red-400" mono />
-      </div>
-
-      {/* Status pipeline filter */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Filters */}
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
           <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search orders or clients..."
-            className="input-field pl-9 w-56" />
+            placeholder="Search client or order ID…" className="input-field pl-9 w-52" />
         </div>
-        <button
-          onClick={() => setStatusFilter('')}
-          className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-            !statusFilter ? 'bg-primary text-white' : 'text-muted hover:text-white hover:bg-white/10')}
-        >
-          All
-        </button>
-        {STATUS_PIPELINE.map((s) => (
-          <button key={s}
-            onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
-            className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-              statusFilter === s ? 'bg-primary text-white' : 'text-muted hover:text-white hover:bg-white/10')}
-          >
-            {ORDER_STATUS_LABELS[s]}
-          </button>
-        ))}
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-field w-36">
+          <option value="">All Types</option>
+          {PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-field w-40">
+          <option value="">All Statuses</option>
+          {ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="input-field w-36">
+          <option value="">All Months</option>
+          {months.map((m) => (
+            <option key={m} value={m}>{format(parseISO(m + '-01'), 'MMM yyyy')}</option>
+          ))}
+        </select>
       </div>
 
-      <div className="glass-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/5">
-                <th className="table-header">Order ID</th>
-                <th className="table-header">Client</th>
-                <th className="table-header">Product</th>
-                <th className="table-header">Qty</th>
-                <th className="table-header">Delivery Date</th>
-                <th className="table-header">Status</th>
-                <th className="table-header">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.length === 0 ? (
-                <tr><td colSpan={7}>
-                  <EmptyState icon={ShoppingCart} title="No orders found"
-                    action={{ label: 'Create First Order', onClick: () => setNewOrderOpen(true) }} />
-                </td></tr>
-              ) : (
-                orders.map((o) => (
-                  <OrderRow key={o.id} order={o} onUpdateStatus={setStatusUpdateOrder} />
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Month-grouped tables */}
+      {grouped.length === 0 ? (
+        <div className="glass-card">
+          <EmptyState icon={Truck} title="No orders found"
+            action={{ label: 'Create First Order', onClick: () => setModal({ type: 'add' }) }} />
         </div>
-        <div className="px-5 py-3 border-t border-accent/10 text-muted text-xs">
-          {orders.length} orders
-        </div>
-      </div>
+      ) : (
+        grouped.map(([month, monthOrders]) => (
+          <div key={month} className="glass-card overflow-hidden">
+            {/* Month header */}
+            <div className="px-5 py-3 border-b border-accent/10 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h3 className="text-white font-semibold">
+                  {format(parseISO(month + '-01'), 'MMMM yyyy')}
+                </h3>
+                <span className="text-muted text-xs font-mono">{monthOrders.length} orders</span>
+                <span className="text-muted text-xs font-mono">
+                  {monthOrders.reduce((s, o) => s + (o.quantityKg ?? 0), 0).toLocaleString('en-IN')} KG
+                </span>
+              </div>
+              <span className="text-xs text-success font-medium">
+                {monthOrders.filter((o) => o.status === 'Dispatched').length} dispatched
+              </span>
+            </div>
 
-      <Modal open={newOrderOpen} onClose={() => setNewOrderOpen(false)} title="Create New Order" size="md">
-        <NewOrderForm onClose={() => setNewOrderOpen(false)} onSuccess={load} />
-      </Modal>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/5">
+                    <th className="table-header">Order ID</th>
+                    <th className="table-header">Client</th>
+                    <th className="table-header">Type</th>
+                    <th className="table-header">Size</th>
+                    <th className="table-header">KG</th>
+                    <th className="table-header">Nos</th>
+                    <th className="table-header">Status</th>
+                    <th className="table-header">Bill No.</th>
+                    <th className="table-header"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthOrders.map((o) => (
+                    <tr key={o.id} className="table-row">
+                      <td className="table-cell font-mono text-accent text-xs">{o.orderId}</td>
+                      <td className="table-cell font-medium">{o.clientName}</td>
+                      <td className="table-cell">
+                        <span className="badge text-xs" style={{ background: TYPE_COLORS[o.productType] + '22', color: TYPE_COLORS[o.productType], border: `1px solid ${TYPE_COLORS[o.productType]}44` }}>
+                          {o.productType}
+                        </span>
+                      </td>
+                      <td className="table-cell font-mono text-xs text-muted">{o.sizeDisplay}</td>
+                      <td className="table-cell font-mono">{o.quantityKg?.toLocaleString('en-IN') ?? '—'}</td>
+                      <td className="table-cell font-mono">{o.quantityNos?.toLocaleString('en-IN') ?? '—'}</td>
+                      <td className="table-cell">
+                        <span className={cn('badge border text-xs', STATUS_COLORS[o.status] ?? 'bg-white/10 text-muted')}>{o.status}</span>
+                      </td>
+                      <td className="table-cell font-mono text-xs">{o.billNo ?? '—'}</td>
+                      <td className="table-cell">
+                        <div className="flex gap-1">
+                          {o.status !== 'Dispatched' && (
+                            <button onClick={() => setModal({ type: 'dispatch', order: o })}
+                              className="p-1.5 rounded hover:bg-success/20 text-muted hover:text-success transition-colors" title="Dispatch">
+                              <Truck className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button onClick={() => setModal({ type: 'edit', order: o })}
+                            className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(o.id)}
+                            className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))
+      )}
 
-      {statusUpdateOrder && (
-        <Modal open onClose={() => setStatusUpdateOrder(null)} title="Update Order Status" size="sm">
-          <UpdateStatusModal order={statusUpdateOrder}
-            onClose={() => setStatusUpdateOrder(null)} onSuccess={load} />
+      {/* Modals */}
+      {(modal?.type === 'add' || modal?.type === 'edit') && (
+        <Modal open onClose={() => setModal(null)}
+          title={modal.type === 'add' ? 'New Order' : 'Edit Order'} size="lg">
+          <OrderForm
+            initial={modal.order
+              ? { ...modal.order }
+              : { ...emptyOrder, createdAt: new Date().toISOString() }}
+            onSave={handleSave}
+            onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+      {modal?.type === 'dispatch' && modal.order && (
+        <Modal open onClose={() => setModal(null)} title="Dispatch Order" size="sm">
+          <DispatchModal order={modal.order} onClose={() => setModal(null)} onSuccess={reload} />
         </Modal>
       )}
     </div>

@@ -13,14 +13,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('packflow_token');
-      localStorage.removeItem('packflow_user');
-      window.location.href = '/login';
-    }
-    return Promise.reject(err);
-  }
+  (err) => Promise.reject(err)
 );
 
 export default api;
