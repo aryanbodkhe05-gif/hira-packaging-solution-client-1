@@ -3,13 +3,18 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { AlertProvider } from './context/AlertContext';
 import { AppLayout } from './components/layout/AppLayout';
-import { DashboardPage } from './pages/DashboardPage';
-import { MaterialsPage } from './pages/MaterialsPage';
-import { OrdersPage } from './pages/OrdersPage';
-import { DispatchPage } from './pages/DispatchPage';
-import { seedDatabase } from './lib/seed';
+import { DashboardPage }    from './pages/DashboardPage';
+import { MaterialsPage }    from './pages/MaterialsPage';
+import { OrdersPage }       from './pages/OrdersPage';
+import { DispatchPage }     from './pages/DispatchPage';
+import { CRMPage }          from './pages/CRMPage';
+import { FinancePage }      from './pages/FinancePage';
+import { VendorsPage }      from './pages/VendorsPage';
+import { AlertEnginePage }  from './pages/AlertEnginePage';
+import { SettingsPage }     from './pages/SettingsPage';
+import { seedDatabase }     from './lib/seed';
 
-// Seed localStorage with realistic data on first load
+// Seed localStorage with realistic demo data on first ever load
 seedDatabase();
 
 export default function App() {
@@ -19,10 +24,15 @@ export default function App() {
         <AlertProvider>
           <Routes>
             <Route path="/" element={<AppLayout />}>
-              <Route index          element={<DashboardPage />} />
-              <Route path="materials" element={<MaterialsPage />} />
-              <Route path="orders"    element={<OrdersPage />} />
-              <Route path="dispatch"  element={<DispatchPage />} />
+              <Route index             element={<DashboardPage />} />
+              <Route path="materials"  element={<MaterialsPage />} />
+              <Route path="orders"     element={<OrdersPage />} />
+              <Route path="dispatch"   element={<DispatchPage />} />
+              <Route path="crm"        element={<CRMPage />} />
+              <Route path="finance"    element={<FinancePage />} />
+              <Route path="vendors"    element={<VendorsPage />} />
+              <Route path="alerts"     element={<AlertEnginePage />} />
+              <Route path="settings"   element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -32,11 +42,8 @@ export default function App() {
         position="top-right"
         toastOptions={{
           style: {
-            background: '#1A1A70',
-            color: '#fff',
-            border: '1px solid rgba(94, 94, 232, 0.3)',
-            fontFamily: 'Inter, sans-serif',
-            fontSize: '13px',
+            background: '#1A1A70', color: '#fff',
+            border: '1px solid rgba(94,94,232,0.3)', fontFamily: 'Inter', fontSize: '13px',
           },
           success: { iconTheme: { primary: '#12B76A', secondary: '#fff' } },
           error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },

@@ -1,6 +1,7 @@
-import { dbSeedOnce } from './db';
-import type { Roll, Consumable, Order } from '../types/models';
+import { dbSeedOnce, saveSettings } from './db';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
+import { GST_RATE } from '../config';
 
 // ── Rolls seed ────────────────────────────────────────────────────────────────
 const rollsSeed: Roll[] = [
@@ -96,8 +97,94 @@ const ordersSeed: Order[] = [
   makeOrder('o26', 5, 'Reliable Exports',        'BOPP',      28, 38, 1.05, 495, 12500, 'Pending',    '2026-06-04T09:00:00Z'),
 ];
 
+// ── Leads seed ────────────────────────────────────────────────────────────────
+const leadsSeed: Lead[] = [
+  { id: 'l1', companyName: 'Gujarat Polymers Ltd',     contactPerson: 'Ramesh Patel',   phone: '+912764001234', email: 'ramesh@gujaratpoly.com',  source: 'Trade Show',  productInterest: 'BOPP rolls',      estimatedOrderSize: 500000,  status: 'Interested',     notes: 'Met at PlastIndia 2026', lastContactedAt: '2026-05-28T10:00:00Z', createdAt: '2026-05-15T09:00:00Z', updatedAt: '2026-05-28T10:00:00Z' },
+  { id: 'l2', companyName: 'Rajasthan Food Pack',       contactPerson: 'Suresh Sharma',  phone: '+917414005678', email: 'suresh@rjfoodpack.com',   source: 'Referral',    productInterest: 'Laminated film',  estimatedOrderSize: 800000,  status: 'Proposal Sent',  notes: 'Sent quote on 2 Jun',    lastContactedAt: '2026-06-02T11:00:00Z', createdAt: '2026-05-20T09:00:00Z', updatedAt: '2026-06-02T11:00:00Z' },
+  { id: 'l3', companyName: 'Delhi Snacks Pvt Ltd',      contactPerson: 'Anil Gupta',     phone: '+911124009012', email: 'anil@delhisnacks.in',     source: 'Cold Call',   productInterest: 'BOPP + Natural',  estimatedOrderSize: 300000,  status: 'Contacted',      notes: 'Interested, needs sample', lastContactedAt: '2026-06-01T09:00:00Z', createdAt: '2026-05-25T09:00:00Z', updatedAt: '2026-06-01T09:00:00Z' },
+  { id: 'l4', companyName: 'Punjab Agro Industries',    contactPerson: 'Harpreet Singh',  phone: '+917814003456', email: 'hp@punjabagroi.com',     source: 'Website',     productInterest: 'UL bags',         estimatedOrderSize: 1200000, status: 'Won',            notes: 'First order placed Jun', lastContactedAt: '2026-06-03T14:00:00Z', createdAt: '2026-04-10T09:00:00Z', updatedAt: '2026-06-03T14:00:00Z' },
+  { id: 'l5', companyName: 'Haryana Packaging Works',   contactPerson: 'Vikas Yadav',    phone: '+916374007890', email: 'vikas@hpworks.com',      source: 'Trade Show',  productInterest: 'Laminated',       estimatedOrderSize: 650000,  status: 'New',            notes: 'Collected card at expo', lastContactedAt: undefined,           createdAt: '2026-06-03T09:00:00Z', updatedAt: '2026-06-03T09:00:00Z' },
+  { id: 'l6', companyName: 'UP Confections Ltd',        contactPerson: 'Mohit Verma',    phone: '+915124001234', email: 'mohit@upconfections.in', source: 'Cold Call',   productInterest: 'BOPP',            estimatedOrderSize: 200000,  status: 'Lost',           notes: 'Went with competitor',   lastContactedAt: '2026-05-10T10:00:00Z', createdAt: '2026-04-20T09:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
+  { id: 'l7', companyName: 'Maharashtra FMCG Corp',     contactPerson: 'Priya Joshi',    phone: '+912024005678', email: 'priya@mhfmcg.com',       source: 'Referral',    productInterest: 'UL + Laminated',  estimatedOrderSize: 950000,  status: 'Interested',     notes: 'Very keen, follow up',   lastContactedAt: '2026-05-30T15:00:00Z', createdAt: '2026-05-18T09:00:00Z', updatedAt: '2026-05-30T15:00:00Z' },
+];
+
+// ── Invoices seed ─────────────────────────────────────────────────────────────
+function makeInvoice(
+  id: string, seq: number, orderId: string, clientName: string,
+  orderDetails: string, sizeDisplay: string, productType: string,
+  subtotal: number, dateStr: string, dueDays: number,
+  status: 'Draft' | 'Sent' | 'Paid' | 'Overdue',
+  paidAt?: string, quantityKg?: number
+): Invoice {
+  const d = new Date(dateStr);
+  const ymd = d.toISOString().slice(0,10).replace(/-/g,'');
+  const gstAmt = Math.round(subtotal * GST_RATE / 100);
+  const dueDate = new Date(d.getTime() + dueDays * 86400000).toISOString().slice(0,10);
+  return {
+    id, invoiceNumber: `INV-${ymd}-${String(seq).padStart(4,'0')}`,
+    orderId, clientName, orderDetails, sizeDisplay, productType,
+    subtotal, gstRate: GST_RATE, gstAmount: gstAmt,
+    totalAmount: subtotal + gstAmt, dueDate,
+    paidAt, paidAmount: paidAt ? subtotal + gstAmt : undefined,
+    status, createdAt: dateStr, quantityKg,
+  };
+}
+
+const invoicesSeed: Invoice[] = [
+  makeInvoice('i1',  1, 'o1',  'Amrit Snacks Pvt Ltd',    'PKG-20260118-0001', '25 × 30 + 0.96 gm', 'BOPP',      67500, '2026-01-18T10:00:00Z', 30, 'Paid',    '2026-02-10T10:00:00Z', 450),
+  makeInvoice('i2',  2, 'o2',  'Surya Foods Ltd',          'PKG-20260122-0001', '30 × 40 + 1.20 gm', 'Laminated', 93000, '2026-01-22T10:00:00Z', 30, 'Paid',    '2026-02-18T10:00:00Z', 620),
+  makeInvoice('i3',  3, 'o3',  'National Packaging Co.',   'PKG-20260128-0001', '20 × 25 + 0.80 gm', 'UL',        46500, '2026-01-28T10:00:00Z', 30, 'Paid',    '2026-02-25T10:00:00Z', 310),
+  makeInvoice('i4',  1, 'o5',  'Amrit Snacks Pvt Ltd',    'PKG-20260215-0001', '25 × 30 + 0.96 gm', 'BOPP',      78000, '2026-02-15T10:00:00Z', 30, 'Paid',    '2026-03-12T10:00:00Z', 520),
+  makeInvoice('i5',  2, 'o6',  'Reliable Exports',         'PKG-20260220-0001', '40 × 50 + 1.40 gm', 'Laminated', 117000,'2026-02-20T10:00:00Z', 30, 'Paid',    '2026-03-18T10:00:00Z', 780),
+  makeInvoice('i6',  1, 'o9',  'Surya Foods Ltd',          'PKG-20260312-0001', '25 × 30 + 0.96 gm', 'BOPP',      90000, '2026-03-12T10:00:00Z', 30, 'Paid',    '2026-04-08T10:00:00Z', 600),
+  makeInvoice('i7',  2, 'o10', 'National Packaging Co.',   'PKG-20260318-0001', '35 × 45 + 1.30 gm', 'Laminated', 127500,'2026-03-18T10:00:00Z', 30, 'Paid',    '2026-04-15T10:00:00Z', 850),
+  makeInvoice('i8',  1, 'o14', 'Metro Retail Ltd',         'PKG-20260414-0001', '25 × 30 + 0.96 gm', 'BOPP',      72000, '2026-04-14T10:00:00Z', 30, 'Paid',    '2026-05-10T10:00:00Z', 480),
+  makeInvoice('i9',  2, 'o15', 'Star Polymers',            'PKG-20260420-0001', '30 × 40 + 1.20 gm', 'Laminated', 108000,'2026-04-20T10:00:00Z', 30, 'Sent',    undefined,              720),
+  makeInvoice('i10', 1, 'o18', 'Amrit Snacks Pvt Ltd',    'PKG-20260516-0001', '25 × 30 + 0.96 gm', 'BOPP',      82500, '2026-05-16T10:00:00Z', 30, 'Sent',    undefined,              550),
+  makeInvoice('i11', 2, 'o19', 'Reliable Exports',         'PKG-20260521-0001', '40 × 50 + 1.40 gm', 'Laminated', 135000,'2026-05-21T10:00:00Z', 30, 'Sent',    undefined,              900),
+  makeInvoice('i12', 1, 'o22', 'Surya Foods Ltd',          'PKG-20260605-0001', '25 × 30 + 0.96 gm', 'BOPP',      87000, '2026-06-05T10:00:00Z', 30, 'Overdue', undefined,              580),
+];
+
+// ── Vendors seed ──────────────────────────────────────────────────────────────
+const vendorsSeed: Vendor[] = [
+  { id: 'v1', name: 'Jindal Poly Films Ltd',    contactName: 'Ravi Jindal',   phone: '+911244001234', email: 'ravi@jindalpolyfilms.com',  materialSupplied: 'BOPP Film',     rating: 4.8, paymentTerms: 'Net 30', pricePerUnit: 145, unit: 'kg',   leadTimeDays: 7,  reliability: 4.8, createdAt: '2026-01-01T09:00:00Z' },
+  { id: 'v2', name: 'Cosmo Films Ltd',           contactName: 'Anita Sharma',  phone: '+912244005678', email: 'anita@cosmofilms.net',      materialSupplied: 'BOPP / UL Film',rating: 4.5, paymentTerms: 'Net 30', pricePerUnit: 138, unit: 'kg',   leadTimeDays: 10, reliability: 4.3, createdAt: '2026-01-01T09:00:00Z' },
+  { id: 'v3', name: 'Uflex Ltd',                 contactName: 'Deepak Chawla', phone: '+911204009012', email: 'deepak@uflexlimited.com',   materialSupplied: 'Laminated Film',rating: 4.6, paymentTerms: 'Net 45', pricePerUnit: 162, unit: 'kg',   leadTimeDays: 8,  reliability: 4.5, createdAt: '2026-01-01T09:00:00Z' },
+  { id: 'v4', name: 'Siegwerk India Pvt Ltd',    contactName: 'Priya Menon',   phone: '+912044003456', email: 'priya@siegwerk.com',        materialSupplied: 'Flexo Inks',    rating: 4.3, paymentTerms: 'Net 15', pricePerUnit: 320, unit: 'kg',   leadTimeDays: 5,  reliability: 4.2, createdAt: '2026-01-01T09:00:00Z' },
+  { id: 'v5', name: 'Amar Industries',           contactName: 'Sunil Bajaj',   phone: '+911274007890', email: 'sunil@amarind.com',         materialSupplied: 'Natural Film',  rating: 3.9, paymentTerms: 'Net 30', pricePerUnit: 112, unit: 'kg',   leadTimeDays: 12, reliability: 3.8, createdAt: '2026-01-01T09:00:00Z' },
+  { id: 'v6', name: 'Supreme Thread Works',      contactName: 'Govind Mishra', phone: '+915124001122', email: 'govind@supremethread.com',  materialSupplied: 'Poly Thread',   rating: 4.1, paymentTerms: 'Net 15', pricePerUnit: 450, unit: 'bobbin', leadTimeDays: 4, reliability: 4.0, createdAt: '2026-01-01T09:00:00Z' },
+];
+
+// ── Purchase Orders seed ───────────────────────────────────────────────────────
+const purchaseOrdersSeed: PurchaseOrder[] = [
+  { id: 'po1', poNumber: 'PO-20260510-0001', vendorId: 'v1', vendorName: 'Jindal Poly Films Ltd', material: 'BOPP Film',      quantity: 2000, unit: 'kg',     pricePerUnit: 145, totalAmount: 290000, expectedDelivery: '2026-05-20', deliveredAt: '2026-05-19', status: 'Delivered', notes: 'Regular monthly order', createdAt: '2026-05-10T09:00:00Z' },
+  { id: 'po2', poNumber: 'PO-20260515-0001', vendorId: 'v3', vendorName: 'Uflex Ltd',             material: 'Laminated Film', quantity: 1500, unit: 'kg',     pricePerUnit: 162, totalAmount: 243000, expectedDelivery: '2026-05-25', deliveredAt: '2026-05-26', status: 'Delivered', notes: '',               createdAt: '2026-05-15T09:00:00Z' },
+  { id: 'po3', poNumber: 'PO-20260601-0001', vendorId: 'v1', vendorName: 'Jindal Poly Films Ltd', material: 'BOPP Film',      quantity: 2500, unit: 'kg',     pricePerUnit: 145, totalAmount: 362500, expectedDelivery: '2026-06-08', deliveredAt: undefined,    status: 'Confirmed', notes: 'Urgent — low stock', createdAt: '2026-06-01T09:00:00Z' },
+  { id: 'po4', poNumber: 'PO-20260602-0001', vendorId: 'v4', vendorName: 'Siegwerk India Pvt Ltd',material: 'White Ink',      quantity: 100,  unit: 'kg',     pricePerUnit: 320, totalAmount: 32000,  expectedDelivery: '2026-06-07', deliveredAt: undefined,    status: 'Sent',      notes: '',               createdAt: '2026-06-02T09:00:00Z' },
+  { id: 'po5', poNumber: 'PO-20260603-0001', vendorId: 'v2', vendorName: 'Cosmo Films Ltd',       material: 'UL Film',        quantity: 1000, unit: 'kg',     pricePerUnit: 138, totalAmount: 138000, expectedDelivery: '2026-06-14', deliveredAt: undefined,    status: 'Draft',     notes: 'Awaiting approval',  createdAt: '2026-06-03T09:00:00Z' },
+];
+
 export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
   dbSeedOnce('orders', ordersSeed);
+  dbSeedOnce('leads', leadsSeed);
+  dbSeedOnce('invoices', invoicesSeed);
+  dbSeedOnce('vendors', vendorsSeed);
+  dbSeedOnce('purchase_orders', purchaseOrdersSeed);
+
+  // Default settings (only if not already set)
+  if (!localStorage.getItem('nicoflex_settings')) {
+    saveSettings({
+      owner_whatsapp:   '+919876543210',
+      alert_whatsapp:   '+919876543210',
+      followup_days:    '3',
+      alert_low_stock:  'true',
+      alert_overdue:    'true',
+      alert_payment:    'true',
+      alert_dispatch:   'true',
+      alert_followup:   'true',
+      alert_po_delay:   'true',
+    });
+  }
 }

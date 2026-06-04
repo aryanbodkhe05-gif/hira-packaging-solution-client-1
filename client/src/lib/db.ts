@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert } from '../types/models';
 
 function getKey(table: string) { return `nicoflex_${table}`; }
 
@@ -75,3 +75,56 @@ export const ordersDb = {
   update:  (id: string, p: Partial<Order>) => dbUpdate<Order>('orders', id, p),
   delete:  (id: string) => dbDelete('orders', id),
 };
+
+export const leadsDb = {
+  getAll:  () => dbGetAll<Lead>('leads'),
+  create:  (r: Omit<Lead, 'id'>) => dbCreate<Lead>('leads', r),
+  update:  (id: string, p: Partial<Lead>) => dbUpdate<Lead>('leads', id, p),
+  delete:  (id: string) => dbDelete('leads', id),
+};
+
+export const invoicesDb = {
+  getAll:  () => dbGetAll<Invoice>('invoices'),
+  create:  (r: Omit<Invoice, 'id'>) => dbCreate<Invoice>('invoices', r),
+  update:  (id: string, p: Partial<Invoice>) => dbUpdate<Invoice>('invoices', id, p),
+  delete:  (id: string) => dbDelete('invoices', id),
+};
+
+export const vendorsDb = {
+  getAll:  () => dbGetAll<Vendor>('vendors'),
+  create:  (r: Omit<Vendor, 'id'>) => dbCreate<Vendor>('vendors', r),
+  update:  (id: string, p: Partial<Vendor>) => dbUpdate<Vendor>('vendors', id, p),
+  delete:  (id: string) => dbDelete('vendors', id),
+};
+
+export const purchaseOrdersDb = {
+  getAll:  () => dbGetAll<PurchaseOrder>('purchase_orders'),
+  create:  (r: Omit<PurchaseOrder, 'id'>) => dbCreate<PurchaseOrder>('purchase_orders', r),
+  update:  (id: string, p: Partial<PurchaseOrder>) => dbUpdate<PurchaseOrder>('purchase_orders', id, p),
+  delete:  (id: string) => dbDelete('purchase_orders', id),
+};
+
+export const alertsDb = {
+  getAll:    () => dbGetAll<AppAlert>('app_alerts'),
+  create:    (r: Omit<AppAlert, 'id'>) => dbCreate<AppAlert>('app_alerts', r),
+  update:    (id: string, p: Partial<AppAlert>) => dbUpdate<AppAlert>('app_alerts', id, p),
+  delete:    (id: string) => dbDelete('app_alerts', id),
+  markSeen:  (id: string) => dbUpdate<AppAlert>('app_alerts', id, { seen: true }),
+  markAllSeen: () => {
+    const all = dbGetAll<AppAlert>('app_alerts');
+    const updated = all.map((a) => ({ ...a, seen: true }));
+    localStorage.setItem('nicoflex_app_alerts', JSON.stringify(updated));
+  },
+};
+
+// Settings helpers
+export function getSettings(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem('nicoflex_settings');
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+export function saveSettings(patch: Record<string, string>): void {
+  const existing = getSettings();
+  localStorage.setItem('nicoflex_settings', JSON.stringify({ ...existing, ...patch }));
+}
