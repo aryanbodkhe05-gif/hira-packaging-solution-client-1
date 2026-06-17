@@ -22,6 +22,12 @@ const CAT_COLORS: Record<string, string> = {
   Filler: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
   Custom: 'bg-accent/20 text-accent border-accent/30',
 };
+// Roll consumption status — auto-maintained by the Production module
+const ROLL_STATUS_COLORS: Record<string, string> = {
+  'In Stock':   'bg-green-500/20 text-green-300 border-green-500/30',
+  'In Use':     'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  'Fully Used': 'bg-red-500/20 text-red-300 border-red-500/30',
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROLLS
@@ -138,19 +144,21 @@ function RollsSection() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Roll No.', 'Type', 'Size', 'Quality', 'Meter', 'G.WT', 'N.WT', ''].map((h) => (
+                {['Roll No.', 'Type', 'Size', 'Quality', 'Meter', 'G.WT', 'N.WT', 'Bags Made', 'Status', ''].map((h) => (
                   <th key={h} className="table-header">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8}>
+                <tr><td colSpan={10}>
                   <EmptyState icon={Package} title="No rolls found"
                     action={{ label: 'Add First Roll', onClick: () => setModal({ type: 'add' }) }} />
                 </td></tr>
-              ) : filtered.map((r) => (
-                <tr key={r.id} className="table-row">
+              ) : filtered.map((r) => {
+                const status = r.status ?? 'In Stock';
+                return (
+                <tr key={r.id} className={cn('table-row', status === 'Fully Used' && 'opacity-60')}>
                   <td className="table-cell font-mono text-accent font-medium">{r.rollNo}</td>
                   <td className="table-cell">
                     <span className={cn('badge border text-xs', TYPE_COLORS[r.type])}>{r.type}</span>
@@ -160,6 +168,10 @@ function RollsSection() {
                   <td className="table-cell font-mono">{r.meter.toLocaleString('en-IN')} m</td>
                   <td className="table-cell font-mono">{r.grossWeight} kg</td>
                   <td className="table-cell font-mono">{r.netWeight} kg</td>
+                  <td className="table-cell font-mono text-white/80">{(r.bagsProduced ?? 0).toLocaleString('en-IN')}</td>
+                  <td className="table-cell">
+                    <span className={cn('badge border text-xs', ROLL_STATUS_COLORS[status])}>{status}</span>
+                  </td>
                   <td className="table-cell">
                     <div className="flex gap-1.5">
                       <button onClick={() => setModal({ type: 'edit', roll: r })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
@@ -167,7 +179,8 @@ function RollsSection() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

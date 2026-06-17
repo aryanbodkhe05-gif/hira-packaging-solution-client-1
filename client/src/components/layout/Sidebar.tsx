@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { COMPANY } from '../../config';
 import {
-  LayoutDashboard, Package, ShoppingCart, Truck,
+  LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings,
   ChevronLeft, ChevronRight, Zap,
 } from 'lucide-react';
@@ -10,6 +10,7 @@ import {
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
   { label: 'Materials',  icon: Package,         to: '/materials' },
+  { label: 'Production', icon: Factory,         to: '/production' },
   { label: 'Orders',     icon: ShoppingCart,    to: '/orders' },
   { label: 'Dispatch',   icon: Truck,           to: '/dispatch' },
   { label: 'CRM',        icon: Users,           to: '/crm' },

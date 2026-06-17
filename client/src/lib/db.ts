@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog } from '../types/models';
 
 function getKey(table: string) { return `nicoflex_${table}`; }
 
@@ -116,6 +116,53 @@ export const alertsDb = {
     localStorage.setItem('nicoflex_app_alerts', JSON.stringify(updated));
   },
 };
+
+export const machinesDb = {
+  getAll:  () => dbGetAll<Machine>('machines'),
+  create:  (r: Omit<Machine, 'id'>) => dbCreate<Machine>('machines', r),
+  update:  (id: string, p: Partial<Machine>) => dbUpdate<Machine>('machines', id, p),
+  delete:  (id: string) => dbDelete('machines', id),
+};
+
+export const productionJobsDb = {
+  getAll:  () => dbGetAll<ProductionJob>('production_jobs'),
+  create:  (r: Omit<ProductionJob, 'id'>) => dbCreate<ProductionJob>('production_jobs', r),
+  update:  (id: string, p: Partial<ProductionJob>) => dbUpdate<ProductionJob>('production_jobs', id, p),
+  delete:  (id: string) => dbDelete('production_jobs', id),
+};
+
+export const downtimeDb = {
+  getAll:  () => dbGetAll<DowntimeLog>('downtime_logs'),
+  create:  (r: Omit<DowntimeLog, 'id'>) => dbCreate<DowntimeLog>('downtime_logs', r),
+  update:  (id: string, p: Partial<DowntimeLog>) => dbUpdate<DowntimeLog>('downtime_logs', id, p),
+  delete:  (id: string) => dbDelete('downtime_logs', id),
+};
+
+// ── Roll consumption sync ──────────────────────────────────────────────────────
+// Recomputes every roll's `status` + `bagsProduced` from the production jobs that
+// reference it. Called after any job create/update/delete so Materials → Rolls
+// always reflects production automatically.
+export function syncRollsFromProduction(): void {
+  const jobs = dbGetAll<ProductionJob>('production_jobs');
+  const rolls = dbGetAll<Roll>('rolls');
+  let changed = false;
+
+  for (const roll of rolls) {
+    const rollJobs = jobs.filter((j) => j.rollId === roll.id);
+    const bags = rollJobs.reduce((sum, j) => sum + (j.bagsProduced || 0), 0);
+    let status: Roll['status'] = 'In Stock';
+    if (rollJobs.length > 0) {
+      status = rollJobs.some((j) => j.rollFullyUsed) ? 'Fully Used' : 'In Use';
+    }
+    if (roll.bagsProduced !== bags || roll.status !== status) {
+      roll.bagsProduced = bags;
+      roll.status = status;
+      changed = true;
+    }
+  }
+
+  if (changed) setAll('rolls', rolls);
+}
 
 // Settings helpers
 export function getSettings(): Record<string, string> {

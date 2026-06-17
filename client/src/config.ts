@@ -39,3 +39,20 @@ export type AlertType = typeof ALERT_TYPES[number];
 
 // Module 9 — WhatsApp
 export const WHATSAPP_SETTINGS_KEY = 'nicoflex_settings';
+
+// ── Module 10 — Production ─────────────────────────────────────────────────────
+export const MACHINE_TYPES = ['Printing', 'Cutting', 'Bag Making', 'Lamination', 'Extrusion'] as const;
+export type MachineType = typeof MACHINE_TYPES[number];
+
+export const MACHINE_STATUSES = ['Running', 'Idle', 'Down', 'Maintenance'] as const;
+export type MachineStatus = typeof MACHINE_STATUSES[number];
+
+export const JOB_STATUSES = ['Queued', 'Running', 'On Hold', 'Completed'] as const;
+export type JobStatus = typeof JOB_STATUSES[number];
+
+export const DOWNTIME_REASONS = ['Breakdown', 'Maintenance', 'Material Shortage', 'Power Cut', 'Changeover', 'Other'] as const;
+export type DowntimeReason = typeof DOWNTIME_REASONS[number];
+
+// Roll consumption lifecycle — reflected in Materials → Rolls
+export const ROLL_STATUSES = ['In Stock', 'In Use', 'Fully Used'] as const;
+export type RollStatus = typeof ROLL_STATUSES[number];

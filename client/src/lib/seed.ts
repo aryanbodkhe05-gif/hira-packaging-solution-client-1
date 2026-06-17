@@ -1,5 +1,5 @@
-import { dbSeedOnce, saveSettings } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder } from '../types/models';
+import { dbSeedOnce, saveSettings, syncRollsFromProduction } from './db';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE } from '../config';
 
@@ -164,6 +164,35 @@ const purchaseOrdersSeed: PurchaseOrder[] = [
   { id: 'po5', poNumber: 'PO-20260603-0001', vendorId: 'v2', vendorName: 'Cosmo Films Ltd',       material: 'UL Film',        quantity: 1000, unit: 'kg',     pricePerUnit: 138, totalAmount: 138000, expectedDelivery: '2026-06-14', deliveredAt: undefined,    status: 'Draft',     notes: 'Awaiting approval',  createdAt: '2026-06-03T09:00:00Z' },
 ];
 
+// ── Machines seed ─────────────────────────────────────────────────────────────
+const machinesSeed: Machine[] = [
+  { id: 'm1', name: 'Flexo Printer 6-Colour', code: 'NF-M-001', type: 'Printing',    status: 'Running',     location: 'Bay A', notes: 'Soma Flex Pro',          createdAt: '2026-01-01T08:00:00Z' },
+  { id: 'm2', name: 'Roto Printer 8-Colour',  code: 'NF-M-002', type: 'Printing',    status: 'Idle',        location: 'Bay A', notes: 'Bobst rotogravure',     createdAt: '2026-01-01T08:00:00Z' },
+  { id: 'm3', name: 'Bag Making Line 1',      code: 'NF-M-003', type: 'Bag Making',  status: 'Running',     location: 'Bay B', notes: 'Auto bottom-seal',      createdAt: '2026-01-01T08:00:00Z' },
+  { id: 'm4', name: 'Bag Making Line 2',      code: 'NF-M-004', type: 'Bag Making',  status: 'Down',        location: 'Bay B', notes: 'Sealing head fault',    createdAt: '2026-01-01T08:00:00Z' },
+  { id: 'm5', name: 'Slitter / Cutter',       code: 'NF-M-005', type: 'Cutting',     status: 'Idle',        location: 'Bay C', notes: '',                      createdAt: '2026-01-01T08:00:00Z' },
+  { id: 'm6', name: 'Lamination Unit',        code: 'NF-M-006', type: 'Lamination',  status: 'Maintenance', location: 'Bay C', notes: 'Scheduled service',     createdAt: '2026-01-01T08:00:00Z' },
+];
+
+// ── Production jobs seed ──────────────────────────────────────────────────────
+const productionJobsSeed: ProductionJob[] = [
+  { id: 'j1', jobNo: 'JOB-20260601-0001', machineId: 'm3', machineName: 'Bag Making Line 1', rollId: 'r1',  rollNo: 'NF-R-001', bagSize: '25 × 30', bagsTarget: 12000, bagsProduced: 12000, rollFullyUsed: true,  status: 'Completed', orderRef: 'NF-20260601-0001', notes: 'Amrit Snacks run',      createdAt: '2026-06-01T09:00:00Z', completedAt: '2026-06-02T17:00:00Z' },
+  { id: 'j2', jobNo: 'JOB-20260603-0001', machineId: 'm3', machineName: 'Bag Making Line 1', rollId: 'r6',  rollNo: 'NF-R-006', bagSize: '25 × 30', bagsTarget: 15500, bagsProduced: 9200,  rollFullyUsed: false, status: 'Running',   orderRef: 'NF-20260601-0001', notes: 'In progress',            createdAt: '2026-06-03T08:30:00Z' },
+  { id: 'j3', jobNo: 'JOB-20260603-0002', machineId: 'm1', machineName: 'Flexo Printer 6-Colour', rollId: 'r3', rollNo: 'NF-R-003', bagSize: '35 × 45', bagsTarget: 9000, bagsProduced: 9000, rollFullyUsed: true, status: 'Completed', orderRef: 'NF-20260602-0002', notes: 'Laminated print done', createdAt: '2026-06-03T07:00:00Z', completedAt: '2026-06-03T15:30:00Z' },
+  { id: 'j4', jobNo: 'JOB-20260604-0001', machineId: 'm1', machineName: 'Flexo Printer 6-Colour', rollId: 'r4', rollNo: 'NF-R-004', bagSize: '22 × 28', bagsTarget: 13000, bagsProduced: 4100, rollFullyUsed: false, status: 'Running', orderRef: 'NF-20260603-0003', notes: '', createdAt: '2026-06-04T08:00:00Z' },
+  { id: 'j5', jobNo: 'JOB-20260604-0002', machineId: 'm5', machineName: 'Slitter / Cutter', rollId: 'r12', rollNo: 'NF-R-012', bagSize: '20 × 25', bagsTarget: 14000, bagsProduced: 0, rollFullyUsed: false, status: 'Queued', orderRef: 'NF-20260604-0004', notes: 'Waiting on changeover', createdAt: '2026-06-04T10:00:00Z' },
+  { id: 'j6', jobNo: 'JOB-20260604-0003', machineId: 'm4', machineName: 'Bag Making Line 2', rollId: 'r8', rollNo: 'NF-R-008', bagSize: '30 × 35', bagsTarget: 6500, bagsProduced: 1200, rollFullyUsed: false, status: 'On Hold', notes: 'Machine down — sealing fault', createdAt: '2026-06-04T11:00:00Z' },
+];
+
+// ── Downtime logs seed ────────────────────────────────────────────────────────
+const downtimeSeed: DowntimeLog[] = [
+  { id: 'd1', machineId: 'm4', machineName: 'Bag Making Line 2', reason: 'Breakdown',         startedAt: '2026-06-04T11:15:00Z', endedAt: undefined,                notes: 'Sealing head fault — technician called', createdAt: '2026-06-04T11:15:00Z' },
+  { id: 'd2', machineId: 'm6', machineName: 'Lamination Unit',   reason: 'Maintenance',       startedAt: '2026-06-04T06:00:00Z', endedAt: undefined,                notes: 'Scheduled quarterly service',           createdAt: '2026-06-04T06:00:00Z' },
+  { id: 'd3', machineId: 'm3', machineName: 'Bag Making Line 1', reason: 'Changeover',        startedAt: '2026-06-03T13:00:00Z', endedAt: '2026-06-03T13:45:00Z',   notes: 'Size change 25×30 → 25×30',              createdAt: '2026-06-03T13:00:00Z' },
+  { id: 'd4', machineId: 'm1', machineName: 'Flexo Printer 6-Colour', reason: 'Material Shortage', startedAt: '2026-06-02T10:30:00Z', endedAt: '2026-06-02T11:10:00Z', notes: 'White ink refill',                  createdAt: '2026-06-02T10:30:00Z' },
+  { id: 'd5', machineId: 'm3', machineName: 'Bag Making Line 1', reason: 'Power Cut',         startedAt: '2026-06-01T14:00:00Z', endedAt: '2026-06-01T14:25:00Z',   notes: 'Grid outage, DG started',                createdAt: '2026-06-01T14:00:00Z' },
+];
+
 export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
@@ -172,6 +201,12 @@ export function seedDatabase() {
   dbSeedOnce('invoices', invoicesSeed);
   dbSeedOnce('vendors', vendorsSeed);
   dbSeedOnce('purchase_orders', purchaseOrdersSeed);
+  dbSeedOnce('machines', machinesSeed);
+  dbSeedOnce('production_jobs', productionJobsSeed);
+  dbSeedOnce('downtime_logs', downtimeSeed);
+
+  // Backfill roll status/bags from production jobs (covers pre-existing data too)
+  syncRollsFromProduction();
 
   // Default settings (only if not already set)
   if (!localStorage.getItem('nicoflex_settings')) {

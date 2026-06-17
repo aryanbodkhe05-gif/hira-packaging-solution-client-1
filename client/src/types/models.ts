@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus } from '../config';
 
 export interface Roll {
   id: string;
@@ -9,6 +9,50 @@ export interface Roll {
   meter: number;
   grossWeight: number;
   netWeight: number;
+  createdAt: string;
+  // ── Production consumption (auto-maintained from production jobs) ──
+  status?: RollStatus;     // 'In Stock' (default) | 'In Use' | 'Fully Used'
+  bagsProduced?: number;   // cumulative bags made from this roll
+}
+
+// ── Module 10 — Production ────────────────────────────────────────────────────
+export interface Machine {
+  id: string;
+  name: string;
+  code: string;            // NF-M-001
+  type: MachineType;
+  status: MachineStatus;
+  location?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ProductionJob {
+  id: string;
+  jobNo: string;           // JOB-YYYYMMDD-XXXX
+  machineId: string;
+  machineName: string;
+  rollId?: string;         // roll being consumed
+  rollNo?: string;
+  bagSize: string;         // e.g. "25 × 30"
+  bagsTarget: number;
+  bagsProduced: number;
+  rollFullyUsed: boolean;  // marks the roll as 'Fully Used' when true
+  status: JobStatus;
+  orderRef?: string;       // optional linked order id (NF-...)
+  notes?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface DowntimeLog {
+  id: string;
+  machineId: string;
+  machineName: string;
+  reason: DowntimeReason;
+  startedAt: string;
+  endedAt?: string;        // empty => still down
+  notes?: string;
   createdAt: string;
 }
 
