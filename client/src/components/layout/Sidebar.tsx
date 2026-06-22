@@ -4,13 +4,15 @@ import { COMPANY } from '../../config';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings,
-  ChevronLeft, ChevronRight, Zap,
+  ChevronLeft, ChevronRight, Zap, Layers, Gauge,
 } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
   { label: 'Materials',  icon: Package,         to: '/materials' },
   { label: 'Production', icon: Factory,         to: '/production' },
+  { label: 'PP Fabric',  icon: Layers,          to: '/pp-fabric' },
+  { label: 'Loom',       icon: Gauge,           to: '/loom' },
   { label: 'Orders',     icon: ShoppingCart,    to: '/orders' },
   { label: 'Dispatch',   icon: Truck,           to: '/dispatch' },
   { label: 'CRM',        icon: Users,           to: '/crm' },

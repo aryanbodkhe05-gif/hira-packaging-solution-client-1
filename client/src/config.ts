@@ -1,12 +1,12 @@
 // ── Single source of truth for company + owner branding ──────────────────────
 export const COMPANY = {
-  name:        'Nico Flex Pvt Ltd',
-  shortName:   'Nico Flex',
+  name:        'Hira Packaging Solution',
+  shortName:   'Hira Packaging',
   owner:       'Tushar Bansal',
   gst:         '07AADCN5812F1ZV',
   address:     'Plot 8, Industrial Area Phase-II, Delhi - 110020',
   phone:       '+919876543210',
-  email:       'info@nicoflexpvt.com',
+  email:       'info@hirapackaging.com',
 } as const;
 
 export const PRODUCT_TYPES = ['BOPP', 'UL', 'Natural', 'Laminated'] as const;
@@ -56,3 +56,33 @@ export type DowntimeReason = typeof DOWNTIME_REASONS[number];
 // Roll consumption lifecycle — reflected in Materials → Rolls
 export const ROLL_STATUSES = ['In Stock', 'In Use', 'Fully Used'] as const;
 export type RollStatus = typeof ROLL_STATUSES[number];
+
+// ── Shared — production shifts ─────────────────────────────────────────────────
+export const SHIFTS = ['Morning', 'Afternoon', 'Night'] as const;
+export type Shift = typeof SHIFTS[number];
+
+// ── Module 11 — PP Fabric (Tape) Production ────────────────────────────────────
+export const BATCH_STATUSES = ['Open', 'Closed'] as const;
+export type BatchStatus = typeof BATCH_STATUSES[number];
+
+export const WASTAGE_TYPES = ['Startup waste', 'Edge trim', 'Breakage', 'Colour change purge', 'Other'] as const;
+export type WastageType = typeof WASTAGE_TYPES[number];
+
+export const WASTAGE_ACTIONS = ['Recycled back', 'Sold as scrap', 'Disposed'] as const;
+export type WastageAction = typeof WASTAGE_ACTIONS[number];
+
+// ── Module 12 — Loom Production ────────────────────────────────────────────────
+export const QUALITY_GRADES = ['A-Grade', 'B-Grade', 'Rejection'] as const;
+export type QualityGrade = typeof QUALITY_GRADES[number];
+
+export const LOOM_STATUSES = ['Active', 'Under maintenance', 'Retired'] as const;
+export type LoomStatus = typeof LOOM_STATUSES[number];
+
+export const WIDTH_UNITS = ['inches', 'mm'] as const;
+export type WidthUnit = typeof WIDTH_UNITS[number];
+
+export const LOOM_DOWNTIME_REASONS = ['Breakdown', 'Power cut', 'Material shortage', 'Other'] as const;
+export type LoomDowntimeReason = typeof LOOM_DOWNTIME_REASONS[number];
+
+// Standard working hours per shift — used for loom efficiency %. Configurable in Settings.
+export const DEFAULT_SHIFT_HOURS = 8;

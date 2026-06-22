@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit } from '../config';
 
 export interface Roll {
   id: string;
@@ -54,6 +54,71 @@ export interface DowntimeLog {
   endedAt?: string;        // empty => still down
   notes?: string;
   createdAt: string;
+}
+
+// ── Module 11 — PP Fabric (Tape) Production ───────────────────────────────────
+export interface FabricBatch {
+  id: string;
+  batchId: string;          // HIRA-YYYYMMDD-NNN
+  date: string;             // yyyy-mm-dd
+  shift: Shift;
+  line: string;             // e.g. "Line 3"
+  ppKg: number;             // Polypropylene used
+  fillerKg: number;         // Filler used
+  rpKg: number;             // Recycled / reprocessed polymer
+  hasColour: boolean;
+  colourName?: string;      // shown only when hasColour
+  colourKg: number;         // 0 when hasColour is false
+  status: BatchStatus;      // Open | Closed
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FabricWastage {
+  id: string;
+  batchRef: string;         // FabricBatch.id
+  batchLabel: string;       // HIRA-… for display
+  type: WastageType;
+  quantityKg: number;
+  action: WastageAction;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Module 12 — Loom Production ────────────────────────────────────────────────
+export interface Loom {
+  id: string;
+  loomNo: string;           // e.g. "Loom 1"
+  model?: string;
+  maxRpm: number;           // max RPM capacity — drives efficiency %
+  installDate?: string;     // yyyy-mm-dd
+  status: LoomStatus;       // Active | Under maintenance | Retired
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LoomEntry {
+  id: string;
+  entryId: string;          // LM-YYYYMMDD-NNN
+  date: string;             // yyyy-mm-dd
+  shift: Shift;
+  loomNo: string;
+  operator?: string;
+  width: number;            // fabric width / size
+  widthUnit: WidthUnit;     // inches | mm
+  meters: number;           // total meters woven
+  quality: QualityGrade;
+  weightKg: number;         // weight of produced roll/batch
+  rollCount: number;
+  reedCount?: number;
+  rpm?: number;             // loom RPM if tracked
+  downtimeMin: number;      // stoppage during shift
+  downtimeReason?: string;  // shown when downtimeMin > 0
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Consumable {

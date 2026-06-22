@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry } from '../types/models';
 
 function getKey(table: string) { return `nicoflex_${table}`; }
 
@@ -136,6 +136,36 @@ export const downtimeDb = {
   create:  (r: Omit<DowntimeLog, 'id'>) => dbCreate<DowntimeLog>('downtime_logs', r),
   update:  (id: string, p: Partial<DowntimeLog>) => dbUpdate<DowntimeLog>('downtime_logs', id, p),
   delete:  (id: string) => dbDelete('downtime_logs', id),
+};
+
+// ── Module 11 — PP Fabric (Tape) Production ────────────────────────────────────
+export const fabricBatchesDb = {
+  getAll:  () => dbGetAll<FabricBatch>('fabric_batches'),
+  create:  (r: Omit<FabricBatch, 'id'>) => dbCreate<FabricBatch>('fabric_batches', r),
+  update:  (id: string, p: Partial<FabricBatch>) => dbUpdate<FabricBatch>('fabric_batches', id, p),
+  delete:  (id: string) => dbDelete('fabric_batches', id),
+};
+
+export const fabricWastageDb = {
+  getAll:  () => dbGetAll<FabricWastage>('fabric_wastage'),
+  create:  (r: Omit<FabricWastage, 'id'>) => dbCreate<FabricWastage>('fabric_wastage', r),
+  update:  (id: string, p: Partial<FabricWastage>) => dbUpdate<FabricWastage>('fabric_wastage', id, p),
+  delete:  (id: string) => dbDelete('fabric_wastage', id),
+};
+
+// ── Module 12 — Loom Production ────────────────────────────────────────────────
+export const loomsDb = {
+  getAll:  () => dbGetAll<Loom>('looms'),
+  create:  (r: Omit<Loom, 'id'>) => dbCreate<Loom>('looms', r),
+  update:  (id: string, p: Partial<Loom>) => dbUpdate<Loom>('looms', id, p),
+  delete:  (id: string) => dbDelete('looms', id),
+};
+
+export const loomEntriesDb = {
+  getAll:  () => dbGetAll<LoomEntry>('loom_entries'),
+  create:  (r: Omit<LoomEntry, 'id'>) => dbCreate<LoomEntry>('loom_entries', r),
+  update:  (id: string, p: Partial<LoomEntry>) => dbUpdate<LoomEntry>('loom_entries', id, p),
+  delete:  (id: string) => dbDelete('loom_entries', id),
 };
 
 // ── Roll consumption sync ──────────────────────────────────────────────────────

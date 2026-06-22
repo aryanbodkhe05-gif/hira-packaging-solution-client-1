@@ -6,6 +6,8 @@ import { AppLayout } from './components/layout/AppLayout';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
 import { ProductionPage }   from './pages/ProductionPage';
+import { PPFabricPage }     from './pages/PPFabricPage';
+import { LoomProductionPage } from './pages/LoomProductionPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
 import { CRMPage }          from './pages/CRMPage';
@@ -28,6 +30,8 @@ export default function App() {
               <Route index             element={<DashboardPage />} />
               <Route path="materials"  element={<MaterialsPage />} />
               <Route path="production" element={<ProductionPage />} />
+              <Route path="pp-fabric"  element={<PPFabricPage />} />
+              <Route path="loom"       element={<LoomProductionPage />} />
               <Route path="orders"     element={<OrdersPage />} />
               <Route path="dispatch"   element={<DispatchPage />} />
               <Route path="crm"        element={<CRMPage />} />

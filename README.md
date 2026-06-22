@@ -1,8 +1,8 @@
-# 🏭 PackFlow ERP
+# 🏭 Hira Packaging Solution
 
-> A premium full-stack ERP system built for Indian packaging manufacturing businesses. Unified operations dashboard with real-time alerts, WhatsApp automation, and live production tracking.
+> A premium ERP system built for Indian PP (polypropylene) packaging manufacturing businesses. Unified operations dashboard with real-time alerts, WhatsApp automation, and live production tracking — including PP fabric (tape) production and loom management.
 
-![PackFlow ERP](https://img.shields.io/badge/PackFlow-ERP-3131B5?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMyAxMGgzTDkgM3Y2SDZsNyAxMVYxM3oiLz48L3N2Zz4=)
+![Hira Packaging Solution](https://img.shields.io/badge/Hira-Packaging-3131B5?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMyAxMGgzTDkgM3Y2SDZsNyAxMVYxM3oiLz48L3N2Zz4=)
 ![React](https://img.shields.io/badge/React_18-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
@@ -15,7 +15,7 @@
 
 > Run locally at: **http://localhost:5173**
 >
-> Demo Login: `owner@packflow.in` / `packflow123`
+> No login required — the app opens straight to the dashboard (data is stored locally in your browser).
 
 ---
 

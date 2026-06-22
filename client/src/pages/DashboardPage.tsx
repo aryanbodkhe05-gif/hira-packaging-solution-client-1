@@ -3,8 +3,9 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
-import { Package, ShoppingCart, Truck, Clock, TrendingUp, AlertTriangle } from 'lucide-react';
-import { rollsDb, consumablesDb, ordersDb } from '../lib/db';
+import { Link } from 'react-router-dom';
+import { Package, ShoppingCart, Truck, Clock, TrendingUp, AlertTriangle, Layers, Gauge, Percent, Plus } from 'lucide-react';
+import { rollsDb, consumablesDb, ordersDb, fabricBatchesDb, fabricWastageDb, loomEntriesDb } from '../lib/db';
 import { COMPANY, PRODUCT_TYPES } from '../config';
 import { StatCard } from '../components/ui/StatCard';
 import { format, parseISO } from 'date-fns';
@@ -81,6 +82,21 @@ export function DashboardPage() {
 
   const lowConsumables = consumables.filter((c) => c.quantity < 20);
 
+  // ── PP Fabric + Loom today's figures ──
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const fabricToday = useMemo(() => {
+    const batches = fabricBatchesDb.getAll().filter((b) => b.date === todayStr);
+    const wastage = fabricWastageDb.getAll();
+    const ids = new Set(batches.map((b) => b.id));
+    const input = batches.reduce((s, b) => s + b.ppKg + b.fillerKg + b.rpKg + (b.hasColour ? b.colourKg : 0), 0);
+    const waste = wastage.filter((w) => ids.has(w.batchRef)).reduce((s, w) => s + (w.quantityKg || 0), 0);
+    return { input, wastePct: input > 0 ? (waste / input) * 100 : 0 };
+  }, [todayStr]);
+  const loomMetersToday = useMemo(
+    () => loomEntriesDb.getAll().filter((e) => e.date === todayStr).reduce((s, e) => s + (e.meters || 0), 0),
+    [todayStr]
+  );
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -97,6 +113,32 @@ export function DashboardPage() {
         <StatCard label="In Production"    value={stats.inProd}         icon={TrendingUp}    iconColor="text-blue-400" mono />
         <StatCard label="Rolls in Stock"   value={rolls.length}         icon={Package}       iconColor="text-purple-400" mono />
         <StatCard label="Low Consumables"  value={lowConsumables.length} icon={AlertTriangle} iconColor="text-red-400"  mono />
+      </div>
+
+      {/* PP Fabric + Loom summary + quick links */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <StatCard
+          label="PP Fabric — Today's Input"
+          value={`${fabricToday.input.toLocaleString('en-IN')} kg`}
+          icon={Layers}
+          iconColor="text-blue-400"
+          mono
+          trend={{ value: `${fabricToday.wastePct.toFixed(1)}% waste`, positive: fabricToday.wastePct < 5 }}
+        />
+        <StatCard
+          label="Loom — Meters Today"
+          value={`${loomMetersToday.toLocaleString('en-IN')} m`}
+          icon={Gauge}
+          iconColor="text-accent"
+          mono
+        />
+        <div className="glass-card p-5 flex flex-col justify-center gap-3">
+          <p className="text-muted text-xs uppercase tracking-wide flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Quick Entry</p>
+          <div className="flex flex-col gap-2">
+            <Link to="/pp-fabric?new=1" className="btn-primary justify-center"><Plus className="w-4 h-4" /> New PP Batch Entry</Link>
+            <Link to="/loom?new=1" className="btn-secondary justify-center"><Plus className="w-4 h-4" /> New Loom Entry</Link>
+          </div>
+        </div>
       </div>
 
       {/* Low stock alert */}

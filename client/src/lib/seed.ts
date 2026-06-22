@@ -1,5 +1,5 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE } from '../config';
 
@@ -193,6 +193,36 @@ const downtimeSeed: DowntimeLog[] = [
   { id: 'd5', machineId: 'm3', machineName: 'Bag Making Line 1', reason: 'Power Cut',         startedAt: '2026-06-01T14:00:00Z', endedAt: '2026-06-01T14:25:00Z',   notes: 'Grid outage, DG started',                createdAt: '2026-06-01T14:00:00Z' },
 ];
 
+// ── PP Fabric batches seed (Module 11) ─────────────────────────────────────────
+const fabricBatchesSeed: FabricBatch[] = [
+  { id: 'fb1', batchId: 'HIRA-20260620-001', date: '2026-06-20', shift: 'Morning',   line: 'Line 1', ppKg: 850, fillerKg: 120, rpKg: 200, hasColour: true,  colourName: 'Sky Blue',   colourKg: 18, status: 'Closed', notes: 'Standard mix',          createdAt: '2026-06-20T03:30:00Z', updatedAt: '2026-06-20T11:00:00Z' },
+  { id: 'fb2', batchId: 'HIRA-20260620-002', date: '2026-06-20', shift: 'Afternoon', line: 'Line 2', ppKg: 780, fillerKg: 140, rpKg: 260, hasColour: false, colourName: '',           colourKg: 0,  status: 'Closed', notes: '',                     createdAt: '2026-06-20T08:30:00Z', updatedAt: '2026-06-20T16:00:00Z' },
+  { id: 'fb3', batchId: 'HIRA-20260621-001', date: '2026-06-21', shift: 'Morning',   line: 'Line 1', ppKg: 900, fillerKg: 110, rpKg: 180, hasColour: true,  colourName: 'Natural White', colourKg: 22, status: 'Closed', notes: 'Export grade',         createdAt: '2026-06-21T03:30:00Z', updatedAt: '2026-06-21T11:00:00Z' },
+  { id: 'fb4', batchId: 'HIRA-20260622-001', date: '2026-06-22', shift: 'Morning',   line: 'Line 3', ppKg: 820, fillerKg: 130, rpKg: 220, hasColour: false, colourName: '',           colourKg: 0,  status: 'Open',   notes: 'In progress',          createdAt: '2026-06-22T03:30:00Z', updatedAt: '2026-06-22T03:30:00Z' },
+];
+
+const fabricWastageSeed: FabricWastage[] = [
+  { id: 'fw1', batchRef: 'fb1', batchLabel: 'HIRA-20260620-001', type: 'Startup waste',       quantityKg: 28, action: 'Recycled back',  notes: 'Line warm-up',        createdAt: '2026-06-20T04:00:00Z', updatedAt: '2026-06-20T04:00:00Z' },
+  { id: 'fw2', batchRef: 'fb1', batchLabel: 'HIRA-20260620-001', type: 'Edge trim',           quantityKg: 15, action: 'Recycled back',  notes: '',                    createdAt: '2026-06-20T10:00:00Z', updatedAt: '2026-06-20T10:00:00Z' },
+  { id: 'fw3', batchRef: 'fb2', batchLabel: 'HIRA-20260620-002', type: 'Breakage',            quantityKg: 32, action: 'Sold as scrap',  notes: 'Tape snapping',       createdAt: '2026-06-20T13:00:00Z', updatedAt: '2026-06-20T13:00:00Z' },
+  { id: 'fw4', batchRef: 'fb3', batchLabel: 'HIRA-20260621-001', type: 'Colour change purge', quantityKg: 24, action: 'Disposed',       notes: 'Shade changeover',    createdAt: '2026-06-21T07:00:00Z', updatedAt: '2026-06-21T07:00:00Z' },
+];
+
+// ── Looms + loom entries seed (Module 12) ──────────────────────────────────────
+const loomsSeed: Loom[] = [
+  { id: 'lm1', loomNo: 'Loom 1', model: 'Lohia LSL6', maxRpm: 600, installDate: '2024-03-15', status: 'Active',            createdAt: '2026-01-01T08:00:00Z', updatedAt: '2026-01-01T08:00:00Z' },
+  { id: 'lm2', loomNo: 'Loom 2', model: 'Lohia LSL6', maxRpm: 600, installDate: '2024-03-15', status: 'Active',            createdAt: '2026-01-01T08:00:00Z', updatedAt: '2026-01-01T08:00:00Z' },
+  { id: 'lm3', loomNo: 'Loom 3', model: 'Starlinger', maxRpm: 750, installDate: '2025-07-01', status: 'Active',            createdAt: '2026-01-01T08:00:00Z', updatedAt: '2026-01-01T08:00:00Z' },
+  { id: 'lm4', loomNo: 'Loom 4', model: 'Lohia LSL4', maxRpm: 550, installDate: '2023-11-20', status: 'Under maintenance', createdAt: '2026-01-01T08:00:00Z', updatedAt: '2026-01-01T08:00:00Z' },
+];
+
+const loomEntriesSeed: LoomEntry[] = [
+  { id: 'le1', entryId: 'LM-20260620-001', date: '2026-06-20', shift: 'Morning',   loomNo: 'Loom 1', operator: 'Ramesh', width: 48, widthUnit: 'inches', meters: 3200, quality: 'A-Grade', weightKg: 210, rollCount: 8, reedCount: 320, rpm: 560, downtimeMin: 20, downtimeReason: 'Material shortage', notes: '', createdAt: '2026-06-20T11:00:00Z', updatedAt: '2026-06-20T11:00:00Z' },
+  { id: 'le2', entryId: 'LM-20260620-002', date: '2026-06-20', shift: 'Afternoon', loomNo: 'Loom 2', operator: 'Suresh', width: 48, widthUnit: 'inches', meters: 2950, quality: 'A-Grade', weightKg: 198, rollCount: 7, reedCount: 320, rpm: 540, downtimeMin: 0,  downtimeReason: '',                  notes: '', createdAt: '2026-06-20T16:00:00Z', updatedAt: '2026-06-20T16:00:00Z' },
+  { id: 'le3', entryId: 'LM-20260621-001', date: '2026-06-21', shift: 'Morning',   loomNo: 'Loom 3', operator: 'Anil',   width: 60, widthUnit: 'inches', meters: 3800, quality: 'B-Grade', weightKg: 245, rollCount: 9, reedCount: 360, rpm: 700, downtimeMin: 45, downtimeReason: 'Breakdown',         notes: 'Shuttle jam', createdAt: '2026-06-21T11:00:00Z', updatedAt: '2026-06-21T11:00:00Z' },
+  { id: 'le4', entryId: 'LM-20260622-001', date: '2026-06-22', shift: 'Morning',   loomNo: 'Loom 1', operator: 'Ramesh', width: 48, widthUnit: 'inches', meters: 1600, quality: 'A-Grade', weightKg: 105, rollCount: 4, reedCount: 320, rpm: 560, downtimeMin: 0,  downtimeReason: '',                  notes: 'Shift in progress', createdAt: '2026-06-22T07:00:00Z', updatedAt: '2026-06-22T07:00:00Z' },
+];
+
 export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
@@ -204,6 +234,10 @@ export function seedDatabase() {
   dbSeedOnce('machines', machinesSeed);
   dbSeedOnce('production_jobs', productionJobsSeed);
   dbSeedOnce('downtime_logs', downtimeSeed);
+  dbSeedOnce('fabric_batches', fabricBatchesSeed);
+  dbSeedOnce('fabric_wastage', fabricWastageSeed);
+  dbSeedOnce('looms', loomsSeed);
+  dbSeedOnce('loom_entries', loomEntriesSeed);
 
   // Backfill roll status/bags from production jobs (covers pre-existing data too)
   syncRollsFromProduction();
