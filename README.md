@@ -11,9 +11,16 @@
 
 ---
 
-## 🌐 Live Preview
+## 🌐 Local Preview
 
-> Run locally at: **http://localhost:5173**
+> **Localhost URL:** http://localhost:5173/
+>
+> Start it with `cd client && npm install && npm run dev`, then open the URL above.
+>
+> Handy routes:
+> - Dashboard — http://localhost:5173/
+> - PP Fabric Production — http://localhost:5173/pp-fabric
+> - Loom Production — http://localhost:5173/loom
 >
 > No login required — the app opens straight to the dashboard (data is stored locally in your browser).
 
