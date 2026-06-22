@@ -8,6 +8,9 @@ import { MaterialsPage }    from './pages/MaterialsPage';
 import { ProductionPage }   from './pages/ProductionPage';
 import { PPFabricPage }     from './pages/PPFabricPage';
 import { LoomProductionPage } from './pages/LoomProductionPage';
+import { JobCardListPage }   from './pages/JobCardListPage';
+import { JobCardDetailPage } from './pages/JobCardDetailPage';
+import { RateMasterPage }    from './pages/RateMasterPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
 import { CRMPage }          from './pages/CRMPage';
@@ -32,6 +35,10 @@ export default function App() {
               <Route path="production" element={<ProductionPage />} />
               <Route path="pp-fabric"  element={<PPFabricPage />} />
               <Route path="loom"       element={<LoomProductionPage />} />
+              <Route path="job-card"        element={<JobCardListPage />} />
+              <Route path="job-card/new"    element={<JobCardDetailPage />} />
+              <Route path="job-card/:id"    element={<JobCardDetailPage />} />
+              <Route path="rate-master"     element={<RateMasterPage />} />
               <Route path="orders"     element={<OrdersPage />} />
               <Route path="dispatch"   element={<DispatchPage />} />
               <Route path="crm"        element={<CRMPage />} />

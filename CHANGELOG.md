@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — Job Card (Order Traveler + Live Costing)
+
+### New module — Job Card (`/job-card`, `/job-card/new`, `/job-card/:id`)
+Replaces the paper order form + Excel re-keying loop with one live digital traveler.
+- **List view:** all job cards (Job No, Brand, Size, Qty, Finish, Current Stage badge, Created, Total Cost ₹, Status) with search (brand/job no) + stage/status filters + pagination. Total Cost column hidden for Staff.
+- **Single card:** replicates the Hira paper form section-by-section in floor order — **Job Description → Printing → Metalize → Slitting → Lamination → Cutting → Dispatch** — with every field/unit from the brief. Each stage is a collapsible card that can be marked **N/A** (e.g. Metalize auto-N/A unless finish = Metalized); N/A stages are excluded from carry-forward and costing.
+- **Balance carry-forward:** "carry output to next stage input" button auto-fills the next active stage; a mismatch warning shows when a stage's input ≠ the previous stage's output. Each stage shows **Balance = Input − Output − Rejection** and **Yield % = Output/Input**.
+- **Per-stage save:** the whole card persists on Save, so operators can fill different sections at different times.
+- Variable rows: Slitting up to 3 output rolls, Lamination up to 3 rows, Cutting up to 3 rows (with Gusset/Perforation + BCS 1–4), Dispatch multiple lines.
+- **Print / A4 export:** `window.print()` + `@media print` styles flatten the card to a clean bordered A4 layout (app chrome hidden).
+
+### New module — Rate Master (`/rate-master`, owner/manager only)
+- Editable list of raw materials (name, unit, rate ₹, stage/category, active, last-updated) with add/edit/delete; seeded with the 18 items from the brief. Hidden from the sidebar and route-guarded for Staff.
+
+### Live costing engine
+- Per-stage **consumption editors** are data-driven from the Rate Master (materials of that stage's category, plus 'Any'). Typing a quantity shows **line cost = qty × rate** live, no save needed.
+- **Sticky summary panel:** per-stage cost, **Total Job Cost**, **cost/bag**, **cost/kg**, **total wastage (rejection + trim)**, **overall yield %** — all recompute live. ₹ uses Indian grouping (e.g. ₹50,353.00).
+- **Rate snapshotting:** the rate is captured onto the job card when a quantity is entered, so later Rate Master edits don't change historical costs ("rates as of <date>"). Metalize doesn't re-cost BOPP film (booked in Printing).
+- **Rate-not-set handling:** a material with no rate shows "rate not set" and is excluded from totals with a visible flag (never silently 0).
+
+### Roles & cost visibility (UI-only for now)
+- All cost / Rate-Master visibility funnels through `canViewCosts()` / `canEditRates()` in `client/src/lib/roles.ts`. Owner/Manager see costs; Staff see quantities + balances only.
+- **Note:** auth is currently hardcoded to an OWNER user (`AuthContext`), so this gating is **UI-only**. A demo "View as role" switcher (stored in settings) lets you preview the Staff experience; swap to real backend roles by changing the two helpers.
+
+### Acceptance test — verified in-browser
+Brand "Test", Qty 10000, Size 18x28, Metalized → Printing (in 500 / out 480 / rej 20; ink 8, ethyl 12, toluene 6) computed Printing **₹3,588.00**, balance 0, yield 96%; full card totalled **₹50,353.00**, cost/bag ₹5.04, cost/kg ₹66.25, wastage 35 kg. Staff view confirmed to show quantities but **no ₹ figures** and no Rate Master.
+
+---
+
 ## [Unreleased] — Hira Packaging Solution upgrade
 
 ### Rebranding

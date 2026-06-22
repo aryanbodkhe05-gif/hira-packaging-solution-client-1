@@ -114,3 +114,36 @@
 .sidebar-transition {
   transition: width 0.25s ease, min-width 0.25s ease;
 }
+
+/* ── Print / A4 layout (Job Card hard copy) ─────────────────────────────────── */
+@media print {
+  /* Hide app chrome and any element flagged no-print */
+  aside, header, .no-print { display: none !important; }
+
+  /* Light background, black text for paper */
+  html, body, #root { height: auto !important; background: #fff !important; color: #000 !important; }
+
+  /* Let the printable area take the full page and stack cleanly */
+  .print-area { display: block !important; }
+  .print-area .lg\:col-span-2,
+  .print-area .lg\:col-span-1 { grid-column: auto !important; }
+  .print-area .lg\:sticky { position: static !important; }
+
+  /* Flatten dark glass cards to bordered white boxes */
+  .glass-card {
+    background: #fff !important;
+    border: 1px solid #999 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .glass-card * { color: #000 !important; }
+  .input-field {
+    background: #fff !important;
+    border: 1px solid #bbb !important;
+    color: #000 !important;
+  }
+  .page-header, .section-title, .label { color: #000 !important; }
+  @page { size: A4; margin: 12mm; }
+}

@@ -1,10 +1,11 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { COMPANY } from '../../config';
+import { canEditRates } from '../../lib/roles';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings,
-  ChevronLeft, ChevronRight, Zap, Layers, Gauge,
+  ChevronLeft, ChevronRight, Zap, Layers, Gauge, ClipboardList, IndianRupee,
 } from 'lucide-react';
 
 const navItems = [
@@ -13,6 +14,8 @@ const navItems = [
   { label: 'Production', icon: Factory,         to: '/production' },
   { label: 'PP Fabric',  icon: Layers,          to: '/pp-fabric' },
   { label: 'Loom',       icon: Gauge,           to: '/loom' },
+  { label: 'Job Card',   icon: ClipboardList,   to: '/job-card' },
+  { label: 'Rate Master', icon: IndianRupee,    to: '/rate-master', ownerOnly: true },
   { label: 'Orders',     icon: ShoppingCart,    to: '/orders' },
   { label: 'Dispatch',   icon: Truck,           to: '/dispatch' },
   { label: 'CRM',        icon: Users,           to: '/crm' },
@@ -26,6 +29,7 @@ interface Props { collapsed: boolean; onToggle: () => void; }
 
 export function Sidebar({ collapsed, onToggle }: Props) {
   const location = useLocation();
+  const items = navItems.filter((i) => !i.ownerOnly || canEditRates());
 
   return (
     <aside className={cn(
@@ -48,7 +52,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       {/* Navigation */}
       <nav className="flex-1 py-3 overflow-y-auto">
         <ul className="space-y-0.5 px-2">
-          {navItems.map(({ label, icon: Icon, to }) => {
+          {items.map(({ label, icon: Icon, to }) => {
             const isActive = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
             return (
               <li key={to}>
