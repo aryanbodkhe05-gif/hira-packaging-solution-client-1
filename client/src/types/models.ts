@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory } from '../config';
 
 export interface Roll {
   id: string;
@@ -117,6 +117,115 @@ export interface LoomEntry {
   downtimeMin: number;      // stoppage during shift
   downtimeReason?: string;  // shown when downtimeMin > 0
   notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Module 13 — Job Card (Order Traveler + Live Costing) ───────────────────────
+export interface RateMasterItem {
+  id: string;
+  name: string;
+  unit: string;            // e.g. ₹/kg, ₹/pc, ₹/roll, ₹/bale
+  rate: number | null;     // null => "rate not set"
+  category: RateCategory;  // which stage uses it
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// One material consumed in a stage. The rate is snapshotted at entry time so
+// later Rate Master edits don't retroactively change historical job costs.
+export interface Consumption {
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  rateSnapshot: number | null;  // null => rate was not set when entered
+  lineCost: number;             // qty × rateSnapshot (0 when rate not set)
+}
+
+interface StageBase {
+  na: boolean;                  // stage marked Not Applicable
+  date?: string;
+  operator?: string;
+  consumption: Consumption[];
+}
+
+export interface PrintingStage extends StageBase {
+  inputKg?: number;
+  outputKg?: number;
+  meter?: number;
+  rejectionKg?: number;
+}
+
+export interface MetalizeStage extends StageBase {
+  metalizeInputKg?: number;
+  boppInputKg?: number;
+  outputKg?: number;
+  outputMtr?: number;
+  rejectionKg?: number;
+}
+
+export interface SlittingRoll { outputKg?: number; desc?: string; core?: string; meter?: number; }
+export interface SlittingStage extends StageBase {
+  grossInputKg?: number;
+  inputCoreKg?: number;
+  rolls: SlittingRoll[];        // up to 3
+  rejectionKg?: number;
+  trimKg?: number;
+}
+
+export interface LaminationRow { boppInKg?: number; fabricInKg?: number; meter?: number; outKg?: number; }
+export interface LaminationStage extends StageBase {
+  fabricSize?: string;
+  fabricType?: FabricType;
+  gsm?: number;
+  coating?: string;
+  coatingSide?: CoatingSide;
+  avg?: number;
+  rows: LaminationRow[];        // up to 3
+  totalRoll?: number;
+  balanceRoll?: number;
+}
+
+export interface CuttingRow { inputKg?: number; noOfBags?: number; bcs?: number; }
+export interface CuttingStage extends StageBase {
+  gusset: boolean;
+  perforation: boolean;
+  rows: CuttingRow[];           // up to 3
+  balance?: number;
+  rejectionKg?: number;
+}
+
+export interface DispatchLine { quantityKg?: number; pieces?: number; dispatchDate?: string; }
+export interface DispatchStage extends StageBase {
+  pendingKg?: number;
+  pendingPcs?: number;
+  lines: DispatchLine[];
+  bagsPerBale?: number;
+}
+
+export interface JobCardHeader {
+  brand: string;
+  qty: number;
+  size: string;
+  finish: Finish;
+  date: string;
+}
+
+export interface JobCard {
+  id: string;
+  jobNo: string;                // HPS-YYYY-####
+  header: JobCardHeader;
+  printing: PrintingStage;
+  metalize: MetalizeStage;
+  slitting: SlittingStage;
+  lamination: LaminationStage;
+  cutting: CuttingStage;
+  dispatch: DispatchStage;
+  status: JobCardStatus;
+  currentStage: JobStage;
+  ratesAsOf?: string;           // when consumption rates were last snapshotted
   createdAt: string;
   updatedAt: string;
 }

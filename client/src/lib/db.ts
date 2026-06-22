@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem } from '../types/models';
 
 function getKey(table: string) { return `nicoflex_${table}`; }
 
@@ -166,6 +166,22 @@ export const loomEntriesDb = {
   create:  (r: Omit<LoomEntry, 'id'>) => dbCreate<LoomEntry>('loom_entries', r),
   update:  (id: string, p: Partial<LoomEntry>) => dbUpdate<LoomEntry>('loom_entries', id, p),
   delete:  (id: string) => dbDelete('loom_entries', id),
+};
+
+// ── Module 13 — Job Card + Rate Master ─────────────────────────────────────────
+export const jobCardsDb = {
+  getAll:  () => dbGetAll<JobCard>('job_cards'),
+  create:  (r: Omit<JobCard, 'id'>) => dbCreate<JobCard>('job_cards', r),
+  update:  (id: string, p: Partial<JobCard>) => dbUpdate<JobCard>('job_cards', id, p),
+  delete:  (id: string) => dbDelete('job_cards', id),
+  get:     (id: string) => dbGetAll<JobCard>('job_cards').find((j) => j.id === id) ?? null,
+};
+
+export const rateMasterDb = {
+  getAll:  () => dbGetAll<RateMasterItem>('rate_master'),
+  create:  (r: Omit<RateMasterItem, 'id'>) => dbCreate<RateMasterItem>('rate_master', r),
+  update:  (id: string, p: Partial<RateMasterItem>) => dbUpdate<RateMasterItem>('rate_master', id, p),
+  delete:  (id: string) => dbDelete('rate_master', id),
 };
 
 // ── Roll consumption sync ──────────────────────────────────────────────────────

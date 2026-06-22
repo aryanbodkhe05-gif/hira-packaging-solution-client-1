@@ -86,3 +86,49 @@ export type LoomDowntimeReason = typeof LOOM_DOWNTIME_REASONS[number];
 
 // Standard working hours per shift — used for loom efficiency %. Configurable in Settings.
 export const DEFAULT_SHIFT_HOURS = 8;
+
+// ── Module 13 — Job Card (Order Traveler + Live Costing) ───────────────────────
+export const FINISHES = ['Glossy', 'Matte', 'Metalized'] as const;
+export type Finish = typeof FINISHES[number];
+
+// Stages in the exact order the order physically travels the floor
+export const JOB_STAGES = ['Printing', 'Metalize', 'Slitting', 'Lamination', 'Cutting', 'Dispatch'] as const;
+export type JobStage = typeof JOB_STAGES[number];
+
+export const JOBCARD_STATUSES = ['In Progress', 'Dispatched'] as const;
+export type JobCardStatus = typeof JOBCARD_STATUSES[number];
+
+export const FABRIC_TYPES = ['NW', 'MW'] as const;
+export type FabricType = typeof FABRIC_TYPES[number];
+
+export const COATING_SIDES = ['Both Side', 'Single Side'] as const;
+export type CoatingSide = typeof COATING_SIDES[number];
+
+export const BCS_OPTIONS = [1, 2, 3, 4] as const;
+
+// Rate Master categories — a material belongs to one stage (or 'Any')
+export const RATE_CATEGORIES = ['Printing', 'Metalize', 'Slitting', 'Lamination', 'Cutting', 'Dispatch', 'Any'] as const;
+export type RateCategory = typeof RATE_CATEGORIES[number];
+
+// Seed list for the Rate Master (owner can add/edit/delete more). Rates are
+// indicative INR demo values — the owner maintains the real numbers.
+export const RATE_MASTER_SEED: { name: string; unit: string; rate: number | null; category: RateCategory }[] = [
+  { name: 'BOPP film – Glossy',          unit: '₹/kg',   rate: 165,  category: 'Printing' },
+  { name: 'BOPP film – Matte',           unit: '₹/kg',   rate: 172,  category: 'Printing' },
+  { name: 'BOPP film – Metalized',       unit: '₹/kg',   rate: 188,  category: 'Printing' },
+  { name: 'BOPP film – Pearl',           unit: '₹/kg',   rate: 178,  category: 'Printing' },
+  { name: 'Gravure ink',                 unit: '₹/kg',   rate: 240,  category: 'Printing' },
+  { name: 'Ethyl acetate',               unit: '₹/kg',   rate: 95,   category: 'Printing' },
+  { name: 'Toluene',                     unit: '₹/kg',   rate: 88,   category: 'Printing' },
+  { name: 'IPA',                         unit: '₹/kg',   rate: 110,  category: 'Printing' },
+  { name: 'Metalizing (aluminium)',      unit: '₹/kg',   rate: 320,  category: 'Metalize' },
+  { name: 'Slitting core',               unit: '₹/pc',   rate: 18,   category: 'Slitting' },
+  { name: 'LDPE granules',               unit: '₹/kg',   rate: 105,  category: 'Lamination' },
+  { name: 'Woven fabric',                unit: '₹/kg',   rate: 142,  category: 'Lamination' },
+  { name: 'PU adhesive',                 unit: '₹/kg',   rate: 215,  category: 'Lamination' },
+  { name: 'Hardener',                    unit: '₹/kg',   rate: 260,  category: 'Lamination' },
+  { name: 'Sewing thread',               unit: '₹/kg',   rate: 180,  category: 'Cutting' },
+  { name: 'Crepe paper tape',            unit: '₹/roll', rate: 35,   category: 'Cutting' },
+  { name: 'Packing (bale wrap + strap)', unit: '₹/bale', rate: 28,   category: 'Dispatch' },
+  { name: 'Labour/machine (optional)',   unit: '₹/kg',   rate: null, category: 'Any' },
+];

@@ -1,7 +1,7 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
-import { GST_RATE } from '../config';
+import { GST_RATE, RATE_MASTER_SEED } from '../config';
 
 // ── Rolls seed ────────────────────────────────────────────────────────────────
 const rollsSeed: Roll[] = [
@@ -223,6 +223,18 @@ const loomEntriesSeed: LoomEntry[] = [
   { id: 'le4', entryId: 'LM-20260622-001', date: '2026-06-22', shift: 'Morning',   loomNo: 'Loom 1', operator: 'Ramesh', width: 48, widthUnit: 'inches', meters: 1600, quality: 'A-Grade', weightKg: 105, rollCount: 4, reedCount: 320, rpm: 560, downtimeMin: 0,  downtimeReason: '',                  notes: 'Shift in progress', createdAt: '2026-06-22T07:00:00Z', updatedAt: '2026-06-22T07:00:00Z' },
 ];
 
+// ── Rate Master seed (Module 13) ───────────────────────────────────────────────
+const rateMasterSeed: RateMasterItem[] = RATE_MASTER_SEED.map((m, i) => ({
+  id: `rm${i + 1}`,
+  name: m.name,
+  unit: m.unit,
+  rate: m.rate,
+  category: m.category,
+  active: true,
+  createdAt: '2026-01-01T08:00:00Z',
+  updatedAt: '2026-01-01T08:00:00Z',
+}));
+
 export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
@@ -238,6 +250,7 @@ export function seedDatabase() {
   dbSeedOnce('fabric_wastage', fabricWastageSeed);
   dbSeedOnce('looms', loomsSeed);
   dbSeedOnce('loom_entries', loomEntriesSeed);
+  dbSeedOnce('rate_master', rateMasterSeed);
 
   // Backfill roll status/bags from production jobs (covers pre-existing data too)
   syncRollsFromProduction();
