@@ -161,7 +161,7 @@ export function JobCardDetailPage() {
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
 
   const [card, setCard] = useState<JobCard | null>(() => {
-    if (isNew) return { ...emptyJobCard(), id: '' } as JobCard;
+    if (isNew) return normalizeJobCard({ ...emptyJobCard(), id: '' } as JobCard);
     const found = jobCardsDb.get(id!);
     return found ? normalizeJobCard(found) : null;
   });

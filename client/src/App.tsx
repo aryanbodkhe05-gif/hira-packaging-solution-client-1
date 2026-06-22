@@ -36,7 +36,6 @@ export default function App() {
               <Route path="pp-fabric"  element={<PPFabricPage />} />
               <Route path="loom"       element={<LoomProductionPage />} />
               <Route path="job-card"        element={<JobCardListPage />} />
-              <Route path="job-card/new"    element={<JobCardDetailPage />} />
               <Route path="job-card/:id"    element={<JobCardDetailPage />} />
               <Route path="rate-master"     element={<RateMasterPage />} />
               <Route path="orders"     element={<OrdersPage />} />

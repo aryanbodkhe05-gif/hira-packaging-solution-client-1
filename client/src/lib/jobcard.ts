@@ -27,7 +27,7 @@ export function emptyJobCard(finish: Finish = 'Glossy'): Omit<JobCard, 'id'> {
     header: { brand: '', qty: 0, size: '', finish, date: new Date().toLocaleDateString('en-CA') },
     printing:   { ...base } as PrintingStage,
     metalize:   { ...base, na: finish !== 'Metalized' } as MetalizeStage, // only metalized orders metalize
-    slitting:   { ...base } as SlittingStage,
+    slitting:   { ...base, rolls: [] } as SlittingStage,
     lamination: { ...base, rows: [{}] } as LaminationStage,
     cutting:    { ...base, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
