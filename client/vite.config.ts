@@ -2,8 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  // Served from https://aryanbodkhe05-gif.github.io/packflow-erp/ on GitHub Pages
-  base: process.env.GITHUB_PAGES ? '/packflow-erp/' : '/',
+  // On GitHub Pages the site is served from /<repo>/. Derive the base from
+  // GITHUB_REPOSITORY ("owner/repo", set by Actions) so this works for both the
+  // packflow-erp and hira-packaging-solution-client-1 repos. Local dev uses '/'.
+  base: process.env.GITHUB_PAGES
+    ? `/${(process.env.GITHUB_REPOSITORY || 'packflow-erp').split('/')[1]}/`
+    : '/',
   plugins: [react()],
   server: {
     port: 5173,
