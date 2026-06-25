@@ -11,6 +11,7 @@ import { LoomProductionPage } from './pages/LoomProductionPage';
 import { JobCardListPage }   from './pages/JobCardListPage';
 import { JobCardDetailPage } from './pages/JobCardDetailPage';
 import { RateMasterPage }    from './pages/RateMasterPage';
+import { PlaceholderPage }   from './pages/PlaceholderPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
 import { CRMPage }          from './pages/CRMPage';
@@ -48,6 +49,20 @@ export default function App() {
               <Route path="vendors"    element={<VendorsPage />} />
               <Route path="alerts"     element={<AlertEnginePage />} />
               <Route path="settings"   element={<SettingsPage />} />
+
+              {/* ── New 6-section routes — placeholders until each section is built ── */}
+              <Route path="dispatch/bags"  element={<PlaceholderPage title="Dispatch – Bags" description="Finished-bag dispatch register. Being built." />} />
+              <Route path="dispatch/rolls" element={<PlaceholderPage title="Dispatch – Rolls" description="Finished-roll dispatch register. Being built." />} />
+              <Route path="normal-bag"     element={<PlaceholderPage title="Normal Bag" description="Normal bag job card (Printing → Cutting → Dispatch). Being built." />} />
+              <Route path="normal-bag/:id" element={<PlaceholderPage title="Normal Bag" description="Normal bag job card. Being built." />} />
+              <Route path="inventory/raw-materials"  element={<PlaceholderPage title="Raw Materials" description="Consumables + 1-click restock. Being built." />} />
+              <Route path="inventory/finished-rolls" element={<PlaceholderPage title="Finished Rolls" description="Finished rolls (Normal + BOPP). Being built." />} />
+              <Route path="inventory/bopp-film"      element={<PlaceholderPage title="BOPP Film Stock" description="Incoming BOPP film raw stock. Being built." />} />
+              <Route path="suppliers"       element={<PlaceholderPage title="Suppliers" description="Supplier master. Being built." />} />
+              <Route path="purchase-orders" element={<PlaceholderPage title="Purchase Orders" description="Raise POs to suppliers. Being built." />} />
+              <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note — receive against a PO. Being built." />} />
+              <Route path="cylinders"       element={<PlaceholderPage title="Cylinder Register" description="Gravure cylinder master. Being built." />} />
+              <Route path="users"           element={<PlaceholderPage title="Users & Roles" description="User & role management. Being built." />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
