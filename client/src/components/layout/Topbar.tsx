@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { Bell } from 'lucide-react';
 import { COMPANY } from '../../config';
+import { useBranding } from '../../lib/branding';
 import { timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../../lib/utils';
 import { useAlerts } from '../../context/AlertContext';
 import { useLiveClock } from '../../hooks/useLiveClock';
 
 export function Topbar() {
   const { alerts, unreadCount, markSeen, markAllSeen } = useAlerts();
+  const branding = useBranding();
   const clock = useLiveClock();
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -21,7 +23,7 @@ export function Topbar() {
 
   return (
     <header className="h-14 flex items-center justify-between px-6 border-b border-accent/10 bg-navy/80 backdrop-blur-sm flex-shrink-0">
-      <span className="text-white/60 text-sm font-medium hidden sm:block">{COMPANY.name}</span>
+      <span className="text-white/60 text-sm font-medium hidden sm:block">{branding.companyName}</span>
 
       <div className="flex items-center gap-4">
         <span className="font-mono text-sm text-muted hidden md:block">{clock} IST</span>

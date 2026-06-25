@@ -115,10 +115,14 @@
   transition: width 0.25s ease, min-width 0.25s ease;
 }
 
+/* Shown only when printing (e.g. company header on the Job Card) */
+.print-only { display: none; }
+
 /* ── Print / A4 layout (Job Card hard copy) ─────────────────────────────────── */
 @media print {
   /* Hide app chrome and any element flagged no-print */
   aside, header, .no-print { display: none !important; }
+  .print-only { display: block !important; }
 
   /* Light background, black text for paper */
   html, body, #root { height: auto !important; background: #fff !important; color: #000 !important; }

@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { Zap, Lock, Mail, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import { getBranding } from '../lib/branding';
 
 export function LoginPage() {
   const { user, login } = useAuth();
@@ -42,7 +43,7 @@ export function LoginPage() {
           <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/30">
             <Zap className="w-9 h-9 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Hira Packaging Solution</h1>
+          <h1 className="text-2xl font-bold text-white">{getBranding().appName}</h1>
           <p className="text-muted text-sm mt-1">Sign in to your dashboard</p>
         </div>
 

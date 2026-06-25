@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { Package, ShoppingCart, Truck, Clock, TrendingUp, AlertTriangle, Layers, Gauge, Percent, Plus } from 'lucide-react';
 import { rollsDb, consumablesDb, ordersDb, fabricBatchesDb, fabricWastageDb, loomEntriesDb } from '../lib/db';
 import { COMPANY, PRODUCT_TYPES } from '../config';
+import { useBranding } from '../lib/branding';
 import { StatCard } from '../components/ui/StatCard';
 import { format, parseISO } from 'date-fns';
 
@@ -27,6 +28,7 @@ function ChartTip({ active, payload, label }: { active?: boolean; payload?: Arra
 }
 
 export function DashboardPage() {
+  const branding    = useBranding();
   const rolls       = rollsDb.getAll();
   const consumables = consumablesDb.getAll();
   const orders      = ordersDb.getAll();
@@ -102,7 +104,7 @@ export function DashboardPage() {
       {/* Header */}
       <div>
         <h1 className="page-header">Welcome, {COMPANY.owner} 👋</h1>
-        <p className="text-muted text-sm mt-1">{COMPANY.name} — Operations Overview</p>
+        <p className="text-muted text-sm mt-1">{branding.companyName} — Operations Overview</p>
       </div>
 
       {/* Stat cards */}

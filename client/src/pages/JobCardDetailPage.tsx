@@ -16,6 +16,7 @@ import {
 } from '../lib/jobcard';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts } from '../lib/roles';
+import { useBranding } from '../lib/branding';
 import { RoleSwitcher } from '../components/ui/RoleSwitcher';
 import { cn } from '../lib/utils';
 
@@ -156,6 +157,7 @@ export function JobCardDetailPage() {
   const { id } = useParams();
   const nav = useNavigate();
   const isNew = id === 'new';
+  const branding = useBranding();
   const [items] = useState<RateMasterItem[]>(() => rateMasterDb.getAll());
   const [showCosts, setShowCosts] = useState(canViewCosts());
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
@@ -231,6 +233,15 @@ export function JobCardDetailPage() {
 
   return (
     <div className="space-y-6 animate-fade-in print-area">
+      {/* Print-only company header (reads from editable Settings branding) */}
+      <div className="print-only mb-4 border-b border-black pb-2">
+        <h2 className="text-xl font-bold">{branding.companyName}</h2>
+        {(branding.companyAddress || branding.companyGstin) && (
+          <p className="text-xs">{branding.companyAddress}{branding.companyGstin ? ` · GSTIN ${branding.companyGstin}` : ''}</p>
+        )}
+        <p className="text-xs">{branding.appName} — Job Card {card.jobNo}</p>
+      </div>
+
       {/* Top bar */}
       <div className="flex items-start justify-between gap-3 flex-wrap no-print">
         <div className="flex items-center gap-3">

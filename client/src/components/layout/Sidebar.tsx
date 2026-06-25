@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
-import { COMPANY } from '../../config';
 import { canEditRates } from '../../lib/roles';
+import { useBranding } from '../../lib/branding';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings,
@@ -29,6 +29,7 @@ interface Props { collapsed: boolean; onToggle: () => void; }
 
 export function Sidebar({ collapsed, onToggle }: Props) {
   const location = useLocation();
+  const branding = useBranding();
   const items = navItems.filter((i) => !i.ownerOnly || canEditRates());
 
   return (
@@ -43,8 +44,8 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-bold text-xs leading-tight truncate">{COMPANY.shortName}</p>
-            <p className="text-muted text-[10px]">Operations</p>
+            <p className="text-white font-bold text-xs leading-tight truncate">{branding.companyName}</p>
+            <p className="text-muted text-[10px] truncate">{branding.appName}</p>
           </div>
         )}
       </div>
