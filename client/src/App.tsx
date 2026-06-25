@@ -19,8 +19,11 @@ import { VendorsPage }      from './pages/VendorsPage';
 import { AlertEnginePage }  from './pages/AlertEnginePage';
 import { SettingsPage }     from './pages/SettingsPage';
 import { seedDatabase }     from './lib/seed';
+import { migrateStorage }   from './lib/db';
 
-// Seed localStorage with realistic demo data on first ever load
+// Migrate any legacy nicoflex_* keys to packflow_* (one-time, no data loss),
+// then seed demo data on first ever load.
+migrateStorage();
 seedDatabase();
 
 export default function App() {

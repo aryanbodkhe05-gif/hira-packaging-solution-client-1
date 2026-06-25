@@ -33,12 +33,12 @@ export const GST_RATE = 18; // %
 export const PO_STATUSES = ['Draft', 'Sent', 'Confirmed', 'Delivered'] as const;
 export type POStatus = typeof PO_STATUSES[number];
 
-// Module 8 — Alert settings (stored in localStorage key 'nicoflex_settings')
+// Module 8 — Alert settings (stored in localStorage settings key)
 export const ALERT_TYPES = ['LOW_STOCK', 'OVERDUE_ORDER', 'PAYMENT_DEFAULT', 'DISPATCH_DELAY', 'FOLLOW_UP', 'PO_DELAY'] as const;
 export type AlertType = typeof ALERT_TYPES[number];
 
 // Module 9 — WhatsApp
-export const WHATSAPP_SETTINGS_KEY = 'nicoflex_settings';
+export const WHATSAPP_SETTINGS_KEY = 'packflow_settings';
 
 // ── Module 10 — Production ─────────────────────────────────────────────────────
 export const MACHINE_TYPES = ['Printing', 'Cutting', 'Bag Making', 'Lamination', 'Extrusion'] as const;

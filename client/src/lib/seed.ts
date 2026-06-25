@@ -1,4 +1,4 @@
-import { dbSeedOnce, saveSettings, syncRollsFromProduction } from './db';
+import { dbSeedOnce, saveSettings, syncRollsFromProduction, STORAGE_PREFIX } from './db';
 import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE, RATE_MASTER_SEED } from '../config';
@@ -256,7 +256,7 @@ export function seedDatabase() {
   syncRollsFromProduction();
 
   // Default settings (only if not already set)
-  if (!localStorage.getItem('nicoflex_settings')) {
+  if (!localStorage.getItem(STORAGE_PREFIX + 'settings')) {
     saveSettings({
       owner_whatsapp:   '+919876543210',
       alert_whatsapp:   '+919876543210',

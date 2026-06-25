@@ -44,7 +44,7 @@ function exportCSV(invoices: Invoice[]) {
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `nicoflex_invoices_${format(new Date(), 'yyyyMMdd')}.csv`;
+  a.href = url; a.download = `packflow_invoices_${format(new Date(), 'yyyyMMdd')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   toast.success('CSV downloaded');

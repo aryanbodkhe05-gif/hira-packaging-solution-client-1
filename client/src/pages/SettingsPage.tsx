@@ -22,7 +22,7 @@ export function SettingsPage() {
 
   function resetData() {
     if (!confirm('This will clear ALL app data (orders, materials, leads etc.) and reload with fresh seed data. Continue?')) return;
-    const keysToDelete = Object.keys(localStorage).filter((k) => k.startsWith('nicoflex_'));
+    const keysToDelete = Object.keys(localStorage).filter((k) => k.startsWith('packflow_') || k.startsWith('nicoflex_'));
     keysToDelete.forEach((k) => localStorage.removeItem(k));
     window.location.reload();
   }

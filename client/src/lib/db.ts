@@ -4,7 +4,28 @@
 
 import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem } from '../types/models';
 
-function getKey(table: string) { return `nicoflex_${table}`; }
+// Single source of truth for the localStorage key prefix. Never hardcode the
+// prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
+export const STORAGE_PREFIX = 'packflow_';
+const LEGACY_PREFIX = 'nicoflex_';
+
+function getKey(table: string) { return `${STORAGE_PREFIX}${table}`; }
+
+// One-time migration: copy any legacy `nicoflex_*` keys to `packflow_*` when the
+// new key doesn't already exist, so existing data is never lost on rebrand.
+// Safe to call on every load — it no-ops once migrated.
+export function migrateStorage(): void {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(LEGACY_PREFIX)) continue;
+      const newKey = STORAGE_PREFIX + key.slice(LEGACY_PREFIX.length);
+      if (localStorage.getItem(newKey) === null) {
+        const val = localStorage.getItem(key);
+        if (val !== null) localStorage.setItem(newKey, val);
+      }
+    }
+  } catch { /* ignore quota / access errors */ }
+}
 
 function getAll<T>(table: string): T[] {
   try {
@@ -113,7 +134,7 @@ export const alertsDb = {
   markAllSeen: () => {
     const all = dbGetAll<AppAlert>('app_alerts');
     const updated = all.map((a) => ({ ...a, seen: true }));
-    localStorage.setItem('nicoflex_app_alerts', JSON.stringify(updated));
+    localStorage.setItem(getKey('app_alerts'), JSON.stringify(updated));
   },
 };
 
@@ -213,11 +234,11 @@ export function syncRollsFromProduction(): void {
 // Settings helpers
 export function getSettings(): Record<string, string> {
   try {
-    const raw = localStorage.getItem('nicoflex_settings');
+    const raw = localStorage.getItem(getKey('settings'));
     return raw ? JSON.parse(raw) : {};
   } catch { return {}; }
 }
 export function saveSettings(patch: Record<string, string>): void {
   const existing = getSettings();
-  localStorage.setItem('nicoflex_settings', JSON.stringify({ ...existing, ...patch }));
+  localStorage.setItem(getKey('settings'), JSON.stringify({ ...existing, ...patch }));
 }
