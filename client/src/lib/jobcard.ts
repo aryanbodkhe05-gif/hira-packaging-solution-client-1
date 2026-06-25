@@ -24,7 +24,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
   const base = { na: false, consumption: emptyConsumption() };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
   const isNormal = cardType === 'Normal';
-  const isRoll = cardType === 'BOPP' && makingType === 'Roll Making';
+  const isRoll = cardType === 'BOPP' && makingType === 'Roll';
   return {
     jobNo: '',
     cardType,
@@ -47,14 +47,14 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
 // (bag-conversion stages hidden); Normal cards run Printing → Cutting → Dispatch.
 export function visibleStageKeys(card: Pick<JobCard, 'cardType' | 'makingType'>): StageKey[] {
   if (card.cardType === 'Normal') return ['printing', 'cutting', 'dispatch'];
-  if (card.makingType === 'Roll Making') return ['printing', 'metalize', 'slitting', 'dispatch'];
+  if (card.makingType === 'Roll') return ['printing', 'metalize', 'slitting', 'dispatch'];
   return [...STAGE_KEYS];
 }
 
 // Build a job card pre-filled from an order, routed by product category / making type.
 export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
-  const cardType: CardType = order.productCategory === 'Other Bag' ? 'Normal' : 'BOPP';
-  const makingType: MakingType | undefined = cardType === 'BOPP' ? (order.makingType ?? 'Bag Making') : undefined;
+  const cardType: CardType = order.productType === 'BOPP' ? 'BOPP' : 'Normal';
+  const makingType: MakingType | undefined = cardType === 'BOPP' ? (order.makingType ?? 'Bag') : undefined;
   const card = emptyJobCard(cardType, 'Glossy', makingType);
   card.header.brand = order.clientName;
   card.header.size = order.sizeDisplay;

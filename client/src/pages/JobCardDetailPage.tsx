@@ -168,7 +168,7 @@ export function JobCardDetailPage() {
   const [card, setCard] = useState<JobCard | null>(() => {
     if (isNew) {
       const ct = params.get('type') === 'Normal' ? 'Normal' : 'BOPP';
-      const mk = ct === 'BOPP' ? (params.get('making') === 'Roll Making' ? 'Roll Making' : 'Bag Making') : undefined;
+      const mk = ct === 'BOPP' ? (params.get('making') === 'Roll' ? 'Roll' : 'Bag') : undefined;
       return normalizeJobCard({ ...emptyJobCard(ct, 'Glossy', mk), id: '' } as JobCard);
     }
     const found = jobCardsDb.get(id!);
@@ -383,7 +383,7 @@ export function JobCardDetailPage() {
           </StageCard>
 
           {/* Roll dispatch point — roll-making jobs dispatch after the slitting/roll output */}
-          {card.makingType === 'Roll Making' && (
+          {card.makingType === 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
                 <p className="text-white font-medium text-sm">Roll ready for dispatch</p>
@@ -459,8 +459,8 @@ export function JobCardDetailPage() {
             <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
           </StageCard>
 
-          {/* Bag dispatch point — bag jobs (BOPP Bag Making + Normal) dispatch after cutting */}
-          {(card.cardType === 'Normal' || card.makingType !== 'Roll Making') && (
+          {/* Bag dispatch point — bag jobs (BOPP Bag + Normal) dispatch after cutting */}
+          {(card.cardType === 'Normal' || card.makingType !== 'Roll') && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
                 <p className="text-white font-medium text-sm">Bags ready for dispatch</p>

@@ -9,7 +9,7 @@ export const COMPANY = {
   email:       'info@hirapackaging.com',
 } as const;
 
-export const PRODUCT_TYPES = ['BOPP', 'UL', 'Natural', 'Laminated'] as const;
+export const PRODUCT_TYPES = ['BOPP', 'Normal', 'UL', 'Natural', 'Laminated'] as const;
 export type ProductType = typeof PRODUCT_TYPES[number];
 
 export const CONSUMABLE_CATEGORIES = ['Ink', 'Thread', 'Filler', 'Custom'] as const;
@@ -98,11 +98,8 @@ export type JobStage = typeof JOB_STAGES[number];
 export const JOBCARD_STATUSES = ['In Progress', 'Dispatched'] as const;
 export type JobCardStatus = typeof JOBCARD_STATUSES[number];
 
-// Order → Production routing
-export const PRODUCT_CATEGORIES = ['BOPP Bag', 'Other Bag'] as const;
-export type ProductCategory = typeof PRODUCT_CATEGORIES[number];
-
-export const MAKING_TYPES = ['Roll Making', 'Bag Making'] as const;
+// Order → Production routing. Making Type applies only to BOPP product type.
+export const MAKING_TYPES = ['Roll', 'Bag'] as const;
 export type MakingType = typeof MAKING_TYPES[number];
 
 // Job card variant: BOPP (full traveler) vs Normal (Printing → Cutting → Dispatch)

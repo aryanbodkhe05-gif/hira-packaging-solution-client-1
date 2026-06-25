@@ -4,9 +4,9 @@ import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink } from 'luci
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 import { ordersDb, jobCardsDb } from '../lib/db';
-import { PRODUCT_TYPES, ORDER_STATUSES, PRODUCT_CATEGORIES, MAKING_TYPES } from '../config';
+import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES } from '../config';
 import type { Order } from '../types/models';
-import type { ProductType, OrderStatus, ProductCategory, MakingType } from '../config';
+import type { ProductType, OrderStatus, MakingType } from '../config';
 import { createJobCardFromOrder, genJobNo } from '../lib/jobcard';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -33,7 +33,7 @@ function genOrderId(): string {
 // ── Order Form ─────────────────────────────────────────────────────────────────
 const emptyOrder: Omit<Order, 'id'> = {
   orderId: '', clientName: '', productType: 'BOPP',
-  productCategory: 'BOPP Bag', makingType: 'Bag Making',
+  makingType: 'Bag',
   length: 0, width: 0, gsm: 0, sizeDisplay: '',
   quantityKg: undefined, quantityNos: undefined, quantityUnit: 'Both',
   status: 'Pending', notes: '', createdAt: new Date().toISOString(),
@@ -68,35 +68,30 @@ function OrderForm({ initial, onSave, onClose }: {
         <div>
           <label className="label">Product Type</label>
           <select className="input-field" value={f.productType}
-            onChange={(e) => set('productType', e.target.value as ProductType)}>
+            onChange={(e) => {
+              const pt = e.target.value as ProductType;
+              setF((p) => ({ ...p, productType: pt, makingType: pt === 'BOPP' ? (p.makingType ?? 'Bag') : undefined }));
+            }}>
             {PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
         </div>
       </div>
 
-      {/* Product category drives production routing */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Making Type — only for BOPP. Roll → roll-only card (no cutting); Bag → full flow. */}
+      {f.productType === 'BOPP' && (
         <div>
-          <label className="label">Product Category</label>
-          <select className="input-field" value={f.productCategory ?? 'BOPP Bag'}
-            onChange={(e) => {
-              const pc = e.target.value as ProductCategory;
-              set('productCategory', pc);
-              if (pc === 'BOPP Bag' && !f.makingType) set('makingType', 'Bag Making');
-            }}>
-            {PRODUCT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        {f.productCategory === 'BOPP Bag' && (
-          <div>
-            <label className="label">Making Type *</label>
-            <select className="input-field" value={f.makingType ?? 'Bag Making'}
-              onChange={(e) => set('makingType', e.target.value as MakingType)}>
-              {MAKING_TYPES.map((m) => <option key={m}>{m}</option>)}
-            </select>
+          <label className="label">Making Type *</label>
+          <div className="flex gap-2">
+            {MAKING_TYPES.map((m) => (
+              <button key={m} type="button" onClick={() => set('makingType', m)}
+                className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
+                  (f.makingType ?? 'Bag') === m ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
+                {m}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div>
         <label className="label">Client Name *</label>
@@ -219,7 +214,7 @@ export function OrdersPage() {
       nav(`/job-card/${order.jobCardId}`);
       return;
     }
-    if (order.productCategory === 'BOPP Bag' && !order.makingType) {
+    if (order.productType === 'BOPP' && !order.makingType) {
       toast.error('Set Making Type (Roll / Bag) on the order first'); return;
     }
     const now = new Date().toISOString();

@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, ProductCategory, MakingType, CardType, DispatchType } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType } from '../config';
 
 export interface Roll {
   id: string;
@@ -236,7 +236,7 @@ export interface JobCard {
   id: string;
   jobNo: string;                // HPS-YYYY-####
   cardType: CardType;           // 'BOPP' (full) | 'Normal' (Printing→Cutting→Dispatch)
-  makingType?: MakingType;      // for BOPP: Roll Making | Bag Making
+  makingType?: MakingType;      // for BOPP: Roll | Bag
   orderRef?: string;            // linked Order.id
   orderNo?: string;             // linked Order.orderId (display)
   client?: string;              // customer, carried from the order
@@ -362,9 +362,8 @@ export interface Order {
   quantityNos?: number;
   quantityUnit: 'KG' | 'Nos' | 'Both';
   status: OrderStatus;
-  // Production routing (Sales → Production)
-  productCategory?: ProductCategory;   // 'BOPP Bag' | 'Other Bag'
-  makingType?: MakingType;             // when BOPP Bag: 'Roll Making' | 'Bag Making'
+  // Production routing (Sales → Production). Making Type applies only to BOPP.
+  makingType?: MakingType;             // when BOPP: 'Roll' | 'Bag'
   jobCardId?: string;                  // linked Job Card once sent to production
   notes?: string;
   billNo?: string;
