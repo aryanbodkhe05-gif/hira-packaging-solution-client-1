@@ -1,10 +1,10 @@
 // ── Job Card helpers: empty factories, metrics, carry-forward, costing ─────────
 import type {
-  JobCard, RateMasterItem, Consumption, JobCardHeader,
+  JobCard, RateMasterItem, Consumption, JobCardHeader, Order,
   PrintingStage, MetalizeStage, SlittingStage, LaminationStage, CuttingStage, DispatchStage,
 } from '../types/models';
 import { JOB_STAGES } from '../config';
-import type { JobStage, Finish } from '../config';
+import type { JobStage, Finish, CardType, MakingType } from '../config';
 
 export const STAGE_KEYS = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
 export type StageKey = typeof STAGE_KEYS[number];
@@ -20,16 +20,21 @@ const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 // ── Empty factories ────────────────────────────────────────────────────────────
 function emptyConsumption(): Consumption[] { return []; }
 
-export function emptyJobCard(finish: Finish = 'Glossy'): Omit<JobCard, 'id'> {
+export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glossy', makingType?: MakingType): Omit<JobCard, 'id'> {
   const base = { na: false, consumption: emptyConsumption() };
+  // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
+  const isNormal = cardType === 'Normal';
+  const isRoll = cardType === 'BOPP' && makingType === 'Roll Making';
   return {
     jobNo: '',
+    cardType,
+    makingType,
     header: { brand: '', qty: 0, size: '', finish, date: new Date().toLocaleDateString('en-CA') },
     printing:   { ...base } as PrintingStage,
-    metalize:   { ...base, na: finish !== 'Metalized' } as MetalizeStage, // only metalized orders metalize
-    slitting:   { ...base, rolls: [] } as SlittingStage,
-    lamination: { ...base, rows: [{}] } as LaminationStage,
-    cutting:    { ...base, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
+    metalize:   { ...base, na: isNormal || finish !== 'Metalized' } as MetalizeStage,
+    slitting:   { ...base, na: isNormal, rolls: [] } as SlittingStage,
+    lamination: { ...base, na: isNormal || isRoll, rows: [{}] } as LaminationStage,
+    cutting:    { ...base, na: isRoll, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
     status: 'In Progress',
     currentStage: 'Printing',
@@ -38,8 +43,31 @@ export function emptyJobCard(finish: Finish = 'Glossy'): Omit<JobCard, 'id'> {
   };
 }
 
+// Stages shown for a card, by variant. Roll jobs stop at the slitting/roll output
+// (bag-conversion stages hidden); Normal cards run Printing → Cutting → Dispatch.
+export function visibleStageKeys(card: Pick<JobCard, 'cardType' | 'makingType'>): StageKey[] {
+  if (card.cardType === 'Normal') return ['printing', 'cutting', 'dispatch'];
+  if (card.makingType === 'Roll Making') return ['printing', 'metalize', 'slitting', 'dispatch'];
+  return [...STAGE_KEYS];
+}
+
+// Build a job card pre-filled from an order, routed by product category / making type.
+export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
+  const cardType: CardType = order.productCategory === 'Other Bag' ? 'Normal' : 'BOPP';
+  const makingType: MakingType | undefined = cardType === 'BOPP' ? (order.makingType ?? 'Bag Making') : undefined;
+  const card = emptyJobCard(cardType, 'Glossy', makingType);
+  card.header.brand = order.clientName;
+  card.header.size = order.sizeDisplay;
+  card.header.qty = order.quantityNos ?? order.quantityKg ?? 0;
+  card.client = order.clientName;
+  card.orderRef = order.id;
+  card.orderNo = order.orderId;
+  return card;
+}
+
 // Ensure arrays exist (covers older/partial records read from storage)
 export function normalizeJobCard(j: JobCard): JobCard {
+  j.cardType ??= 'BOPP';
   j.printing.consumption ??= [];
   j.metalize.consumption ??= [];
   j.slitting.consumption ??= [];

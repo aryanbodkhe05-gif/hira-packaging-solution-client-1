@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] — Sales → Production → Dispatch wiring
+
+- **Order product choice:** orders now carry `productCategory` (`BOPP Bag` | `Other Bag`); choosing `BOPP Bag` reveals a required `makingType` (`Roll Making` | `Bag Making`). Persisted on the order.
+- **Send to Production:** one button on each order creates a pre-filled, linked Job Card and routes it — `BOPP Bag`+`Bag Making` → BOPP card (full flow); `BOPP Bag`+`Roll Making` → BOPP card flagged roll-only (bag stages hidden); `Other Bag` → Normal card (Printing→Cutting→Dispatch). Order flips to `In Production` and links to the card (`jobCardId`); the row button becomes "Open Job Card".
+- **Job Card stage visibility by variant** via `visibleStageKeys()` — Normal hides Metalize/Slitting/Lamination; roll-only hides Lamination/Cutting.
+- **Two "Send to Dispatch" points** on the Job Card: after Slitting (roll jobs) and after Cutting (bag jobs), shown by making type. Each posts a `DispatchRecord` tagged `Roll`/`Bag`, marks the job `Dispatched`, and flips the linked order to `Dispatched`.
+- **Dispatch registers:** new `Dispatch – Bags` and `Dispatch – Rolls` pages (one reusable component) read the dispatch store; replace the earlier placeholders. CSV export + search + pagination.
+- **Removed order-side dispatch:** the old dispatch button + modal in Orders are gone — dispatch is triggered only from the Job Card.
+- `[CONFIRM]` applied: roll-only stops after Slitting; single `dispatches` store tagged by type (Roll/Bag) since dedicated registers now read it; Normal Bag default flow Printing→Cutting→Dispatch.
+
+
 ## [Unreleased] — Job Card (Order Traveler + Live Costing)
 
 ### New module — Job Card (`/job-card`, `/job-card/new`, `/job-card/:id`)

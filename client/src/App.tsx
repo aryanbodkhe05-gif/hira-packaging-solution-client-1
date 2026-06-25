@@ -11,6 +11,7 @@ import { LoomProductionPage } from './pages/LoomProductionPage';
 import { JobCardListPage }   from './pages/JobCardListPage';
 import { JobCardDetailPage } from './pages/JobCardDetailPage';
 import { RateMasterPage }    from './pages/RateMasterPage';
+import { DispatchRegisterPage } from './pages/DispatchRegisterPage';
 import { PlaceholderPage }   from './pages/PlaceholderPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
@@ -39,8 +40,9 @@ export default function App() {
               <Route path="production" element={<ProductionPage />} />
               <Route path="pp-fabric"  element={<PPFabricPage />} />
               <Route path="loom"       element={<LoomProductionPage />} />
-              <Route path="job-card"        element={<JobCardListPage />} />
+              <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
               <Route path="job-card/:id"    element={<JobCardDetailPage />} />
+              <Route path="normal-bag"      element={<JobCardListPage cardType="Normal" />} />
               <Route path="rate-master"     element={<RateMasterPage />} />
               <Route path="orders"     element={<OrdersPage />} />
               <Route path="dispatch"   element={<DispatchPage />} />
@@ -50,11 +52,10 @@ export default function App() {
               <Route path="alerts"     element={<AlertEnginePage />} />
               <Route path="settings"   element={<SettingsPage />} />
 
-              {/* ── New 6-section routes — placeholders until each section is built ── */}
-              <Route path="dispatch/bags"  element={<PlaceholderPage title="Dispatch – Bags" description="Finished-bag dispatch register. Being built." />} />
-              <Route path="dispatch/rolls" element={<PlaceholderPage title="Dispatch – Rolls" description="Finished-roll dispatch register. Being built." />} />
-              <Route path="normal-bag"     element={<PlaceholderPage title="Normal Bag" description="Normal bag job card (Printing → Cutting → Dispatch). Being built." />} />
-              <Route path="normal-bag/:id" element={<PlaceholderPage title="Normal Bag" description="Normal bag job card. Being built." />} />
+              {/* ── New 6-section routes ── */}
+              <Route path="dispatch/bags"  element={<DispatchRegisterPage type="Bag" />} />
+              <Route path="dispatch/rolls" element={<DispatchRegisterPage type="Roll" />} />
+              {/* remaining placeholders until each section is built */}
               <Route path="inventory/raw-materials"  element={<PlaceholderPage title="Raw Materials" description="Consumables + 1-click restock. Being built." />} />
               <Route path="inventory/finished-rolls" element={<PlaceholderPage title="Finished Rolls" description="Finished rolls (Normal + BOPP). Being built." />} />
               <Route path="inventory/bopp-film"      element={<PlaceholderPage title="BOPP Film Stock" description="Incoming BOPP film raw stock. Being built." />} />

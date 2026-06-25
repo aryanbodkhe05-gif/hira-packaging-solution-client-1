@@ -1,11 +1,13 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Truck, Search, ChevronDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format, parseISO, getMonth, getYear } from 'date-fns';
-import { ordersDb } from '../lib/db';
-import { PRODUCT_TYPES, ORDER_STATUSES } from '../config';
+import { format, parseISO } from 'date-fns';
+import { ordersDb, jobCardsDb } from '../lib/db';
+import { PRODUCT_TYPES, ORDER_STATUSES, PRODUCT_CATEGORIES, MAKING_TYPES } from '../config';
 import type { Order } from '../types/models';
-import type { ProductType, OrderStatus } from '../config';
+import type { ProductType, OrderStatus, ProductCategory, MakingType } from '../config';
+import { createJobCardFromOrder, genJobNo } from '../lib/jobcard';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../lib/utils';
@@ -31,6 +33,7 @@ function genOrderId(): string {
 // ── Order Form ─────────────────────────────────────────────────────────────────
 const emptyOrder: Omit<Order, 'id'> = {
   orderId: '', clientName: '', productType: 'BOPP',
+  productCategory: 'BOPP Bag', makingType: 'Bag Making',
   length: 0, width: 0, gsm: 0, sizeDisplay: '',
   quantityKg: undefined, quantityNos: undefined, quantityUnit: 'Both',
   status: 'Pending', notes: '', createdAt: new Date().toISOString(),
@@ -69,6 +72,30 @@ function OrderForm({ initial, onSave, onClose }: {
             {PRODUCT_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
         </div>
+      </div>
+
+      {/* Product category drives production routing */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Product Category</label>
+          <select className="input-field" value={f.productCategory ?? 'BOPP Bag'}
+            onChange={(e) => {
+              const pc = e.target.value as ProductCategory;
+              set('productCategory', pc);
+              if (pc === 'BOPP Bag' && !f.makingType) set('makingType', 'Bag Making');
+            }}>
+            {PRODUCT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        {f.productCategory === 'BOPP Bag' && (
+          <div>
+            <label className="label">Making Type *</label>
+            <select className="input-field" value={f.makingType ?? 'Bag Making'}
+              onChange={(e) => set('makingType', e.target.value as MakingType)}>
+              {MAKING_TYPES.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       <div>
@@ -171,59 +198,40 @@ function OrderForm({ initial, onSave, onClose }: {
   );
 }
 
-// ── Dispatch modal ─────────────────────────────────────────────────────────────
-function DispatchModal({ order, onClose, onSuccess }: { order: Order; onClose: () => void; onSuccess: () => void }) {
-  const [billNo, setBillNo] = useState(order.billNo ?? '');
-  const [date, setDate] = useState(order.dispatchDate ?? format(new Date(), 'yyyy-MM-dd'));
-
-  function submit() {
-    if (!billNo.trim()) { toast.error('Bill No. required'); return; }
-    ordersDb.update(order.id, {
-      status: 'Dispatched',
-      billNo,
-      dispatchDate: date,
-      dispatchedAt: new Date().toISOString(),
-    });
-    toast.success(`Order ${order.orderId} dispatched! Bill: ${billNo}`);
-    onSuccess();
-    onClose();
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="p-3 bg-white/5 rounded-lg">
-        <p className="text-muted text-xs">Order</p>
-        <p className="font-mono text-accent font-medium">{order.orderId}</p>
-        <p className="text-white/70 text-sm">{order.clientName} · {order.sizeDisplay}</p>
-      </div>
-      <div>
-        <label className="label">Bill No. *</label>
-        <input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="BILL-023" autoFocus />
-      </div>
-      <div>
-        <label className="label">Dispatch Date</label>
-        <input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      </div>
-      <div className="flex gap-3">
-        <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} className="btn-primary flex-1 justify-center">
-          <Truck className="w-4 h-4" /> Mark Dispatched
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Main page ──────────────────────────────────────────────────────────────────
+// Note: order-side dispatch was removed — dispatch is now triggered only from the
+// Job Card (Send to Dispatch), which posts a dispatch record and flips the linked
+// order to Dispatched. See JobCardDetailPage.
 export function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>(() => ordersDb.getAll());
   const [search, setSearch]   = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(''); // 'YYYY-MM'
-  const [modal, setModal] = useState<{ type: 'add' | 'edit' | 'dispatch'; order?: Order } | null>(null);
+  const [modal, setModal] = useState<{ type: 'add' | 'edit'; order?: Order } | null>(null);
+  const nav = useNavigate();
 
   const reload = useCallback(() => setOrders(ordersDb.getAll()), []);
+
+  // Push an order into Production — creates the correct, pre-filled, linked Job Card.
+  function sendToProduction(order: Order) {
+    if (order.jobCardId && jobCardsDb.get(order.jobCardId)) {
+      nav(`/job-card/${order.jobCardId}`);
+      return;
+    }
+    if (order.productCategory === 'BOPP Bag' && !order.makingType) {
+      toast.error('Set Making Type (Roll / Bag) on the order first'); return;
+    }
+    const now = new Date().toISOString();
+    const draft = createJobCardFromOrder(order);
+    const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
+    const created = jobCardsDb.create({ ...draft, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now });
+    ordersDb.update(order.id, { status: 'In Production', jobCardId: created.id });
+    const dest = created.cardType === 'Normal' ? 'Normal Bag' : `BOPP (${created.makingType})`;
+    toast.success(`Sent to Production → ${dest} job card ${created.jobNo}`);
+    reload();
+    nav(`/job-card/${created.id}`);
+  }
 
   // Build month options from order dates
   const months = useMemo(() => {
@@ -363,10 +371,15 @@ export function OrdersPage() {
                       <td className="table-cell font-mono text-xs">{o.billNo ?? '—'}</td>
                       <td className="table-cell">
                         <div className="flex gap-1">
-                          {o.status !== 'Dispatched' && (
-                            <button onClick={() => setModal({ type: 'dispatch', order: o })}
-                              className="p-1.5 rounded hover:bg-success/20 text-muted hover:text-success transition-colors" title="Dispatch">
-                              <Truck className="w-3.5 h-3.5" />
+                          {o.jobCardId ? (
+                            <button onClick={() => nav(`/job-card/${o.jobCardId}`)}
+                              className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors" title="Open linked Job Card">
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </button>
+                          ) : o.status !== 'Dispatched' && (
+                            <button onClick={() => sendToProduction(o)}
+                              className="p-1.5 rounded hover:bg-primary/20 text-muted hover:text-accent transition-colors" title="Send to Production">
+                              <Factory className="w-3.5 h-3.5" />
                             </button>
                           )}
                           <button onClick={() => setModal({ type: 'edit', order: o })}
@@ -399,11 +412,6 @@ export function OrdersPage() {
             onSave={handleSave}
             onClose={() => setModal(null)}
           />
-        </Modal>
-      )}
-      {modal?.type === 'dispatch' && modal.order && (
-        <Modal open onClose={() => setModal(null)} title="Dispatch Order" size="sm">
-          <DispatchModal order={modal.order} onClose={() => setModal(null)} onSuccess={reload} />
         </Modal>
       )}
     </div>

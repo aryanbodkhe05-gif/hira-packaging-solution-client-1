@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord } from '../types/models';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
 // prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
@@ -203,6 +203,14 @@ export const rateMasterDb = {
   create:  (r: Omit<RateMasterItem, 'id'>) => dbCreate<RateMasterItem>('rate_master', r),
   update:  (id: string, p: Partial<RateMasterItem>) => dbUpdate<RateMasterItem>('rate_master', id, p),
   delete:  (id: string) => dbDelete('rate_master', id),
+};
+
+// Finished-goods dispatch register (fed by Job Card dispatch points, tagged Roll/Bag)
+export const dispatchesDb = {
+  getAll:  () => dbGetAll<DispatchRecord>('dispatches'),
+  create:  (r: Omit<DispatchRecord, 'id'>) => dbCreate<DispatchRecord>('dispatches', r),
+  update:  (id: string, p: Partial<DispatchRecord>) => dbUpdate<DispatchRecord>('dispatches', id, p),
+  delete:  (id: string) => dbDelete('dispatches', id),
 };
 
 // ── Roll consumption sync ──────────────────────────────────────────────────────

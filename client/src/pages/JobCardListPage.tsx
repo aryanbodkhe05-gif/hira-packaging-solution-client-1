@@ -4,6 +4,7 @@ import { Plus, Search, ClipboardList, FileText, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { jobCardsDb } from '../lib/db';
 import { JOB_STAGES, JOBCARD_STATUSES } from '../config';
+import type { CardType } from '../config';
 import type { JobCard } from '../types/models';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatCard } from '../components/ui/StatCard';
@@ -24,8 +25,10 @@ const STAGE_BADGE: Record<string, string> = {
   Dispatch:   'bg-pink-500/20 text-pink-300 border-pink-500/30',
 };
 
-export function JobCardListPage() {
+export function JobCardListPage({ cardType }: { cardType?: CardType }) {
   const nav = useNavigate();
+  const title = cardType === 'Normal' ? 'Normal Bag' : cardType === 'BOPP' ? 'BOPP Job Card' : 'Job Card';
+  const newPath = cardType === 'Normal' ? '/job-card/new?type=Normal' : '/job-card/new';
   const [cards, setCards] = useState<JobCard[]>(() => jobCardsDb.getAll().map(normalizeJobCard));
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
@@ -47,11 +50,12 @@ export function JobCardListPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return cards.filter((c) =>
+      (!cardType || c.cardType === cardType) &&
       (!q || c.jobNo.toLowerCase().includes(q) || c.header.brand.toLowerCase().includes(q)) &&
       (!stageFilter || c.currentStage === stageFilter) &&
       (!statusFilter || c.status === statusFilter)
     );
-  }, [cards, search, stageFilter, statusFilter]);
+  }, [cards, cardType, search, stageFilter, statusFilter]);
 
   useEffect(() => { setPage(1); }, [search, stageFilter, statusFilter]);
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -62,7 +66,7 @@ export function JobCardListPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="page-header">Job Card</h1>
+          <h1 className="page-header">{title}</h1>
           <p className="text-muted text-sm mt-1">Digital order traveler — one live card per order, machine to machine</p>
         </div>
         <RoleSwitcher onChange={() => force((n) => n + 1)} />
@@ -87,7 +91,7 @@ export function JobCardListPage() {
           <option value="">All Statuses</option>
           {JOBCARD_STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <Link to="/job-card/new" className="btn-primary"><Plus className="w-4 h-4" /> New Job Card</Link>
+        <Link to={newPath} className="btn-primary"><Plus className="w-4 h-4" /> New {cardType === 'Normal' ? 'Normal Bag' : 'Job Card'}</Link>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -105,7 +109,7 @@ export function JobCardListPage() {
                 <tr><td colSpan={showCosts ? 10 : 9}>
                   <EmptyState icon={ClipboardList} title="No job cards yet"
                     description="Create a digital job card to track an order through the floor."
-                    action={{ label: 'New Job Card', onClick: () => nav('/job-card/new') }} />
+                    action={{ label: `New ${cardType === 'Normal' ? 'Normal Bag' : 'Job Card'}`, onClick: () => nav(newPath) }} />
                 </td></tr>
               ) : pageRows.map((c) => {
                 const cost = computeCosting(c);

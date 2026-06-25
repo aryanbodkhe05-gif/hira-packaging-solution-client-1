@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, ProductCategory, MakingType, CardType, DispatchType } from '../config';
 
 export interface Roll {
   id: string;
@@ -213,9 +213,35 @@ export interface JobCardHeader {
   date: string;
 }
 
+// A finished-goods dispatch posted from a job card's dispatch point.
+export interface DispatchRecord {
+  id: string;
+  type: DispatchType;           // 'Roll' | 'Bag'
+  jobCardId: string;
+  jobNo: string;
+  orderRef?: string;            // linked Order.id
+  orderNo?: string;
+  party: string;                // customer / client
+  brand: string;
+  qtyKg?: number;
+  qtyPieces?: number;           // bags
+  qtyMeters?: number;           // rolls
+  rolls?: number;
+  vehicle?: string;
+  date: string;                 // yyyy-mm-dd
+  createdAt: string;
+}
+
 export interface JobCard {
   id: string;
   jobNo: string;                // HPS-YYYY-####
+  cardType: CardType;           // 'BOPP' (full) | 'Normal' (Printing→Cutting→Dispatch)
+  makingType?: MakingType;      // for BOPP: Roll Making | Bag Making
+  orderRef?: string;            // linked Order.id
+  orderNo?: string;             // linked Order.orderId (display)
+  client?: string;              // customer, carried from the order
+  rollDispatchedAt?: string;    // 1-click dispatch at roll stage
+  bagDispatchedAt?: string;     // 1-click dispatch at bag stage
   header: JobCardHeader;
   printing: PrintingStage;
   metalize: MetalizeStage;
@@ -336,6 +362,10 @@ export interface Order {
   quantityNos?: number;
   quantityUnit: 'KG' | 'Nos' | 'Both';
   status: OrderStatus;
+  // Production routing (Sales → Production)
+  productCategory?: ProductCategory;   // 'BOPP Bag' | 'Other Bag'
+  makingType?: MakingType;             // when BOPP Bag: 'Roll Making' | 'Bag Making'
+  jobCardId?: string;                  // linked Job Card once sent to production
   notes?: string;
   billNo?: string;
   dispatchDate?: string;

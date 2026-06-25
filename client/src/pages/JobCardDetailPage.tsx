@@ -1,18 +1,18 @@
 import { useState, useMemo, useEffect, useCallback, ReactNode } from 'react';
-import { useParams, useNavigate, Navigate } from 'react-router-dom';
+import { useParams, useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, Save, Printer, ArrowLeft, AlertTriangle,
-  IndianRupee, Plus, Trash2,
+  IndianRupee, Plus, Trash2, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobCardsDb, rateMasterDb } from '../lib/db';
+import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb } from '../lib/db';
 import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BCS_OPTIONS } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide } from '../config';
-import type { JobCard, RateMasterItem, Consumption } from '../types/models';
+import type { JobCard, RateMasterItem, Consumption, DispatchRecord } from '../types/models';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, materialsForStage, formatINR,
-  prevActiveStage, nextActiveStage, stagePrimary,
+  prevActiveStage, nextActiveStage, stagePrimary, visibleStageKeys, totalBags,
 } from '../lib/jobcard';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts } from '../lib/roles';
@@ -112,6 +112,8 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children }: {
   jobKey: StageKey; card: JobCard; expanded: boolean;
   onToggle: () => void; onSetNA: (na: boolean) => void; children: ReactNode;
 }) {
+  // Hide stages this card variant doesn't use (Normal / roll-only jobs).
+  if (!visibleStageKeys(card).includes(jobKey)) return null;
   const stage = card[jobKey];
   const m = stageMetrics(card, jobKey);
   const prevKey = prevActiveStage(card, jobKey);
@@ -155,6 +157,7 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children }: {
 // ═════════════════════════════════════════════════════════════════════════════
 export function JobCardDetailPage() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const nav = useNavigate();
   const isNew = id === 'new';
   const branding = useBranding();
@@ -163,7 +166,11 @@ export function JobCardDetailPage() {
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
 
   const [card, setCard] = useState<JobCard | null>(() => {
-    if (isNew) return normalizeJobCard({ ...emptyJobCard(), id: '' } as JobCard);
+    if (isNew) {
+      const ct = params.get('type') === 'Normal' ? 'Normal' : 'BOPP';
+      const mk = ct === 'BOPP' ? (params.get('making') === 'Roll Making' ? 'Roll Making' : 'Bag Making') : undefined;
+      return normalizeJobCard({ ...emptyJobCard(ct, 'Glossy', mk), id: '' } as JobCard);
+    }
     const found = jobCardsDb.get(id!);
     return found ? normalizeJobCard(found) : null;
   });
@@ -227,6 +234,40 @@ export function JobCardDetailPage() {
 
   function setNA(k: StageKey, na: boolean) {
     patchStage(k, { na } as Partial<JobCard[StageKey]>);
+  }
+
+  // 1-click Send to Dispatch — posts a Roll or Bag dispatch record, marks the
+  // job Dispatched, and flips the linked order to Dispatched.
+  function sendToDispatch(kind: 'Roll' | 'Bag') {
+    if (!card) return;
+    if (!card.id) { toast.error('Save the job card first'); return; }
+    const now = new Date().toISOString();
+    let rec: Omit<DispatchRecord, 'id'>;
+    if (kind === 'Roll') {
+      const rolls = card.slitting.rolls || [];
+      rec = {
+        type: 'Roll', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
+        party: card.client || card.header.brand, brand: card.header.brand,
+        qtyKg: rolls.reduce((s, r) => s + (r.outputKg || 0), 0),
+        qtyMeters: rolls.reduce((s, r) => s + (r.meter || 0), 0),
+        rolls: rolls.filter((r) => (r.outputKg || 0) > 0).length,
+        date: now.slice(0, 10), createdAt: now,
+      };
+    } else {
+      rec = {
+        type: 'Bag', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
+        party: card.client || card.header.brand, brand: card.header.brand,
+        qtyPieces: totalBags(card),
+        qtyKg: card.cutting.rows.reduce((s, r) => s + (r.inputKg || 0), 0),
+        date: now.slice(0, 10), createdAt: now,
+      };
+    }
+    dispatchesDb.create(rec);
+    const patch = kind === 'Roll' ? { rollDispatchedAt: now } : { bagDispatchedAt: now };
+    jobCardsDb.update(card.id, { ...patch, status: 'Dispatched', updatedAt: now });
+    if (card.orderRef) ordersDb.update(card.orderRef, { status: 'Dispatched', dispatchedAt: now });
+    setCard({ ...card, ...patch, status: 'Dispatched' });
+    toast.success(`${kind} dispatched → Dispatch – ${kind}s register`);
   }
 
   const h = card.header;
@@ -341,6 +382,20 @@ export function JobCardDetailPage() {
             <ConsumptionEditor stage="Slitting" items={items} consumption={card.slitting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('slitting', { consumption: rows })} />
           </StageCard>
 
+          {/* Roll dispatch point — roll-making jobs dispatch after the slitting/roll output */}
+          {card.makingType === 'Roll Making' && (
+            <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
+              <div>
+                <p className="text-white font-medium text-sm">Roll ready for dispatch</p>
+                <p className="text-muted text-xs">Roll-making job — dispatch finished rolls from the slitting output.</p>
+              </div>
+              <button onClick={() => sendToDispatch('Roll')} disabled={!!card.rollDispatchedAt}
+                className={cn('btn-primary', card.rollDispatchedAt && 'opacity-50 cursor-not-allowed')}>
+                <Truck className="w-4 h-4" /> {card.rollDispatchedAt ? 'Roll Dispatched' : 'Send to Dispatch'}
+              </button>
+            </div>
+          )}
+
           {/* Lamination */}
           <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -403,6 +458,20 @@ export function JobCardDetailPage() {
             {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
             <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
           </StageCard>
+
+          {/* Bag dispatch point — bag jobs (BOPP Bag Making + Normal) dispatch after cutting */}
+          {(card.cardType === 'Normal' || card.makingType !== 'Roll Making') && (
+            <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
+              <div>
+                <p className="text-white font-medium text-sm">Bags ready for dispatch</p>
+                <p className="text-muted text-xs">Dispatch finished bags from the cutting output.</p>
+              </div>
+              <button onClick={() => sendToDispatch('Bag')} disabled={!!card.bagDispatchedAt}
+                className={cn('btn-primary', card.bagDispatchedAt && 'opacity-50 cursor-not-allowed')}>
+                <Truck className="w-4 h-4" /> {card.bagDispatchedAt ? 'Bags Dispatched' : 'Send to Dispatch'}
+              </button>
+            </div>
+          )}
 
           {/* Dispatch */}
           <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)}>
