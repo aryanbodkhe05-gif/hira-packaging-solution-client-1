@@ -159,6 +159,8 @@ export interface PrintingStage extends StageBase {
   balanceKg?: number;           // BOPP cards record Balance here (not Rejection)
   noOfBags?: number;            // Other card printing
   colour?: string;             // Other card printing — colour of print
+  ink?: number;                // Other card printing — ink consumption (kg)
+  thinner?: number;            // Other card printing — thinner consumption (kg)
 }
 
 export interface MetalizeStage extends StageBase {
@@ -216,6 +218,8 @@ export interface JobCardHeader {
   size: string;
   finish: Finish;
   date: string;
+  qtyUnit?: 'Nos' | 'Kg';   // Other card — Nos/Kg indicator
+  printed?: boolean;        // Other card — Plain (false) / Printed (true)
 }
 
 // A finished-goods dispatch posted from a job card's dispatch point.

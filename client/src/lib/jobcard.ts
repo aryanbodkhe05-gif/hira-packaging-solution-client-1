@@ -59,6 +59,7 @@ export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
   card.header.brand = order.clientName;
   card.header.size = order.sizeDisplay;
   card.header.qty = order.quantityNos ?? order.quantityKg ?? 0;
+  card.header.qtyUnit = order.quantityUnit === 'KG' ? 'Kg' : 'Nos';
   card.client = order.clientName;
   card.orderRef = order.id;
   card.orderNo = order.orderId;

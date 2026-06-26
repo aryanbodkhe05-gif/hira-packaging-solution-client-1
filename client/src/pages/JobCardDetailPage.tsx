@@ -244,6 +244,7 @@ export function JobCardDetailPage() {
   const [items] = useState<RateMasterItem[]>(() => rateMasterDb.getAll());
   const [showCosts, setShowCosts] = useState(canViewCosts());
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
+  const [showInkThinner, setShowInkThinner] = useState(false);
 
   const [card, setCard] = useState<JobCard | null>(() => {
     if (isNew) {
@@ -387,15 +388,33 @@ export function JobCardDetailPage() {
             <p className="section-title text-base">Job Description</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Brand *"><Txt value={h.brand} onChange={(v) => patchHeader({ brand: v })} placeholder="Brand name" /></Field>
-              <Field label="Qty"><Num value={h.qty || undefined} onChange={(v) => patchHeader({ qty: v ?? 0 })} /></Field>
-              <Field label="Size"><Txt value={h.size} onChange={(v) => patchHeader({ size: v })} placeholder="18 x 28" /></Field>
-              <Field label="Date"><DateInput value={h.date} onChange={(v) => patchHeader({ date: v })} /></Field>
-              <Field label="Finish">
-                <select className="input-field" value={h.finish}
-                  onChange={(e) => { const f = e.target.value as Finish; patchHeader({ finish: f }); patchStage('metalize', { na: f !== 'Metalized' }); }}>
-                  {FINISHES.map((f) => <option key={f}>{f}</option>)}
-                </select>
-              </Field>
+              {card.cardType === 'Other' ? (<>
+                <Field label="Size"><Txt value={h.size} onChange={(v) => patchHeader({ size: v })} placeholder="18 x 28" /></Field>
+                <Field label="Qty"><Num value={h.qty || undefined} onChange={(v) => patchHeader({ qty: v ?? 0 })} /></Field>
+                <Field label="Nos / Kg">
+                  <select className="input-field" value={h.qtyUnit ?? 'Nos'} onChange={(e) => patchHeader({ qtyUnit: e.target.value as 'Nos' | 'Kg' })}>
+                    <option>Nos</option><option>Kg</option>
+                  </select>
+                </Field>
+                <Field label="Finish (Plain / Printed)">
+                  <div className="flex gap-2">
+                    {([['Plain', false], ['Printed', true]] as const).map(([lbl, val]) => (
+                      <button key={lbl} type="button" onClick={() => patchHeader({ printed: val })}
+                        className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors', (!!h.printed === val) ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>{lbl}</button>
+                    ))}
+                  </div>
+                </Field>
+              </>) : (<>
+                <Field label="Qty"><Num value={h.qty || undefined} onChange={(v) => patchHeader({ qty: v ?? 0 })} /></Field>
+                <Field label="Size"><Txt value={h.size} onChange={(v) => patchHeader({ size: v })} placeholder="18 x 28" /></Field>
+                <Field label="Date"><DateInput value={h.date} onChange={(v) => patchHeader({ date: v })} /></Field>
+                <Field label="Finish">
+                  <select className="input-field" value={h.finish}
+                    onChange={(e) => { const f = e.target.value as Finish; patchHeader({ finish: f }); patchStage('metalize', { na: f !== 'Metalized' }); }}>
+                    {FINISHES.map((f) => <option key={f}>{f}</option>)}
+                  </select>
+                </Field>
+              </>)}
               <Field label="Status">
                 <select className="input-field" value={card.status} onChange={(e) => setCard((p) => p && ({ ...p, status: e.target.value as JobCardStatus }))}>
                   {JOBCARD_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -610,7 +629,21 @@ export function JobCardDetailPage() {
               <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
               <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            <ConsumptionEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
+            {/* Ink & thinner consumption (Other bags) — shown if set, else "Add" reveals them */}
+            {(card.printing.ink != null || card.printing.thinner != null || showInkThinner) ? (
+              <div className="rounded-lg border border-accent/10 p-3 space-y-2">
+                <p className="label !mb-1">Material consumption</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Ink (kg)"><Num value={card.printing.ink} onChange={(v) => patchStage('printing', { ink: v })} /></Field>
+                  <Field label="Thinner (kg)"><Num value={card.printing.thinner} onChange={(v) => patchStage('printing', { thinner: v })} /></Field>
+                </div>
+                {(card.printing.ink != null || card.printing.thinner != null) && (
+                  <p className="text-muted text-xs">Logged: ink {card.printing.ink ?? 0} kg · thinner {card.printing.thinner ?? 0} kg</p>
+                )}
+              </div>
+            ) : (
+              <button onClick={() => setShowInkThinner(true)} className="btn-secondary"><Plus className="w-4 h-4" /> Add Ink &amp; Thinner</button>
+            )}
           </StageCard>
 
           {/* Dispatch after Printing */}
