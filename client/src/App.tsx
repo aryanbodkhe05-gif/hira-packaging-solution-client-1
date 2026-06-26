@@ -12,6 +12,10 @@ import { JobCardListPage }   from './pages/JobCardListPage';
 import { JobCardDetailPage } from './pages/JobCardDetailPage';
 import { RateMasterPage }    from './pages/RateMasterPage';
 import { DispatchRegisterPage } from './pages/DispatchRegisterPage';
+import { InventoryRollsPage } from './pages/InventoryRollsPage';
+import { RawMaterialsPage }  from './pages/RawMaterialsPage';
+import { BoppFilmPage }      from './pages/BoppFilmPage';
+import { FinishedRollsPage } from './pages/FinishedRollsPage';
 import { PlaceholderPage }   from './pages/PlaceholderPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
@@ -55,10 +59,11 @@ export default function App() {
               {/* ── New 6-section routes ── */}
               <Route path="dispatch/bags"  element={<DispatchRegisterPage type="Bag" />} />
               <Route path="dispatch/rolls" element={<DispatchRegisterPage type="Roll" />} />
+              <Route path="inventory/rolls"          element={<InventoryRollsPage />} />
+              <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
+              <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
+              <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
               {/* remaining placeholders until each section is built */}
-              <Route path="inventory/raw-materials"  element={<PlaceholderPage title="Raw Materials" description="Consumables + 1-click restock. Being built." />} />
-              <Route path="inventory/finished-rolls" element={<PlaceholderPage title="Finished Rolls" description="Finished rolls (Normal + BOPP). Being built." />} />
-              <Route path="inventory/bopp-film"      element={<PlaceholderPage title="BOPP Film Stock" description="Incoming BOPP film raw stock. Being built." />} />
               <Route path="suppliers"       element={<PlaceholderPage title="Suppliers" description="Supplier master. Being built." />} />
               <Route path="purchase-orders" element={<PlaceholderPage title="Purchase Orders" description="Raise POs to suppliers. Being built." />} />
               <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note — receive against a PO. Being built." />} />

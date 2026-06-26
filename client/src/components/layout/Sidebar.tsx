@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings, UserCog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
-  ClipboardList, IndianRupee, Disc3, Boxes, FileText,
+  ClipboardList, IndianRupee, Disc3, Boxes, FileText, Archive,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -35,9 +35,10 @@ const NAV: NavSection[] = [
     { label: 'Machines',      icon: Factory,       to: '/production' },
   ]},
   { section: 'Inventory', icon: Package, items: [
-    { label: 'Raw Materials',   icon: Package, to: '/inventory/raw-materials' },
-    { label: 'Finished Rolls',  icon: Boxes,   to: '/inventory/finished-rolls' },
-    { label: 'BOPP Film Stock', icon: Layers,  to: '/inventory/bopp-film' },
+    { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls' },
+    { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials' },
+    { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film' },
+    { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls' },
   ]},
   { section: 'Supplier', icon: Building2, items: [
     { label: 'Suppliers',       icon: Building2,     to: '/suppliers' },

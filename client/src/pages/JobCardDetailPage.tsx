@@ -5,7 +5,7 @@ import {
   IndianRupee, Plus, Trash2, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb } from '../lib/db';
+import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb } from '../lib/db';
 import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BCS_OPTIONS } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide } from '../config';
 import type { JobCard, RateMasterItem, Consumption, DispatchRecord } from '../types/models';
@@ -19,6 +19,86 @@ import { canViewCosts } from '../lib/roles';
 import { useBranding } from '../lib/branding';
 import { RoleSwitcher } from '../components/ui/RoleSwitcher';
 import { cn } from '../lib/utils';
+
+// ── Stock Consumed panel — pick a Roll / BOPP Film from current Inventory stock,
+// then mark it Finished (moves to Finished Rolls/Film) or Balance (updates the
+// remaining weight in stock and flags it "used"). Shown on both job cards.
+function StockConsumedPanel({ jobNo, orderNo, isBopp }: { jobNo: string; orderNo?: string; isBopp: boolean }) {
+  const [tick, setTick] = useState(0);
+  const reload = () => setTick((t) => t + 1);
+  const rolls = useMemo(() => { void tick; return invRollsDb.getAll().filter((r) => !r.balanceUsed); }, [tick]);
+  const films = useMemo(() => { void tick; return boppFilmsDb.getAll().filter((f) => !f.balanceUsed); }, [tick]);
+  const [rollId, setRollId] = useState('');
+  const [filmId, setFilmId] = useState('');
+  const [balRoll, setBalRoll] = useState('');
+  const [balFilm, setBalFilm] = useState('');
+
+  function finishRoll() {
+    const r = rolls.find((x) => x.id === rollId); if (!r) { toast.error('Select a roll'); return; }
+    const { id, balanceUsed, ...rest } = r; void id; void balanceUsed;
+    finishedRollsDb.create({ ...rest, consumedAt: new Date().toISOString(), jobNo, orderNo });
+    invRollsDb.delete(r.id);
+    toast.success(`Roll ${r.rollNo} finished → Finished Rolls`);
+    setRollId(''); reload();
+  }
+  function balanceRoll() {
+    const r = rolls.find((x) => x.id === rollId); if (!r) { toast.error('Select a roll'); return; }
+    const w = parseFloat(balRoll); if (!(w >= 0)) { toast.error('Enter remaining weight'); return; }
+    invRollsDb.update(r.id, { nWt: w, balanceUsed: true });
+    toast.success(`Roll ${r.rollNo} balance set to ${w} kg (flagged used)`);
+    setBalRoll(''); setRollId(''); reload();
+  }
+  function finishFilm() {
+    const r = films.find((x) => x.id === filmId); if (!r) { toast.error('Select a film'); return; }
+    const { id, balanceUsed, ...rest } = r; void id; void balanceUsed;
+    finishedFilmsDb.create({ ...rest, consumedAt: new Date().toISOString(), jobNo, orderNo });
+    boppFilmsDb.delete(r.id);
+    toast.success(`Film ${r.filmNo} finished → Finished BOPP Film`);
+    setFilmId(''); reload();
+  }
+  function balanceFilm() {
+    const r = films.find((x) => x.id === filmId); if (!r) { toast.error('Select a film'); return; }
+    const w = parseFloat(balFilm); if (!(w >= 0)) { toast.error('Enter remaining weight'); return; }
+    boppFilmsDb.update(r.id, { kg: w, balanceUsed: true });
+    toast.success(`Film ${r.filmNo} balance set to ${w} kg (flagged used)`);
+    setBalFilm(''); setFilmId(''); reload();
+  }
+
+  return (
+    <div className="glass-card p-4 space-y-3 no-print">
+      <p className="section-title text-base">Stock Consumed</p>
+      {/* Roll */}
+      <div className="space-y-1.5">
+        <label className="label">Roll No (from stock)</label>
+        <div className="flex gap-2 flex-wrap items-center">
+          <select className="input-field w-auto min-w-40" value={rollId} onChange={(e) => setRollId(e.target.value)}>
+            <option value="">Select roll…</option>
+            {rolls.map((r) => <option key={r.id} value={r.id}>{r.rollNo} · {r.type} · {r.nWt}kg</option>)}
+          </select>
+          <button onClick={finishRoll} disabled={!rollId} className="btn-secondary disabled:opacity-40">Roll Finished</button>
+          <input className="input-field font-mono w-28" type="number" min="0" step="any" value={balRoll} onChange={(e) => setBalRoll(e.target.value)} placeholder="rem. kg" />
+          <button onClick={balanceRoll} disabled={!rollId} className="btn-secondary disabled:opacity-40">Balance</button>
+        </div>
+      </div>
+      {/* Film (BOPP only) */}
+      {isBopp && (
+        <div className="space-y-1.5">
+          <label className="label">BOPP Film No (from stock)</label>
+          <div className="flex gap-2 flex-wrap items-center">
+            <select className="input-field w-auto min-w-40" value={filmId} onChange={(e) => setFilmId(e.target.value)}>
+              <option value="">Select film…</option>
+              {films.map((r) => <option key={r.id} value={r.id}>{r.filmNo} · {r.finish ?? '—'} · {r.kg}kg</option>)}
+            </select>
+            <button onClick={finishFilm} disabled={!filmId} className="btn-secondary disabled:opacity-40">Film Finished</button>
+            <input className="input-field font-mono w-28" type="number" min="0" step="any" value={balFilm} onChange={(e) => setBalFilm(e.target.value)} placeholder="rem. kg" />
+            <button onClick={balanceFilm} disabled={!filmId} className="btn-secondary disabled:opacity-40">Balance</button>
+          </div>
+        </div>
+      )}
+      <p className="text-muted text-xs">Finished = roll/film fully used (archived to Finished Rolls). Balance = enter remaining weight; the stock roll is updated and flagged used.</p>
+    </div>
+  );
+}
 
 // ── Small field helpers ─────────────────────────────────────────────────────────
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -329,6 +409,9 @@ export function JobCardDetailPage() {
             </div>
           </div>
 
+          {/* Stock consumed — Roll/Film selectors + Finished/Balance (links to Inventory) */}
+          <StockConsumedPanel jobNo={card.jobNo} orderNo={card.orderNo} isBopp={card.cardType === 'BOPP'} />
+
           {/* Printing */}
           <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -337,7 +420,9 @@ export function JobCardDetailPage() {
               <Field label="Meter (m)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
               <Field label="Output (kg)"><Num value={card.printing.outputKg} onChange={(v) => { patchStage('printing', { outputKg: v }); }} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
+              {card.cardType === 'Normal'
+                ? <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
+                : <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>}
             </div>
             <button onClick={() => carryForward('printing')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
             <ConsumptionEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
@@ -352,7 +437,7 @@ export function JobCardDetailPage() {
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
               <Field label="Output (kg)"><Num value={card.metalize.outputKg} onChange={(v) => patchStage('metalize', { outputKg: v })} /></Field>
               <Field label="Output (mtr)"><Num value={card.metalize.outputMtr} onChange={(v) => patchStage('metalize', { outputMtr: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('metalize')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
             <p className="text-muted text-xs">BOPP film cost is booked in Printing — Metalize only costs the metalizing consumable (no double counting).</p>
@@ -366,7 +451,7 @@ export function JobCardDetailPage() {
               <Field label="Operator"><Txt value={card.slitting.operator} onChange={(v) => patchStage('slitting', { operator: v })} /></Field>
               <Field label="Gross Input (kg)"><Num value={card.slitting.grossInputKg} onChange={(v) => patchStage('slitting', { grossInputKg: v })} /></Field>
               <Field label="Input Core (kg)"><Num value={card.slitting.inputCoreKg} onChange={(v) => patchStage('slitting', { inputCoreKg: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.slitting.balanceKg} onChange={(v) => patchStage('slitting', { balanceKg: v })} /></Field>
               <Field label="Trim (kg)"><Num value={card.slitting.trimKg} onChange={(v) => patchStage('slitting', { trimKg: v })} /></Field>
             </div>
             <p className="label !mb-1">Output rolls (up to 3)</p>

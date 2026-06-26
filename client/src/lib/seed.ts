@@ -1,5 +1,5 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction, STORAGE_PREFIX } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm } from '../types/models';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE, RATE_MASTER_SEED } from '../config';
 
@@ -235,10 +235,39 @@ const rateMasterSeed: RateMasterItem[] = RATE_MASTER_SEED.map((m, i) => ({
   updatedAt: '2026-01-01T08:00:00Z',
 }));
 
+// ── Inventory seed (Module 14) ──────────────────────────────────────────────────
+const invRollsSeed: InvRoll[] = [
+  { id: 'ir1', rollNo: 'R-001', type: 'UL',              size: '500mm', quality: 2,   gWt: 52, nWt: 50,   meter: 4200, dateAdded: '2026-06-10' },
+  { id: 'ir2', rollNo: 'R-002', type: 'Natural',         size: '450mm', quality: 2.5, gWt: 48, nWt: 46,   meter: 3800, dateAdded: '2026-06-12' },
+  { id: 'ir3', rollNo: 'R-003', type: 'Lamination',      size: '600mm', quality: 3,   gWt: 70, nWt: 67.5, meter: 5000, dateAdded: '2026-06-15' },
+  { id: 'ir4', rollNo: 'R-004', type: 'UL Multi Colour', size: '500mm', quality: 2.5, gWt: 55, nWt: 53,   meter: 4400, dateAdded: '2026-06-18' },
+];
+
+const rawMaterialsSeed: RawMaterial[] = [
+  { id: 'rm-i1', name: 'Gravure ink',   unit: 'kg',    quantity: 60,  dateAdded: '2026-06-05' },
+  { id: 'rm-i2', name: 'Thinner',       unit: 'litre', quantity: 40,  dateAdded: '2026-06-05' },
+  { id: 'rm-i3', name: 'Sewing thread', unit: 'bobbin', quantity: 120, dateAdded: '2026-06-06' },
+  { id: 'rm-i4', name: 'Ethyl acetate', unit: 'kg',    quantity: 35,  dateAdded: '2026-06-08' },
+  { id: 'rm-i5', name: 'Toluene',       unit: 'kg',    quantity: 15,  dateAdded: '2026-06-08' },
+];
+
+const boppFilmsSeed: BoppFilm[] = [
+  { id: 'bf1', filmNo: 'F-001', kg: 240, meter: 6000, finish: 'Glossy',    micron: 20, dateAdded: '2026-06-09' },
+  { id: 'bf2', filmNo: 'F-002', kg: 180, meter: 4500, finish: 'Matte',     micron: 18, dateAdded: '2026-06-11' },
+  { id: 'bf3', filmNo: 'F-003', kg: 210, meter: 5200, finish: 'Metalized', micron: 20, dateAdded: '2026-06-14' },
+];
+
+// Demo orders ready to "Send to Production" — one of each routing case.
+const demoRoutingOrders: Order[] = [
+  { id: 'od-bag',  orderId: 'NF-20260620-0101', clientName: 'Amrit Snacks Pvt Ltd', productType: 'BOPP',   makingType: 'Bag',  length: 25, width: 30, gsm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityKg: 480, quantityNos: 12000, quantityUnit: 'Both', status: 'Pending', createdAt: '2026-06-20T09:00:00Z' },
+  { id: 'od-roll', orderId: 'NF-20260620-0102', clientName: 'Star Polymers',        productType: 'BOPP',   makingType: 'Roll', length: 30, width: 0,  gsm: 0,    sizeDisplay: '600mm roll',         quantityKg: 300, quantityNos: undefined, quantityUnit: 'KG',  status: 'Pending', createdAt: '2026-06-20T09:30:00Z' },
+  { id: 'od-norm', orderId: 'NF-20260620-0103', clientName: 'Hindustan Stores',     productType: 'Normal', makingType: undefined, length: 18, width: 28, gsm: 1.10, sizeDisplay: '18 × 28 + 1.10 gm', quantityKg: 220, quantityNos: 6000,  quantityUnit: 'Both', status: 'Pending', createdAt: '2026-06-20T10:00:00Z' },
+];
+
 export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
-  dbSeedOnce('orders', ordersSeed);
+  dbSeedOnce('orders', [...ordersSeed, ...demoRoutingOrders]);
   dbSeedOnce('leads', leadsSeed);
   dbSeedOnce('invoices', invoicesSeed);
   dbSeedOnce('vendors', vendorsSeed);
@@ -251,6 +280,9 @@ export function seedDatabase() {
   dbSeedOnce('looms', loomsSeed);
   dbSeedOnce('loom_entries', loomEntriesSeed);
   dbSeedOnce('rate_master', rateMasterSeed);
+  dbSeedOnce('inv_rolls', invRollsSeed);
+  dbSeedOnce('inv_raw_materials', rawMaterialsSeed);
+  dbSeedOnce('inv_bopp_films', boppFilmsSeed);
 
   // Backfill roll status/bags from production jobs (covers pre-existing data too)
   syncRollsFromProduction();

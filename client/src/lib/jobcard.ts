@@ -24,7 +24,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
   const base = { na: false, consumption: emptyConsumption() };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
   const isNormal = cardType === 'Normal';
-  const isRoll = cardType === 'BOPP' && makingType === 'Roll';
+  const isRoll = cardType === 'BOPP' && makingType === 'Roll'; // roll jobs hide Cutting only
   return {
     jobNo: '',
     cardType,
@@ -33,7 +33,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
     printing:   { ...base } as PrintingStage,
     metalize:   { ...base, na: isNormal || finish !== 'Metalized' } as MetalizeStage,
     slitting:   { ...base, na: isNormal, rolls: [] } as SlittingStage,
-    lamination: { ...base, na: isNormal || isRoll, rows: [{}] } as LaminationStage,
+    lamination: { ...base, na: isNormal, rows: [{}] } as LaminationStage,
     cutting:    { ...base, na: isRoll, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
     status: 'In Progress',
@@ -47,7 +47,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
 // (bag-conversion stages hidden); Normal cards run Printing → Cutting → Dispatch.
 export function visibleStageKeys(card: Pick<JobCard, 'cardType' | 'makingType'>): StageKey[] {
   if (card.cardType === 'Normal') return ['printing', 'cutting', 'dispatch'];
-  if (card.makingType === 'Roll') return ['printing', 'metalize', 'slitting', 'dispatch'];
+  if (card.makingType === 'Roll') return ['printing', 'metalize', 'slitting', 'lamination', 'dispatch'];
   return [...STAGE_KEYS];
 }
 

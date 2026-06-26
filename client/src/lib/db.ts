@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm } from '../types/models';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
 // prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
@@ -212,6 +212,54 @@ export const dispatchesDb = {
   update:  (id: string, p: Partial<DispatchRecord>) => dbUpdate<DispatchRecord>('dispatches', id, p),
   delete:  (id: string) => dbDelete('dispatches', id),
 };
+
+// ── Module 14 — Inventory ──────────────────────────────────────────────────────
+export const invRollsDb = {
+  getAll:  () => dbGetAll<InvRoll>('inv_rolls'),
+  create:  (r: Omit<InvRoll, 'id'>) => dbCreate<InvRoll>('inv_rolls', r),
+  update:  (id: string, p: Partial<InvRoll>) => dbUpdate<InvRoll>('inv_rolls', id, p),
+  delete:  (id: string) => dbDelete('inv_rolls', id),
+};
+export const rawMaterialsDb = {
+  getAll:  () => dbGetAll<RawMaterial>('inv_raw_materials'),
+  create:  (r: Omit<RawMaterial, 'id'>) => dbCreate<RawMaterial>('inv_raw_materials', r),
+  update:  (id: string, p: Partial<RawMaterial>) => dbUpdate<RawMaterial>('inv_raw_materials', id, p),
+  delete:  (id: string) => dbDelete('inv_raw_materials', id),
+};
+export const boppFilmsDb = {
+  getAll:  () => dbGetAll<BoppFilm>('inv_bopp_films'),
+  create:  (r: Omit<BoppFilm, 'id'>) => dbCreate<BoppFilm>('inv_bopp_films', r),
+  update:  (id: string, p: Partial<BoppFilm>) => dbUpdate<BoppFilm>('inv_bopp_films', id, p),
+  delete:  (id: string) => dbDelete('inv_bopp_films', id),
+};
+export const finishedRollsDb = {
+  getAll:  () => dbGetAll<FinishedRoll>('inv_finished_rolls'),
+  create:  (r: Omit<FinishedRoll, 'id'>) => dbCreate<FinishedRoll>('inv_finished_rolls', r),
+  delete:  (id: string) => dbDelete('inv_finished_rolls', id),
+};
+export const finishedFilmsDb = {
+  getAll:  () => dbGetAll<FinishedFilm>('inv_finished_films'),
+  create:  (r: Omit<FinishedFilm, 'id'>) => dbCreate<FinishedFilm>('inv_finished_films', r),
+  delete:  (id: string) => dbDelete('inv_finished_films', id),
+};
+
+// ── Reusable, extensible string lists (roll types, raw-material names) ──────────
+// Stored in settings so they persist and grow as users add new entries.
+export function getList(key: string, defaults: string[] = []): string[] {
+  try {
+    const raw = getSettings()[key];
+    const arr = raw ? JSON.parse(raw) : null;
+    return Array.isArray(arr) && arr.length ? arr : defaults;
+  } catch { return defaults; }
+}
+export function addToList(key: string, value: string, defaults: string[] = []): string[] {
+  const v = value.trim();
+  const cur = getList(key, defaults);
+  if (!v || cur.some((x) => x.toLowerCase() === v.toLowerCase())) return cur;
+  const next = [...cur, v];
+  saveSettings({ [key]: JSON.stringify(next) });
+  return next;
+}
 
 // ── Roll consumption sync ──────────────────────────────────────────────────────
 // Recomputes every roll's `status` + `bagsProduced` from the production jobs that

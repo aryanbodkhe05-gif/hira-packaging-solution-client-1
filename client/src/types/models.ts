@@ -156,6 +156,7 @@ export interface PrintingStage extends StageBase {
   outputKg?: number;
   meter?: number;
   rejectionKg?: number;
+  balanceKg?: number;           // BOPP cards record Balance here (not Rejection)
 }
 
 export interface MetalizeStage extends StageBase {
@@ -164,6 +165,7 @@ export interface MetalizeStage extends StageBase {
   outputKg?: number;
   outputMtr?: number;
   rejectionKg?: number;
+  balanceKg?: number;
 }
 
 export interface SlittingRoll { outputKg?: number; desc?: string; core?: string; meter?: number; }
@@ -173,6 +175,7 @@ export interface SlittingStage extends StageBase {
   rolls: SlittingRoll[];        // up to 3
   rejectionKg?: number;
   trimKg?: number;
+  balanceKg?: number;
 }
 
 export interface LaminationRow { boppInKg?: number; fabricInKg?: number; meter?: number; outKg?: number; }
@@ -254,6 +257,71 @@ export interface JobCard {
   ratesAsOf?: string;           // when consumption rates were last snapshotted
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Module 14 — Inventory (rebuilt) ────────────────────────────────────────────
+// Normal rolls / fabric (bought or made). Quality is a free number (2, 2.5, …).
+export interface InvRoll {
+  id: string;
+  rollNo: string;
+  type: string;            // extensible list (UL, Natural, Lamination, UL Multi Colour, …)
+  size: string;
+  quality: number;
+  gWt: number;             // gross weight (kg)
+  nWt: number;             // net weight (kg)
+  meter: number;
+  dateAdded: string;       // auto-captured entry date (yyyy-mm-dd)
+  balanceUsed?: boolean;   // flagged when partially consumed in production
+}
+
+// Consumables: ink, thread, thinner, solvents, etc.
+export interface RawMaterial {
+  id: string;
+  name: string;            // from reusable item list
+  unit: string;
+  quantity: number;
+  dateAdded: string;
+}
+
+// Incoming BOPP film raw stock (before printing).
+export interface BoppFilm {
+  id: string;
+  filmNo: string;
+  kg: number;
+  meter: number;
+  finish?: Finish;         // glossy / matte / metalized (optional)
+  micron?: number;         // optional
+  dateAdded: string;
+  balanceUsed?: boolean;
+}
+
+// Archive of fully-consumed input rolls / films (moved here from stock).
+export interface FinishedRoll {
+  id: string;
+  rollNo: string;
+  type: string;
+  size: string;
+  quality: number;
+  gWt: number;
+  nWt: number;
+  meter: number;
+  dateAdded: string;       // when it originally entered stock
+  consumedAt: string;      // when marked finished
+  jobNo?: string;
+  orderNo?: string;
+}
+
+export interface FinishedFilm {
+  id: string;
+  filmNo: string;
+  kg: number;
+  meter: number;
+  finish?: Finish;
+  micron?: number;
+  dateAdded: string;
+  consumedAt: string;
+  jobNo?: string;
+  orderNo?: string;
 }
 
 export interface Consumable {

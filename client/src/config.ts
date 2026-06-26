@@ -110,6 +110,12 @@ export type CardType = typeof CARD_TYPES[number];
 export const DISPATCH_TYPES = ['Roll', 'Bag'] as const;
 export type DispatchType = typeof DISPATCH_TYPES[number];
 
+// ── Module 14 — Inventory defaults (reusable, extensible lists) ─────────────────
+export const DEFAULT_ROLL_TYPES = ['UL', 'Natural', 'Lamination', 'UL Multi Colour'];
+export const DEFAULT_RAW_MATERIALS = ['Gravure ink', 'Ethyl acetate', 'Toluene', 'IPA', 'Sewing thread', 'Thinner'];
+export const ROLL_TYPES_KEY = 'list_roll_types';
+export const RAW_MATERIALS_KEY = 'list_raw_materials';
+
 export const FABRIC_TYPES = ['NW', 'MW'] as const;
 export type FabricType = typeof FABRIC_TYPES[number];
 
