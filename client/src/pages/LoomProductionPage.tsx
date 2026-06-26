@@ -7,11 +7,11 @@ import {
 import toast from 'react-hot-toast';
 import { loomsDb, loomEntriesDb, getSettings, saveSettings } from '../lib/db';
 import {
-  SHIFTS, QUALITY_GRADES, LOOM_STATUSES, WIDTH_UNITS,
+  SHIFTS, LOOM_STATUSES, WIDTH_UNITS,
   LOOM_DOWNTIME_REASONS, DEFAULT_SHIFT_HOURS,
 } from '../config';
 import type {
-  Shift, QualityGrade, LoomStatus, WidthUnit,
+  Shift, LoomStatus, WidthUnit,
 } from '../config';
 import type { Loom, LoomEntry } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -23,11 +23,6 @@ import { cn, exportToCsv, genDailyId, formatDate } from '../lib/utils';
 const PAGE_SIZE = 20;
 const today = () => new Date().toLocaleDateString('en-CA');
 
-const QUALITY_COLORS: Record<QualityGrade, string> = {
-  'A-Grade':   'bg-green-500/20 text-green-300 border-green-500/30',
-  'B-Grade':   'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-  'Rejection': 'bg-red-500/20 text-red-300 border-red-500/30',
-};
 const LOOM_STATUS_COLORS: Record<LoomStatus, string> = {
   'Active':            'bg-green-500/20 text-green-300 border-green-500/30',
   'Under maintenance': 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
@@ -60,7 +55,7 @@ function efficiency(e: Pick<LoomEntry, 'rpm' | 'downtimeMin'>, loom: Loom | unde
 // ═════════════════════════════════════════════════════════════════════════════
 const emptyEntry: Omit<LoomEntry, 'id'> = {
   entryId: '', date: today(), shift: 'Morning', loomNo: '', operator: '',
-  width: 0, widthUnit: 'inches', meters: 0, quality: 'A-Grade', weightKg: 0,
+  width: 0, widthUnit: 'inches', meters: 0, quality: 0, weightKg: 0,
   rollCount: 0, reedCount: undefined, rpm: undefined, downtimeMin: 0,
   downtimeReason: '', notes: '', createdAt: '', updatedAt: '',
 };
@@ -122,9 +117,8 @@ function EntryForm({ initial, looms, onSave, onClose }: {
         </div>
         <div>
           <label className="label">Quality grade</label>
-          <select className="input-field" value={f.quality} onChange={(e) => set('quality', e.target.value as QualityGrade)}>
-            {QUALITY_GRADES.map((q) => <option key={q}>{q}</option>)}
-          </select>
+          <input className="input-field font-mono" type="number" min="0" step="any" value={f.quality || ''}
+            onChange={(e) => set('quality', toNum(e.target.value))} placeholder="Enter numeric grade (e.g., 2.5)" />
         </div>
       </div>
 
@@ -253,7 +247,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
     return entries.filter((e) =>
       (!q || e.entryId.toLowerCase().includes(q) || (e.operator ?? '').toLowerCase().includes(q)) &&
       (!loomFilter || e.loomNo === loomFilter) &&
-      (!qualityFilter || e.quality === qualityFilter) &&
+      (!qualityFilter || e.quality >= parseFloat(qualityFilter)) &&
       (!shiftFilter || e.shift === shiftFilter) &&
       (!fromDate || e.date >= fromDate) &&
       (!toDate || e.date <= toDate)
@@ -301,11 +295,8 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
           </select>
         </div>
         <div>
-          <label className="label">Quality</label>
-          <select value={qualityFilter} onChange={(e) => setQualityFilter(e.target.value)} className="input-field w-auto">
-            <option value="">All Grades</option>
-            {QUALITY_GRADES.map((q) => <option key={q}>{q}</option>)}
-          </select>
+          <label className="label">Min grade</label>
+          <input type="number" min="0" step="any" value={qualityFilter} onChange={(e) => setQualityFilter(e.target.value)} className="input-field w-28 font-mono" placeholder="any" />
         </div>
         <div>
           <label className="label">Shift</label>
@@ -351,7 +342,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
                     <td className="table-cell text-white/70">{e.operator || '—'}</td>
                     <td className="table-cell font-mono text-white/80 whitespace-nowrap">{e.meters.toLocaleString('en-IN')} m</td>
                     <td className="table-cell font-mono text-white/70 whitespace-nowrap">{e.weightKg.toLocaleString('en-IN')} kg</td>
-                    <td className="table-cell"><span className={cn('badge border text-xs', QUALITY_COLORS[e.quality])}>{e.quality}</span></td>
+                    <td className="table-cell font-mono text-white/80">{e.quality || '—'}</td>
                     <td className="table-cell font-mono text-white/70">{e.rollCount}</td>
                     <td className={cn('table-cell font-mono', eff >= 75 ? 'text-green-300' : eff >= 50 ? 'text-yellow-300' : 'text-red-300')}>{eff.toFixed(1)}%</td>
                     <td className="table-cell">
@@ -548,11 +539,11 @@ export function LoomProductionPage() {
   const stats = useMemo(() => {
     const todayStr = today();
     const todayEntries = entries.filter((e) => e.date === todayStr);
-    const aGrade = entries.filter((e) => e.quality === 'A-Grade').length;
+    const totalGrade = entries.reduce((s, e) => s + (Number(e.quality) || 0), 0);
     return {
       metersToday: todayEntries.reduce((s, e) => s + (e.meters || 0), 0),
       totalEntries: entries.length,
-      aGradePct: entries.length ? (aGrade / entries.length) * 100 : 0,
+      avgGrade: entries.length ? totalGrade / entries.length : 0,
       activeLooms: looms.filter((l) => l.status === 'Active').length,
     };
   }, [entries, looms]);
@@ -567,7 +558,7 @@ export function LoomProductionPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Meters Today" value={`${stats.metersToday.toLocaleString('en-IN')} m`} icon={Ruler} iconColor="text-accent" mono />
         <StatCard label="Total Entries" value={stats.totalEntries} icon={ListChecks} iconColor="text-blue-400" mono />
-        <StatCard label="A-Grade Share" value={`${stats.aGradePct.toFixed(0)}%`} icon={CheckCircle2} iconColor="text-green-400" mono />
+        <StatCard label="Avg Grade" value={stats.avgGrade.toFixed(1)} icon={CheckCircle2} iconColor="text-green-400" mono />
         <StatCard label="Active Looms" value={stats.activeLooms} icon={Activity} iconColor="text-yellow-400" mono />
       </div>
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Truck, Search, Download, Trash2, ExternalLink } from 'lucide-react';
+import { Truck, Search, Download, Trash2, ExternalLink, Check, X, Pencil } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { dispatchesDb } from '../lib/db';
 import type { DispatchRecord } from '../types/models';
@@ -19,6 +19,8 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
   const [records, setRecords] = useState<DispatchRecord[]>(() => dispatchesDb.getAll());
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [editId, setEditId] = useState<string | null>(null);  // row being bill-edited
+  const [billDraft, setBillDraft] = useState('');
   const reload = () => setRecords(dispatchesDb.getAll());
 
   const isRoll = type === 'Roll';
@@ -27,6 +29,13 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
     if (!confirm('Delete this dispatch record?')) return;
     dispatchesDb.delete(id);
     toast.success('Dispatch record deleted');
+    reload();
+  }
+  function startBillEdit(r: DispatchRecord) { setEditId(r.id); setBillDraft(r.billNo ?? ''); }
+  function saveBill(id: string) {
+    dispatchesDb.update(id, { billNo: billDraft.trim() || undefined });
+    setEditId(null);
+    toast.success('Bill No updated');
     reload();
   }
 
@@ -51,7 +60,7 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
     const rows = filtered.map((r) => ({
       Date: r.date, 'Job No': r.jobNo, Order: r.orderNo ?? '', Party: r.party, Brand: r.brand,
       ...(isRoll ? { Rolls: r.rolls ?? 0, Meters: r.qtyMeters ?? 0 } : { Pieces: r.qtyPieces ?? 0 }),
-      'Qty (kg)': r.qtyKg ?? 0,
+      'Qty (kg)': r.qtyKg ?? 0, 'Bill No': r.billNo ?? '',
     }));
     exportToCsv(`dispatch-${type.toLowerCase()}s-${new Date().toLocaleDateString('en-CA')}.csv`, rows);
     toast.success(`Exported ${rows.length} rows`);
@@ -83,14 +92,14 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Date', 'Job No', 'Order', 'Party', 'Brand', ...(isRoll ? ['Rolls', 'Meters'] : ['Pieces']), 'Kg', ''].map((h) => (
+                {['Date', 'Job No', 'Order', 'Party', 'Brand', ...(isRoll ? ['Rolls', 'Meters'] : ['Pieces']), 'Kg', 'Bill No', ''].map((h) => (
                   <th key={h} className="table-header whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={isRoll ? 9 : 8}>
+                <tr><td colSpan={isRoll ? 10 : 9}>
                   <EmptyState icon={Truck} title={`No ${type.toLowerCase()} dispatches yet`}
                     description={`Open a ${isRoll ? 'roll' : 'bag'} job card and click "Send to Dispatch".`} />
                 </td></tr>
@@ -105,6 +114,24 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
                   {isRoll && <td className="table-cell font-mono text-white/80">{(r.qtyMeters ?? 0).toLocaleString('en-IN')}</td>}
                   {!isRoll && <td className="table-cell font-mono text-white/80">{(r.qtyPieces ?? 0).toLocaleString('en-IN')}</td>}
                   <td className="table-cell font-mono text-white/80">{(r.qtyKg ?? 0).toLocaleString('en-IN')}</td>
+                  <td className="table-cell">
+                    {editId === r.id ? (
+                      <div className="flex items-center gap-1">
+                        <input autoFocus value={billDraft} onChange={(e) => setBillDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveBill(r.id); if (e.key === 'Escape') setEditId(null); }}
+                          className="input-field font-mono py-1 text-xs w-28" placeholder="Bill No" />
+                        <button onClick={() => saveBill(r.id)} className="p-1 rounded bg-primary text-white"><Check className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setEditId(null)} className="p-1 rounded bg-white/10 text-muted"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => startBillEdit(r)} className="flex items-center gap-1 text-xs hover:text-accent transition-colors group">
+                        {r.billNo
+                          ? <span className="font-mono text-white/80">{r.billNo}</span>
+                          : <span className="text-muted">+ Bill No</span>}
+                        <Pencil className="w-3 h-3 text-muted opacity-0 group-hover:opacity-100" />
+                      </button>
+                    )}
+                  </td>
                   <td className="table-cell">
                     <div className="flex gap-1.5">
                       {r.jobCardId && (

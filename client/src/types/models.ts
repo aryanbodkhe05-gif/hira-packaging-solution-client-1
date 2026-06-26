@@ -109,7 +109,7 @@ export interface LoomEntry {
   width: number;            // fabric width / size
   widthUnit: WidthUnit;     // inches | mm
   meters: number;           // total meters woven
-  quality: QualityGrade;
+  quality: number;          // numeric grade (e.g. 2.5), matching Order quality format
   weightKg: number;         // weight of produced roll/batch
   rollCount: number;
   reedCount?: number;
@@ -233,6 +233,7 @@ export interface DispatchRecord {
   qtyMeters?: number;           // rolls
   rolls?: number;
   vehicle?: string;
+  billNo?: string;              // optional, added/edited after the dispatch is created
   date: string;                 // yyyy-mm-dd
   createdAt: string;
 }
