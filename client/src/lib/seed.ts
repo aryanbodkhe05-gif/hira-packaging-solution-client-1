@@ -261,7 +261,7 @@ const boppFilmsSeed: BoppFilm[] = [
 const demoRoutingOrders: Order[] = [
   { id: 'od-bag',  orderId: 'NF-20260620-0101', clientName: 'Amrit Snacks Pvt Ltd', productType: 'BOPP',   makingType: 'Bag',  length: 25, width: 30, gsm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityKg: 480, quantityNos: 12000, quantityUnit: 'Both', status: 'Pending', createdAt: '2026-06-20T09:00:00Z' },
   { id: 'od-roll', orderId: 'NF-20260620-0102', clientName: 'Star Polymers',        productType: 'BOPP',   makingType: 'Roll', length: 30, width: 0,  gsm: 0,    sizeDisplay: '600mm roll',         quantityKg: 300, quantityNos: undefined, quantityUnit: 'KG',  status: 'Pending', createdAt: '2026-06-20T09:30:00Z' },
-  { id: 'od-norm', orderId: 'NF-20260620-0103', clientName: 'Hindustan Stores',     productType: 'Normal', makingType: undefined, length: 18, width: 28, gsm: 1.10, sizeDisplay: '18 × 28 + 1.10 gm', quantityKg: 220, quantityNos: 6000,  quantityUnit: 'Both', status: 'Pending', createdAt: '2026-06-20T10:00:00Z' },
+  { id: 'od-norm', orderId: 'NF-20260620-0103', clientName: 'Hindustan Stores',     productType: 'Natural', makingType: undefined, length: 18, width: 28, gsm: 1.10, sizeDisplay: '18 × 28 + 1.10 gm', quantityKg: 220, quantityNos: 6000,  quantityUnit: 'Both', status: 'Pending', createdAt: '2026-06-20T10:00:00Z' },
 ];
 
 export function seedDatabase() {

@@ -9,7 +9,7 @@ export const COMPANY = {
   email:       'info@hirapackaging.com',
 } as const;
 
-export const PRODUCT_TYPES = ['BOPP', 'Normal', 'UL', 'Natural', 'Laminated'] as const;
+export const PRODUCT_TYPES = ['BOPP', 'UL', 'Natural', 'Laminated'] as const;
 export type ProductType = typeof PRODUCT_TYPES[number];
 
 export const CONSUMABLE_CATEGORIES = ['Ink', 'Thread', 'Filler', 'Custom'] as const;
