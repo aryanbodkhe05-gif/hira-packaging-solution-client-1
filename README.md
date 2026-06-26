@@ -11,7 +11,16 @@
 
 ---
 
-## 🌐 Local Preview
+## 🌐 Live Demo
+
+> **Live URL:** https://aryanbodkhe05-gif.github.io/hira-packaging-solution-client-1/
+>
+> Runs entirely in the browser (data stored in localStorage). If you've opened an
+> older build, use **Master → Settings → Reset to Demo Data** and hard-refresh.
+
+---
+
+## 💻 Local Preview
 
 > **Localhost URL:** http://localhost:5173/
 >
