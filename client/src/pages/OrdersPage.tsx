@@ -52,6 +52,36 @@ function OrderForm({ initial, onSave, onClose }: {
     } : {})
   }));
 
+  // ── F4: auto-populate from this client's previous orders ──
+  const [loadedFrom, setLoadedFrom] = useState<{ orderId: string; date: string } | null>(null);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const matches = useMemo(() => {
+    const q = f.clientName.trim().toLowerCase();
+    if (q.length < 2 || loadedFrom) return [];
+    return ordersDb.getAll()
+      .filter((o) => o.clientName.toLowerCase().includes(q))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 8);
+  }, [f.clientName, loadedFrom]);
+
+  function applyOrder(o: Order) {
+    setF((p) => ({
+      ...p,
+      clientName: o.clientName, productType: o.productType, makingType: o.makingType,
+      length: o.length, width: o.width, gsm: o.gsm, sizeDisplay: o.sizeDisplay,
+      quantityKg: o.quantityKg, quantityNos: o.quantityNos, quantityUnit: o.quantityUnit,
+      notes: o.notes ?? '',
+      orderId: genOrderId(), status: 'Pending', createdAt: new Date().toISOString(),
+      billNo: undefined, dispatchDate: undefined, dispatchedAt: undefined, jobCardId: undefined,
+    }));
+    setLoadedFrom({ orderId: o.orderId, date: o.createdAt });
+    setShowSuggest(false);
+  }
+  function startFresh() {
+    setF({ ...emptyOrder, orderId: genOrderId(), createdAt: new Date().toISOString() });
+    setLoadedFrom(null);
+  }
+
   function submit() {
     if (!f.clientName.trim()) { toast.error('Client name required'); return; }
     if (!f.length || !f.width) { toast.error('Length and width required'); return; }
@@ -93,11 +123,34 @@ function OrderForm({ initial, onSave, onClose }: {
         </div>
       )}
 
-      <div>
+      <div className="relative">
         <label className="label">Client Name *</label>
         <input className="input-field" value={f.clientName}
-          onChange={(e) => set('clientName', e.target.value)}
-          placeholder="e.g. Amrit Snacks Pvt Ltd" autoFocus />
+          onChange={(e) => { set('clientName', e.target.value); setLoadedFrom(null); setShowSuggest(true); }}
+          onFocus={() => setShowSuggest(true)}
+          onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
+          placeholder="Type a client to reuse a previous order…" autoFocus />
+        {showSuggest && matches.length > 0 && (
+          <div className="absolute z-20 left-0 right-0 mt-1 glass-card border border-accent/30 max-h-56 overflow-y-auto shadow-2xl">
+            <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted border-b border-white/5">Previous orders — click to reuse</p>
+            {matches.map((o) => (
+              <button key={o.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyOrder(o)}
+                className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-0">
+                <div className="flex justify-between gap-2">
+                  <span className="text-white/90 text-sm font-medium">{o.clientName}</span>
+                  <span className="text-muted text-[10px] font-mono">{format(parseISO(o.createdAt), 'dd MMM yy')}</span>
+                </div>
+                <p className="text-muted text-xs font-mono">{o.orderId} · {o.productType} · {o.sizeDisplay}{o.quantityKg ? ` · ${o.quantityKg}kg` : ''}{o.quantityNos ? ` · ${o.quantityNos} nos` : ''}</p>
+              </button>
+            ))}
+          </div>
+        )}
+        {loadedFrom && (
+          <div className="mt-1.5 flex items-center gap-2 text-xs">
+            <span className="badge bg-accent/20 text-accent border border-accent/30">Loaded from {loadedFrom.orderId} · {format(parseISO(loadedFrom.date), 'dd MMM yy')}</span>
+            <button type="button" onClick={startFresh} className="text-muted hover:text-white underline">Start Fresh</button>
+          </div>
+        )}
       </div>
 
       {/* Size inputs */}
