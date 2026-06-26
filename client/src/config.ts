@@ -102,8 +102,8 @@ export type JobCardStatus = typeof JOBCARD_STATUSES[number];
 export const MAKING_TYPES = ['Roll', 'Bag'] as const;
 export type MakingType = typeof MAKING_TYPES[number];
 
-// Job card variant: BOPP (full traveler) vs Normal (Printing → Cutting → Dispatch)
-export const CARD_TYPES = ['BOPP', 'Normal'] as const;
+// Job card variant: BOPP (full traveler) vs Other (Cutting → Printing → Dispatch)
+export const CARD_TYPES = ['BOPP', 'Other'] as const;
 export type CardType = typeof CARD_TYPES[number];
 
 // Dispatch records are tagged by type (roll vs finished bags)

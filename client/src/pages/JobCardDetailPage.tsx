@@ -247,7 +247,7 @@ export function JobCardDetailPage() {
 
   const [card, setCard] = useState<JobCard | null>(() => {
     if (isNew) {
-      const ct = params.get('type') === 'Normal' ? 'Normal' : 'BOPP';
+      const ct = params.get('type') === 'Other' ? 'Other' : 'BOPP';
       const mk = ct === 'BOPP' ? (params.get('making') === 'Roll' ? 'Roll' : 'Bag') : undefined;
       return normalizeJobCard({ ...emptyJobCard(ct, 'Glossy', mk), id: '' } as JobCard);
     }
@@ -412,6 +412,8 @@ export function JobCardDetailPage() {
           {/* Stock consumed — Roll/Film selectors + Finished/Balance (links to Inventory) */}
           <StockConsumedPanel jobNo={card.jobNo} orderNo={card.orderNo} isBopp={card.cardType === 'BOPP'} />
 
+          {/* ════ BOPP card: full traveler (Printing → Metalize → Slitting → Lamination → Cutting) ════ */}
+          {card.cardType === 'BOPP' && (<>
           {/* Printing */}
           <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -420,9 +422,7 @@ export function JobCardDetailPage() {
               <Field label="Meter (m)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
               <Field label="Output (kg)"><Num value={card.printing.outputKg} onChange={(v) => { patchStage('printing', { outputKg: v }); }} /></Field>
-              {card.cardType === 'Normal'
-                ? <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
-                : <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>}
+              <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('printing')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
             <ConsumptionEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
@@ -544,8 +544,8 @@ export function JobCardDetailPage() {
             <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
           </StageCard>
 
-          {/* Bag dispatch point — bag jobs (BOPP Bag + Normal) dispatch after cutting */}
-          {(card.cardType === 'Normal' || card.makingType !== 'Roll') && (
+          {/* Bag dispatch point — BOPP bag jobs dispatch after cutting */}
+          {card.makingType !== 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
                 <p className="text-white font-medium text-sm">Bags ready for dispatch</p>
@@ -557,6 +557,74 @@ export function JobCardDetailPage() {
               </button>
             </div>
           )}
+          </>)}
+
+          {/* ════ Other card: Cutting → Printing → Dispatch ════ */}
+          {card.cardType === 'Other' && (<>
+          {/* Cutting (same method as BOPP cutting) */}
+          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
+              <Field label="Operator"><Txt value={card.cutting.operator} onChange={(v) => patchStage('cutting', { operator: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.gusset} onChange={(e) => patchStage('cutting', { gusset: e.target.checked })} /> Gusset</label>
+              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.perforation} onChange={(e) => patchStage('cutting', { perforation: e.target.checked })} /> Perforation</label>
+            </div>
+            <p className="label !mb-1">Rows (up to 3): Input · No. of Bags · BCS</p>
+            {card.cutting.rows.slice(0, 3).map((r, i) => (
+              <div key={i} className="grid grid-cols-3 gap-2">
+                <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
+                <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
+                <select className="input-field" value={r.bcs ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], bcs: e.target.value ? Number(e.target.value) : undefined }; patchStage('cutting', { rows }); }}>
+                  <option value="">BCS</option>{BCS_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+            ))}
+            {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
+            <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
+          </StageCard>
+
+          {/* Dispatch after Cutting — plain bags with no print can dispatch here */}
+          <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
+            <div>
+              <p className="text-white font-medium text-sm">Bags ready for dispatch (after cutting)</p>
+              <p className="text-muted text-xs">Plain bags with no printing can be dispatched straight after cutting.</p>
+            </div>
+            <button onClick={() => sendToDispatch('Bag')} disabled={!!card.bagDispatchedAt}
+              className={cn('btn-primary', card.bagDispatchedAt && 'opacity-50 cursor-not-allowed')}>
+              <Truck className="w-4 h-4" /> {card.bagDispatchedAt ? 'Bags Dispatched' : 'Send to Dispatch'}
+            </button>
+          </div>
+
+          {/* Printing (Other) */}
+          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
+              <Field label="Operator"><Txt value={card.printing.operator} onChange={(v) => patchStage('printing', { operator: v })} /></Field>
+              <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
+              <Field label="No. of Bags"><Num value={card.printing.noOfBags} onChange={(v) => patchStage('printing', { noOfBags: v })} /></Field>
+              <Field label="Colour of print"><Txt value={card.printing.colour} onChange={(v) => patchStage('printing', { colour: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
+            </div>
+            <ConsumptionEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
+          </StageCard>
+
+          {/* Dispatch after Printing */}
+          <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
+            <div>
+              <p className="text-white font-medium text-sm">Printed bags ready for dispatch</p>
+              <p className="text-muted text-xs">Dispatch finished printed bags.</p>
+            </div>
+            <button onClick={() => sendToDispatch('Bag')} disabled={!!card.bagDispatchedAt}
+              className={cn('btn-primary', card.bagDispatchedAt && 'opacity-50 cursor-not-allowed')}>
+              <Truck className="w-4 h-4" /> {card.bagDispatchedAt ? 'Bags Dispatched' : 'Send to Dispatch'}
+            </button>
+          </div>
+          </>)}
 
           {/* Dispatch */}
           <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)}>

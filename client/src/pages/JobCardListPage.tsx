@@ -27,8 +27,8 @@ const STAGE_BADGE: Record<string, string> = {
 
 export function JobCardListPage({ cardType }: { cardType?: CardType }) {
   const nav = useNavigate();
-  const title = cardType === 'Normal' ? 'Normal Bag' : cardType === 'BOPP' ? 'BOPP Job Card' : 'Job Card';
-  const newPath = cardType === 'Normal' ? '/job-card/new?type=Normal' : '/job-card/new';
+  const title = cardType === 'Other' ? 'Other Job Card' : cardType === 'BOPP' ? 'BOPP Job Card' : 'Job Card';
+  const newPath = cardType === 'Other' ? '/job-card/new?type=Other' : '/job-card/new';
   const [cards, setCards] = useState<JobCard[]>(() => jobCardsDb.getAll().map(normalizeJobCard));
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
@@ -91,7 +91,7 @@ export function JobCardListPage({ cardType }: { cardType?: CardType }) {
           <option value="">All Statuses</option>
           {JOBCARD_STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <Link to={newPath} className="btn-primary"><Plus className="w-4 h-4" /> New {cardType === 'Normal' ? 'Normal Bag' : 'Job Card'}</Link>
+        <Link to={newPath} className="btn-primary"><Plus className="w-4 h-4" /> New {cardType === 'Other' ? 'Other' : 'Job Card'}</Link>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -109,7 +109,7 @@ export function JobCardListPage({ cardType }: { cardType?: CardType }) {
                 <tr><td colSpan={showCosts ? 10 : 9}>
                   <EmptyState icon={ClipboardList} title="No job cards yet"
                     description="Create a digital job card to track an order through the floor."
-                    action={{ label: `New ${cardType === 'Normal' ? 'Normal Bag' : 'Job Card'}`, onClick: () => nav(newPath) }} />
+                    action={{ label: `New ${cardType === 'Other' ? 'Other' : 'Job Card'}`, onClick: () => nav(newPath) }} />
                 </td></tr>
               ) : pageRows.map((c) => {
                 const cost = computeCosting(c);

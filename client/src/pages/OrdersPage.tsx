@@ -222,7 +222,7 @@ export function OrdersPage() {
     const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
     const created = jobCardsDb.create({ ...draft, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now });
     ordersDb.update(order.id, { status: 'In Production', jobCardId: created.id });
-    const dest = created.cardType === 'Normal' ? 'Normal Bag' : `BOPP (${created.makingType})`;
+    const dest = created.cardType === 'Other' ? 'Other' : `BOPP (${created.makingType})`;
     toast.success(`Sent to Production → ${dest} job card ${created.jobNo}`);
     reload();
     nav(`/job-card/${created.id}`);

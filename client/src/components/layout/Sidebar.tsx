@@ -29,7 +29,7 @@ const NAV: NavSection[] = [
   ]},
   { section: 'Production', icon: Factory, items: [
     { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card' },
-    { label: 'Normal Bag',    icon: ClipboardList, to: '/normal-bag' },
+    { label: 'Other Job Card', icon: ClipboardList, to: '/other' },
     { label: 'Loom Log',      icon: Gauge,         to: '/loom' },
     { label: 'PP Fabric',     icon: Layers,        to: '/pp-fabric' },
     { label: 'Machines',      icon: Factory,       to: '/production' },

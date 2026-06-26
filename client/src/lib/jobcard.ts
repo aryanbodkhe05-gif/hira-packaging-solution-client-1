@@ -23,7 +23,7 @@ function emptyConsumption(): Consumption[] { return []; }
 export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glossy', makingType?: MakingType): Omit<JobCard, 'id'> {
   const base = { na: false, consumption: emptyConsumption() };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
-  const isNormal = cardType === 'Normal';
+  const isOther = cardType === 'Other';
   const isRoll = cardType === 'BOPP' && makingType === 'Roll'; // roll jobs hide Cutting only
   return {
     jobNo: '',
@@ -31,9 +31,9 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
     makingType,
     header: { brand: '', qty: 0, size: '', finish, date: new Date().toLocaleDateString('en-CA') },
     printing:   { ...base } as PrintingStage,
-    metalize:   { ...base, na: isNormal || finish !== 'Metalized' } as MetalizeStage,
-    slitting:   { ...base, na: isNormal, rolls: [] } as SlittingStage,
-    lamination: { ...base, na: isNormal, rows: [{}] } as LaminationStage,
+    metalize:   { ...base, na: isOther || finish !== 'Metalized' } as MetalizeStage,
+    slitting:   { ...base, na: isOther, rolls: [] } as SlittingStage,
+    lamination: { ...base, na: isOther, rows: [{}] } as LaminationStage,
     cutting:    { ...base, na: isRoll, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
     status: 'In Progress',
@@ -46,14 +46,14 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
 // Stages shown for a card, by variant. Roll jobs stop at the slitting/roll output
 // (bag-conversion stages hidden); Normal cards run Printing → Cutting → Dispatch.
 export function visibleStageKeys(card: Pick<JobCard, 'cardType' | 'makingType'>): StageKey[] {
-  if (card.cardType === 'Normal') return ['printing', 'cutting', 'dispatch'];
+  if (card.cardType === 'Other') return ['cutting', 'printing', 'dispatch'];
   if (card.makingType === 'Roll') return ['printing', 'metalize', 'slitting', 'lamination', 'dispatch'];
   return [...STAGE_KEYS];
 }
 
 // Build a job card pre-filled from an order, routed by product category / making type.
 export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
-  const cardType: CardType = order.productType === 'BOPP' ? 'BOPP' : 'Normal';
+  const cardType: CardType = order.productType === 'BOPP' ? 'BOPP' : 'Other';
   const makingType: MakingType | undefined = cardType === 'BOPP' ? (order.makingType ?? 'Bag') : undefined;
   const card = emptyJobCard(cardType, 'Glossy', makingType);
   card.header.brand = order.clientName;
@@ -68,6 +68,7 @@ export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
 // Ensure arrays exist (covers older/partial records read from storage)
 export function normalizeJobCard(j: JobCard): JobCard {
   j.cardType ??= 'BOPP';
+  if ((j.cardType as string) === 'Normal') j.cardType = 'Other'; // migrate legacy label
   j.printing.consumption ??= [];
   j.metalize.consumption ??= [];
   j.slitting.consumption ??= [];

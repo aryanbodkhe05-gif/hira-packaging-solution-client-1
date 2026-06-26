@@ -46,7 +46,7 @@ export default function App() {
               <Route path="loom"       element={<LoomProductionPage />} />
               <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
               <Route path="job-card/:id"    element={<JobCardDetailPage />} />
-              <Route path="normal-bag"      element={<JobCardListPage cardType="Normal" />} />
+              <Route path="other"           element={<JobCardListPage cardType="Other" />} />
               <Route path="rate-master"     element={<RateMasterPage />} />
               <Route path="orders"     element={<OrdersPage />} />
               <Route path="dispatch"   element={<DispatchPage />} />

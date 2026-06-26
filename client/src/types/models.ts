@@ -157,6 +157,8 @@ export interface PrintingStage extends StageBase {
   meter?: number;
   rejectionKg?: number;
   balanceKg?: number;           // BOPP cards record Balance here (not Rejection)
+  noOfBags?: number;            // Other card printing
+  colour?: string;             // Other card printing — colour of print
 }
 
 export interface MetalizeStage extends StageBase {
