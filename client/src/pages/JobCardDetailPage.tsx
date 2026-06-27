@@ -5,7 +5,7 @@ import {
   IndianRupee, Plus, Trash2, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb } from '../lib/db';
+import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb, syncRawMaterialStock } from '../lib/db';
 import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BCS_OPTIONS } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide } from '../config';
 import type { JobCard, RateMasterItem, Consumption, DispatchRecord } from '../types/models';
@@ -272,6 +272,7 @@ export function JobCardDetailPage() {
       if (!silent) toast.success('Saved');
       setCard({ ...c, ratesAsOf: now, updatedAt: now });
     }
+    syncRawMaterialStock();   // decrement Raw Materials stock from this card's consumption
   }, [nav]);
 
   if (!card) return <Navigate to="/job-card" replace />;

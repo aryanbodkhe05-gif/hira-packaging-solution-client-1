@@ -108,8 +108,8 @@ export function GrnPage() {
     if (d.destination === 'Raw Materials') {
       const items = rawMaterialsDb.getAll();
       const ex = items.find((i) => i.name.toLowerCase() === d.itemName.toLowerCase());
-      if (ex) rawMaterialsDb.update(ex.id, { quantity: ex.quantity + d.qty });
-      else rawMaterialsDb.create({ name: d.itemName, unit: d.unit || 'kg', quantity: d.qty, dateAdded: d.date });
+      if (ex) rawMaterialsDb.update(ex.id, { quantity: ex.quantity + d.qty, openingQty: (ex.openingQty ?? ex.quantity) + d.qty });
+      else rawMaterialsDb.create({ name: d.itemName, unit: d.unit || 'kg', quantity: d.qty, openingQty: d.qty, dateAdded: d.date });
     } else if (d.destination === 'BOPP Film') {
       boppFilmsDb.create({ filmNo: d.itemName, kg: d.qty, meter: d.meter || 0, dateAdded: d.date });
     } else if (d.destination === 'Rolls') {

@@ -286,7 +286,8 @@ export interface RawMaterial {
   id: string;
   name: string;            // from reusable item list
   unit: string;
-  quantity: number;
+  quantity: number;        // live remaining (= openingQty − consumed by job cards)
+  openingQty?: number;     // received baseline; consumption is subtracted from this
   dateAdded: string;
 }
 

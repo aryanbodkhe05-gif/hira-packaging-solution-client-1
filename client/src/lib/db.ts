@@ -258,6 +258,37 @@ export const grnsDb = {
   delete:  (id: string) => dbDelete('grns', id),
 };
 
+// Recompute Raw Materials remaining = openingQty − total consumed across all job
+// card stage consumption rows (matched by material name). Edit-safe: always a
+// full recompute from openingQty, so editing a qty re-derives stock with no drift.
+// Call after any job-card save.
+export function syncRawMaterialStock(): void {
+  const cards = dbGetAll<JobCard>('job_cards');
+  const mats = dbGetAll<RawMaterial>('inv_raw_materials');
+  const consumed: Record<string, number> = {};
+  const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
+  for (const c of cards) {
+    for (const sk of stageKeys) {
+      const stage = (c as unknown as Record<string, { consumption?: { materialName?: string; qty?: number }[] }>)[sk];
+      for (const row of stage?.consumption ?? []) {
+        const name = (row.materialName ?? '').trim().toLowerCase();
+        if (name) consumed[name] = (consumed[name] ?? 0) + (row.qty ?? 0);
+      }
+    }
+  }
+  let changed = false;
+  for (const m of mats) {
+    const opening = m.openingQty ?? m.quantity;   // capture baseline on first sync
+    const remaining = opening - (consumed[m.name.trim().toLowerCase()] ?? 0);
+    if (m.openingQty == null || m.quantity !== remaining) {
+      m.openingQty = opening;
+      m.quantity = remaining;
+      changed = true;
+    }
+  }
+  if (changed) setAll('inv_raw_materials', mats);
+}
+
 // Per-type granule balance: received (from stock entries) minus consumed by PP
 // Fabric batches (PP+Filler → "P.P. Filler", RP → "RP", Colour → "Colour").
 export interface GranuleBalance { type: string; receivedKg: number; receivedBags: number; consumedKg: number; remainingKg: number; }

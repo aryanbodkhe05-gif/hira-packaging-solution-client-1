@@ -1,5 +1,6 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction, STORAGE_PREFIX } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm, PPGranule, Supplier, GRN } from '../types/models';
+import type { User } from '../types';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE, RATE_MASTER_SEED } from '../config';
 
@@ -244,11 +245,34 @@ const invRollsSeed: InvRoll[] = [
 ];
 
 const rawMaterialsSeed: RawMaterial[] = [
-  { id: 'rm-i1', name: 'Gravure ink',   unit: 'kg',    quantity: 60,  dateAdded: '2026-06-05' },
-  { id: 'rm-i2', name: 'Thinner',       unit: 'litre', quantity: 40,  dateAdded: '2026-06-05' },
-  { id: 'rm-i3', name: 'Sewing thread', unit: 'bobbin', quantity: 120, dateAdded: '2026-06-06' },
-  { id: 'rm-i4', name: 'Ethyl acetate', unit: 'kg',    quantity: 35,  dateAdded: '2026-06-08' },
-  { id: 'rm-i5', name: 'Toluene',       unit: 'kg',    quantity: 15,  dateAdded: '2026-06-08' },
+  { id: 'rm-i1', name: 'Gravure ink',   unit: 'kg',    quantity: 60,  openingQty: 60,  dateAdded: '2026-06-05' },
+  { id: 'rm-i2', name: 'Thinner',       unit: 'litre', quantity: 40,  openingQty: 40,  dateAdded: '2026-06-05' },
+  { id: 'rm-i3', name: 'Sewing thread', unit: 'bobbin', quantity: 120, openingQty: 120, dateAdded: '2026-06-06' },
+  { id: 'rm-i4', name: 'Ethyl acetate', unit: 'kg',    quantity: 35,  openingQty: 35,  dateAdded: '2026-06-08' },
+  { id: 'rm-i5', name: 'Toluene',       unit: 'kg',    quantity: 15,  openingQty: 15,  dateAdded: '2026-06-08' },
+];
+
+const ppGranulesSeed: PPGranule[] = [
+  { id: 'pg1', type: 'P.P. Filler', kg: 2000, bags: 80, dateReceived: '2026-06-05', supplier: 'Reliance Polymers', grnRef: 'GRN-20260605-001' },
+  { id: 'pg2', type: 'RP',          kg: 800,  bags: 32, dateReceived: '2026-06-09', supplier: 'Gokul Recyclers' },
+  { id: 'pg3', type: 'Colour',      kg: 150,  bags: 6,  dateReceived: '2026-06-12', supplier: 'Hira Masterbatch' },
+];
+
+const usersSeed: User[] = [
+  { id: 'u-owner',   name: 'Tushar Bansal', email: 'owner@hirapackaging.com',   role: 'OWNER',   phone: '+919876543210' },
+  { id: 'u-manager', name: 'Ramesh Kumar',  email: 'manager@hirapackaging.com', role: 'MANAGER', phone: '+919876500001' },
+  { id: 'u-staff',   name: 'Suresh Patel',  email: 'staff@hirapackaging.com',   role: 'STAFF',   phone: '+919876500002' },
+];
+
+const suppliersSeed: Supplier[] = [
+  { id: 'sup1', name: 'Reliance Polymers',  contact: '+912266001234', gst: '27AAACR1234A1Z5', materials: 'P.P. granules, RP', createdAt: '2026-01-02T08:00:00Z' },
+  { id: 'sup2', name: 'Jindal Poly Films',  contact: '+911244005678', gst: '06AAACJ5678B1Z3', materials: 'BOPP film',         createdAt: '2026-01-02T08:00:00Z' },
+  { id: 'sup3', name: 'Siegwerk Inks',      contact: '+912044009012', gst: '27AAACS9012C1Z1', materials: 'Gravure ink, thinner', createdAt: '2026-01-02T08:00:00Z' },
+];
+
+const grnsSeed: GRN[] = [
+  { id: 'grn1', grnNo: 'GRN-20260605-001', supplier: 'Reliance Polymers', invoiceNo: 'INV-5521', date: '2026-06-05', destination: 'P.P. Granule', itemName: 'P.P. Filler', qty: 2000, bags: 80, createdAt: '2026-06-05T08:00:00Z' },
+  { id: 'grn2', grnNo: 'GRN-20260609-001', supplier: 'Siegwerk Inks',     invoiceNo: 'INV-8830', date: '2026-06-09', destination: 'Raw Materials', itemName: 'Gravure ink', qty: 20, unit: 'kg', createdAt: '2026-06-09T08:00:00Z' },
 ];
 
 const boppFilmsSeed: BoppFilm[] = [
@@ -283,6 +307,10 @@ export function seedDatabase() {
   dbSeedOnce('inv_rolls', invRollsSeed);
   dbSeedOnce('inv_raw_materials', rawMaterialsSeed);
   dbSeedOnce('inv_bopp_films', boppFilmsSeed);
+  dbSeedOnce('inv_pp_granules', ppGranulesSeed);
+  dbSeedOnce('users', usersSeed);
+  dbSeedOnce('suppliers', suppliersSeed);
+  dbSeedOnce('grns', grnsSeed);
 
   // Backfill roll status/bags from production jobs (covers pre-existing data too)
   syncRollsFromProduction();
