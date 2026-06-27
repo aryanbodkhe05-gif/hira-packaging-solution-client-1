@@ -1,5 +1,5 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction, STORAGE_PREFIX } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm, PPGranule, Supplier, GRN } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm, PPGranuleItem, Supplier, GRN } from '../types/models';
 import type { User } from '../types';
 import type { ProductType, OrderStatus } from '../config';
 import { GST_RATE, RATE_MASTER_SEED } from '../config';
@@ -196,10 +196,14 @@ const downtimeSeed: DowntimeLog[] = [
 
 // ── PP Fabric batches seed (Module 11) ─────────────────────────────────────────
 const fabricBatchesSeed: FabricBatch[] = [
-  { id: 'fb1', batchId: 'HIRA-20260620-001', date: '2026-06-20', shift: 'Morning',   line: 'Line 1', ppKg: 850, fillerKg: 120, rpKg: 200, hasColour: true,  colourName: 'Sky Blue',   colourKg: 18, status: 'Closed', notes: 'Standard mix',          createdAt: '2026-06-20T03:30:00Z', updatedAt: '2026-06-20T11:00:00Z' },
-  { id: 'fb2', batchId: 'HIRA-20260620-002', date: '2026-06-20', shift: 'Afternoon', line: 'Line 2', ppKg: 780, fillerKg: 140, rpKg: 260, hasColour: false, colourName: '',           colourKg: 0,  status: 'Closed', notes: '',                     createdAt: '2026-06-20T08:30:00Z', updatedAt: '2026-06-20T16:00:00Z' },
-  { id: 'fb3', batchId: 'HIRA-20260621-001', date: '2026-06-21', shift: 'Morning',   line: 'Line 1', ppKg: 900, fillerKg: 110, rpKg: 180, hasColour: true,  colourName: 'Natural White', colourKg: 22, status: 'Closed', notes: 'Export grade',         createdAt: '2026-06-21T03:30:00Z', updatedAt: '2026-06-21T11:00:00Z' },
-  { id: 'fb4', batchId: 'HIRA-20260622-001', date: '2026-06-22', shift: 'Morning',   line: 'Line 3', ppKg: 820, fillerKg: 130, rpKg: 220, hasColour: false, colourName: '',           colourKg: 0,  status: 'Open',   notes: 'In progress',          createdAt: '2026-06-22T03:30:00Z', updatedAt: '2026-06-22T03:30:00Z' },
+  { id: 'fb1', batchId: 'HIRA-20260620-001', date: '2026-06-20', shift: 'Morning',   line: 'Line 1', outputMeters: 4200, status: 'Closed', notes: 'Standard mix',  createdAt: '2026-06-20T03:30:00Z', updatedAt: '2026-06-20T11:00:00Z',
+    uses: [ { itemId: 'pg-pp1', itemName: 'Virgin PP Grade A', type: 'P.P.', qtyKg: 850 }, { itemId: 'pg-fil1', itemName: 'CaCO3 Filler 80%', type: 'Filler', qtyKg: 120 }, { itemId: 'pg-rp1', itemName: 'Reprocessed PP', type: 'RP', qtyKg: 200 }, { itemId: 'pg-col1', itemName: 'Blue Masterbatch', type: 'Colour', qtyKg: 18 } ] },
+  { id: 'fb2', batchId: 'HIRA-20260620-002', date: '2026-06-20', shift: 'Afternoon', line: 'Line 2', outputMeters: 3800, status: 'Closed', notes: '',              createdAt: '2026-06-20T08:30:00Z', updatedAt: '2026-06-20T16:00:00Z',
+    uses: [ { itemId: 'pg-pp1', itemName: 'Virgin PP Grade A', type: 'P.P.', qtyKg: 780 }, { itemId: 'pg-fil1', itemName: 'CaCO3 Filler 80%', type: 'Filler', qtyKg: 140 }, { itemId: 'pg-rp1', itemName: 'Reprocessed PP', type: 'RP', qtyKg: 260 } ] },
+  { id: 'fb3', batchId: 'HIRA-20260621-001', date: '2026-06-21', shift: 'Morning',   line: 'Line 1', outputMeters: 4400, status: 'Closed', notes: 'Export grade',  createdAt: '2026-06-21T03:30:00Z', updatedAt: '2026-06-21T11:00:00Z',
+    uses: [ { itemId: 'pg-pp1', itemName: 'Virgin PP Grade A', type: 'P.P.', qtyKg: 900 }, { itemId: 'pg-fil1', itemName: 'CaCO3 Filler 80%', type: 'Filler', qtyKg: 110 }, { itemId: 'pg-rp1', itemName: 'Reprocessed PP', type: 'RP', qtyKg: 180 }, { itemId: 'pg-col1', itemName: 'Blue Masterbatch', type: 'Colour', qtyKg: 22 } ] },
+  { id: 'fb4', batchId: 'HIRA-20260622-001', date: '2026-06-22', shift: 'Morning',   line: 'Line 3', outputMeters: 3900, status: 'Open',   notes: 'In progress',  createdAt: '2026-06-22T03:30:00Z', updatedAt: '2026-06-22T03:30:00Z',
+    uses: [ { itemId: 'pg-pp1', itemName: 'Virgin PP Grade A', type: 'P.P.', qtyKg: 820 }, { itemId: 'pg-fil1', itemName: 'CaCO3 Filler 80%', type: 'Filler', qtyKg: 130 }, { itemId: 'pg-rp1', itemName: 'Reprocessed PP', type: 'RP', qtyKg: 220 } ] },
 ];
 
 const fabricWastageSeed: FabricWastage[] = [
@@ -252,10 +256,11 @@ const rawMaterialsSeed: RawMaterial[] = [
   { id: 'rm-i5', name: 'Toluene',       unit: 'kg',    quantity: 15,  openingQty: 15,  dateAdded: '2026-06-08' },
 ];
 
-const ppGranulesSeed: PPGranule[] = [
-  { id: 'pg1', type: 'P.P. Filler', kg: 2000, bags: 80, dateReceived: '2026-06-05', supplier: 'Reliance Polymers', grnRef: 'GRN-20260605-001' },
-  { id: 'pg2', type: 'RP',          kg: 800,  bags: 32, dateReceived: '2026-06-09', supplier: 'Gokul Recyclers' },
-  { id: 'pg3', type: 'Colour',      kg: 150,  bags: 6,  dateReceived: '2026-06-12', supplier: 'Hira Masterbatch' },
+const ppGranulesSeed: PPGranuleItem[] = [
+  { id: 'pg-pp1',  name: 'Virgin PP Grade A', type: 'P.P.',   supplier: 'Reliance Polymers', costPerKg: 95,  currentStockKg: 2000, minStockAlert: 300, grnRef: 'GRN-20260605-001', createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
+  { id: 'pg-fil1', name: 'CaCO3 Filler 80%',  type: 'Filler', supplier: 'Hira Masterbatch',  costPerKg: 42,  currentStockKg: 600,  minStockAlert: 100, createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
+  { id: 'pg-rp1',  name: 'Reprocessed PP',    type: 'RP',     supplier: 'Gokul Recyclers',   costPerKg: 55,  currentStockKg: 800,  minStockAlert: 150, createdAt: '2026-06-09T08:00:00Z', updatedAt: '2026-06-09T08:00:00Z' },
+  { id: 'pg-col1', name: 'Blue Masterbatch',  type: 'Colour', supplier: 'Hira Masterbatch',  costPerKg: 180, currentStockKg: 150,  minStockAlert: 30,  createdAt: '2026-06-12T08:00:00Z', updatedAt: '2026-06-12T08:00:00Z' },
 ];
 
 const usersSeed: User[] = [
@@ -271,7 +276,7 @@ const suppliersSeed: Supplier[] = [
 ];
 
 const grnsSeed: GRN[] = [
-  { id: 'grn1', grnNo: 'GRN-20260605-001', supplier: 'Reliance Polymers', invoiceNo: 'INV-5521', date: '2026-06-05', destination: 'P.P. Granule', itemName: 'P.P. Filler', qty: 2000, bags: 80, createdAt: '2026-06-05T08:00:00Z' },
+  { id: 'grn1', grnNo: 'GRN-20260605-001', supplier: 'Reliance Polymers', invoiceNo: 'INV-5521', date: '2026-06-05', destination: 'P.P. Granule', itemName: 'Virgin PP Grade A (P.P.)', qty: 2000, createdAt: '2026-06-05T08:00:00Z' },
   { id: 'grn2', grnNo: 'GRN-20260609-001', supplier: 'Siegwerk Inks',     invoiceNo: 'INV-8830', date: '2026-06-09', destination: 'Raw Materials', itemName: 'Gravure ink', qty: 20, unit: 'kg', createdAt: '2026-06-09T08:00:00Z' },
 ];
 

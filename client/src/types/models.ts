@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination, GranuleType } from '../config';
 
 export interface Roll {
   id: string;
@@ -63,12 +63,8 @@ export interface FabricBatch {
   date: string;             // yyyy-mm-dd
   shift: Shift;
   line: string;             // e.g. "Line 3"
-  ppKg: number;             // Polypropylene used
-  fillerKg: number;         // Filler used
-  rpKg: number;             // Recycled / reprocessed polymer
-  hasColour: boolean;
-  colourName?: string;      // shown only when hasColour
-  colourKg: number;         // 0 when hasColour is false
+  uses: GranuleUse[];       // granule items consumed (P.P / Filler / RP / Colour) — deducted from stock
+  outputMeters?: number;    // total fabric produced (meters)
   status: BatchStatus;      // Open | Closed
   notes?: string;
   createdAt: string;
@@ -317,15 +313,27 @@ export interface GRN {
   createdAt: string;
 }
 
-// P.P. Granule stock — received lots (balance per type = received − consumed by PP Fabric).
-export interface PPGranule {
+// P.P. Granule stock — named items with a directly-deducted current stock.
+// P.P and Filler (and RP, Colour) are tracked as separate items.
+export interface PPGranuleItem {
   id: string;
-  type: string;            // reusable list (P.P. Filler, RP, Colour, …)
-  kg: number;              // received quantity (kg)
-  bags: number;            // received quantity (bags)
-  dateReceived: string;    // auto-captured (yyyy-mm-dd)
+  name: string;            // e.g. "Virgin PP Grade A", "CaCO3 Filler 80%"
+  type: GranuleType;       // 'P.P.' | 'Filler' | 'RP' | 'Colour'
   supplier?: string;
+  costPerKg?: number;
+  currentStockKg: number;  // deducted when used in PP Fabric production
+  minStockAlert?: number;
   grnRef?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// One granule item consumed by a PP Fabric batch (qty deducted from its stock).
+export interface GranuleUse {
+  itemId: string;
+  itemName: string;
+  type: GranuleType;
+  qtyKg: number;
 }
 
 // Incoming BOPP film raw stock (before printing).

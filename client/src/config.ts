@@ -116,9 +116,18 @@ export const DEFAULT_RAW_MATERIALS = ['Gravure ink', 'Ethyl acetate', 'Toluene',
 export const ROLL_TYPES_KEY = 'list_roll_types';
 export const RAW_MATERIALS_KEY = 'list_raw_materials';
 
-// P.P. Granule stock — reusable type list
-export const DEFAULT_GRANULE_TYPES = ['P.P. Filler', 'RP', 'Colour'];
+// P.P. Granule stock — named items are typed as one of these (P.P and Filler tracked separately)
+export const GRANULE_TYPES = ['P.P.', 'Filler', 'RP', 'Colour'] as const;
+export type GranuleType = typeof GRANULE_TYPES[number];
+export const DEFAULT_GRANULE_TYPES = [...GRANULE_TYPES];
 export const GRANULE_TYPES_KEY = 'list_granule_types';
+// Type colours (P.P = blue, Filler = orange) for the inventory list
+export const GRANULE_TYPE_COLORS: Record<GranuleType, string> = {
+  'P.P.':   'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  'Filler': 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+  'RP':     'bg-green-500/15 text-green-300 border-green-500/30',
+  'Colour': 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+};
 
 // GRN receiving destinations (which inventory to increment)
 export const GRN_DESTINATIONS = ['Raw Materials', 'BOPP Film', 'Rolls', 'P.P. Granule'] as const;

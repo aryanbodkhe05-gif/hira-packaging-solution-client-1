@@ -90,7 +90,7 @@ export function DashboardPage() {
     const batches = fabricBatchesDb.getAll().filter((b) => b.date === todayStr);
     const wastage = fabricWastageDb.getAll();
     const ids = new Set(batches.map((b) => b.id));
-    const input = batches.reduce((s, b) => s + b.ppKg + b.fillerKg + b.rpKg + (b.hasColour ? b.colourKg : 0), 0);
+    const input = batches.reduce((s, b) => s + (b.uses ?? []).reduce((a, u) => a + (u.qtyKg || 0), 0), 0);
     const waste = wastage.filter((w) => ids.has(w.batchRef)).reduce((s, w) => s + (w.quantityKg || 0), 0);
     return { input, wastePct: input > 0 ? (waste / input) * 100 : 0 };
   }, [todayStr]);

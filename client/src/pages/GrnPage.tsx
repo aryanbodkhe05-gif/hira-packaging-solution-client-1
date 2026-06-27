@@ -6,10 +6,10 @@ import {
 } from '../lib/db';
 import {
   GRN_DESTINATIONS, DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY,
-  DEFAULT_GRANULE_TYPES, GRANULE_TYPES_KEY, DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY,
+  DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY,
 } from '../config';
 import type { GrnDestination } from '../config';
-import type { GRN, Supplier } from '../types/models';
+import type { GRN, Supplier, PPGranuleItem } from '../types/models';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pagination } from '../components/ui/Pagination';
@@ -22,15 +22,15 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 
 interface Draft {
   supplier: string; invoiceNo: string; date: string; destination: GrnDestination;
-  itemName: string; rollType: string; qty: number; unit: string; bags: number; meter: number;
+  itemName: string; rollType: string; granuleItemId: string; qty: number; unit: string; bags: number; meter: number;
 }
 const emptyDraft: Draft = {
   supplier: '', invoiceNo: '', date: today(), destination: 'Raw Materials',
-  itemName: '', rollType: '', qty: 0, unit: 'kg', bags: 0, meter: 0,
+  itemName: '', rollType: '', granuleItemId: '', qty: 0, unit: 'kg', bags: 0, meter: 0,
 };
 
-function GrnForm({ suppliers, onReceive, onClose }: {
-  suppliers: Supplier[]; onReceive: (d: Draft) => void; onClose: () => void;
+function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
+  suppliers: Supplier[]; granuleItems: PPGranuleItem[]; onReceive: (d: Draft) => void; onClose: () => void;
 }) {
   const [f, setF] = useState<Draft>({ ...emptyDraft });
   const set = (k: keyof Draft, v: unknown) => setF((p) => ({ ...p, [k]: v }));
@@ -79,9 +79,15 @@ function GrnForm({ suppliers, onReceive, onClose }: {
           <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
         </>)}
         {dest === 'P.P. Granule' && (<>
-          <div><label className="label">Type *</label><ListSelect value={f.itemName} onChange={(v) => set('itemName', v)} listKey={GRANULE_TYPES_KEY} defaults={DEFAULT_GRANULE_TYPES} placeholder="Select type…" /></div>
-          <div><label className="label">KG *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
-          <div><label className="label">Bags</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.bags || ''} onChange={(e) => set('bags', num(e.target.value))} /></div>
+          <div className="sm:col-span-2"><label className="label">Granule item *</label>
+            <select className="input-field" value={f.granuleItemId}
+              onChange={(e) => { const it = granuleItems.find((g) => g.id === e.target.value); setF((p) => ({ ...p, granuleItemId: e.target.value, itemName: it ? `${it.name} (${it.type})` : '' })); }}>
+              <option value="">Select item…</option>
+              {granuleItems.map((g) => <option key={g.id} value={g.id}>{g.type} · {g.name} — {g.currentStockKg}kg</option>)}
+            </select>
+            {granuleItems.length === 0 && <p className="text-muted text-xs mt-1">Add a granule item in P.P. Granule inventory first.</p>}
+          </div>
+          <div><label className="label">KG received *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
         </>)}
       </div>
       <p className="text-muted text-xs">On receive, this increments <span className="text-accent">{dest}</span> stock and logs the GRN.</p>
@@ -97,6 +103,7 @@ function GrnForm({ suppliers, onReceive, onClose }: {
 export function GrnPage() {
   const [rows, setRows] = useState<GRN[]>(() => grnsDb.getAll());
   const [suppliers] = useState<Supplier[]>(() => suppliersDb.getAll());
+  const [granuleItems] = useState<PPGranuleItem[]>(() => ppGranulesDb.getAll());
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -115,7 +122,8 @@ export function GrnPage() {
     } else if (d.destination === 'Rolls') {
       invRollsDb.create({ rollNo: d.itemName, type: d.rollType || 'UL', size: '', quality: 0, gWt: d.qty, nWt: d.qty, meter: d.meter || 0, dateAdded: d.date });
     } else if (d.destination === 'P.P. Granule') {
-      ppGranulesDb.create({ type: d.itemName, kg: d.qty, bags: d.bags || 0, dateReceived: d.date, supplier: d.supplier, grnRef: grnNo });
+      const it = ppGranulesDb.get(d.granuleItemId);
+      if (it) ppGranulesDb.update(it.id, { currentStockKg: it.currentStockKg + d.qty, grnRef: grnNo });
     }
     grnsDb.create({
       grnNo, supplier: d.supplier, invoiceNo: d.invoiceNo, date: d.date, destination: d.destination,
@@ -183,7 +191,7 @@ export function GrnPage() {
 
       {open && (
         <Modal open onClose={() => setOpen(false)} title="New GRN — Receive Stock" size="lg">
-          <GrnForm suppliers={suppliers} onReceive={receive} onClose={() => setOpen(false)} />
+          <GrnForm suppliers={suppliers} granuleItems={granuleItems} onReceive={receive} onClose={() => setOpen(false)} />
         </Modal>
       )}
     </div>

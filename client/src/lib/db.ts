@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranule, Supplier, GRN } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -234,11 +234,23 @@ export const boppFilmsDb = {
   delete:  (id: string) => dbDelete('inv_bopp_films', id),
 };
 export const ppGranulesDb = {
-  getAll:  () => dbGetAll<PPGranule>('inv_pp_granules'),
-  create:  (r: Omit<PPGranule, 'id'>) => dbCreate<PPGranule>('inv_pp_granules', r),
-  update:  (id: string, p: Partial<PPGranule>) => dbUpdate<PPGranule>('inv_pp_granules', id, p),
+  getAll:  () => dbGetAll<PPGranuleItem>('inv_pp_granules'),
+  get:     (id: string) => dbGetAll<PPGranuleItem>('inv_pp_granules').find((g) => g.id === id) ?? null,
+  create:  (r: Omit<PPGranuleItem, 'id'>) => dbCreate<PPGranuleItem>('inv_pp_granules', r),
+  update:  (id: string, p: Partial<PPGranuleItem>) => dbUpdate<PPGranuleItem>('inv_pp_granules', id, p),
   delete:  (id: string) => dbDelete('inv_pp_granules', id),
 };
+
+// Apply (sign -1 to deduct, +1 to restore) a set of granule uses to item stock.
+export function applyGranuleUses(uses: GranuleUse[], sign: 1 | -1): void {
+  const items = dbGetAll<PPGranuleItem>('inv_pp_granules');
+  let changed = false;
+  for (const u of uses) {
+    const it = items.find((x) => x.id === u.itemId);
+    if (it) { it.currentStockKg = +(it.currentStockKg + sign * (u.qtyKg || 0)).toFixed(3); it.updatedAt = new Date().toISOString(); changed = true; }
+  }
+  if (changed) setAll('inv_pp_granules', items);
+}
 
 export const usersDb = {
   getAll:  () => dbGetAll<User>('users'),
@@ -289,27 +301,6 @@ export function syncRawMaterialStock(): void {
   if (changed) setAll('inv_raw_materials', mats);
 }
 
-// Per-type granule balance: received (from stock entries) minus consumed by PP
-// Fabric batches (PP+Filler → "P.P. Filler", RP → "RP", Colour → "Colour").
-export interface GranuleBalance { type: string; receivedKg: number; receivedBags: number; consumedKg: number; remainingKg: number; }
-export function getGranuleBalances(): GranuleBalance[] {
-  const granules = dbGetAll<PPGranule>('inv_pp_granules');
-  const batches = dbGetAll<FabricBatch>('fabric_batches');
-  const consumed: Record<string, number> = { 'P.P. Filler': 0, 'RP': 0, 'Colour': 0 };
-  for (const b of batches) {
-    consumed['P.P. Filler'] += (b.ppKg || 0) + (b.fillerKg || 0);
-    consumed['RP'] += b.rpKg || 0;
-    if (b.hasColour) consumed['Colour'] += b.colourKg || 0;
-  }
-  const types = Array.from(new Set([...Object.keys(consumed), ...granules.map((g) => g.type)]));
-  return types.map((type) => {
-    const lots = granules.filter((g) => g.type === type);
-    const receivedKg = lots.reduce((s, g) => s + (g.kg || 0), 0);
-    const receivedBags = lots.reduce((s, g) => s + (g.bags || 0), 0);
-    const consumedKg = consumed[type] || 0;
-    return { type, receivedKg, receivedBags, consumedKg, remainingKg: receivedKg - consumedKg };
-  }).filter((b) => b.receivedKg > 0 || b.consumedKg > 0);
-}
 export const finishedRollsDb = {
   getAll:  () => dbGetAll<FinishedRoll>('inv_finished_rolls'),
   create:  (r: Omit<FinishedRoll, 'id'>) => dbCreate<FinishedRoll>('inv_finished_rolls', r),
