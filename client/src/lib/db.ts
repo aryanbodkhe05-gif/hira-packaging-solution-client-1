@@ -2,7 +2,8 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranule } from '../types/models';
+import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranule, Supplier, GRN } from '../types/models';
+import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
 // prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
@@ -237,6 +238,24 @@ export const ppGranulesDb = {
   create:  (r: Omit<PPGranule, 'id'>) => dbCreate<PPGranule>('inv_pp_granules', r),
   update:  (id: string, p: Partial<PPGranule>) => dbUpdate<PPGranule>('inv_pp_granules', id, p),
   delete:  (id: string) => dbDelete('inv_pp_granules', id),
+};
+
+export const usersDb = {
+  getAll:  () => dbGetAll<User>('users'),
+  create:  (r: Omit<User, 'id'>) => dbCreate<User>('users', r),
+  update:  (id: string, p: Partial<User>) => dbUpdate<User>('users', id, p),
+  delete:  (id: string) => dbDelete('users', id),
+};
+export const suppliersDb = {
+  getAll:  () => dbGetAll<Supplier>('suppliers'),
+  create:  (r: Omit<Supplier, 'id'>) => dbCreate<Supplier>('suppliers', r),
+  update:  (id: string, p: Partial<Supplier>) => dbUpdate<Supplier>('suppliers', id, p),
+  delete:  (id: string) => dbDelete('suppliers', id),
+};
+export const grnsDb = {
+  getAll:  () => dbGetAll<GRN>('grns'),
+  create:  (r: Omit<GRN, 'id'>) => dbCreate<GRN>('grns', r),
+  delete:  (id: string) => dbDelete('grns', id),
 };
 
 // Per-type granule balance: received (from stock entries) minus consumed by PP

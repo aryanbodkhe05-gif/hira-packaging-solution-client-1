@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
 
 export interface Roll {
   id: string;
@@ -288,6 +288,32 @@ export interface RawMaterial {
   unit: string;
   quantity: number;
   dateAdded: string;
+}
+
+// Supplier master
+export interface Supplier {
+  id: string;
+  name: string;
+  contact: string;
+  gst: string;
+  materials: string;       // materials supplied (free text)
+  createdAt: string;
+}
+
+// Goods Receipt Note — standalone (no PO). Increments one inventory destination.
+export interface GRN {
+  id: string;
+  grnNo: string;           // GRN-YYYYMMDD-NNN
+  supplier: string;
+  invoiceNo: string;
+  date: string;            // yyyy-mm-dd
+  destination: GrnDestination;
+  itemName: string;        // material / film no / roll no / granule type
+  qty: number;             // primary qty (kg or count)
+  unit?: string;
+  bags?: number;           // granules
+  meter?: number;          // film / rolls
+  createdAt: string;
 }
 
 // P.P. Granule stock — received lots (balance per type = received − consumed by PP Fabric).

@@ -16,7 +16,9 @@ import { RawMaterialsPage }  from './pages/RawMaterialsPage';
 import { BoppFilmPage }      from './pages/BoppFilmPage';
 import { FinishedRollsPage } from './pages/FinishedRollsPage';
 import { PPGranuleStockPage } from './pages/PPGranuleStockPage';
-import { PlaceholderPage }   from './pages/PlaceholderPage';
+import { UsersPage }         from './pages/UsersPage';
+import { SuppliersPage }     from './pages/SuppliersPage';
+import { GrnPage }           from './pages/GrnPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
 import { CRMPage }          from './pages/CRMPage';
@@ -63,10 +65,9 @@ export default function App() {
               <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
               <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
               <Route path="inventory/pp-granule"     element={<PPGranuleStockPage />} />
-              {/* remaining placeholders until each section is built */}
-              <Route path="suppliers"       element={<PlaceholderPage title="Suppliers" description="Supplier master. Being built." />} />
-              <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note. Being built." />} />
-              <Route path="users"           element={<PlaceholderPage title="Users & Roles" description="User & role management. Being built." />} />
+              <Route path="suppliers"       element={<SuppliersPage />} />
+              <Route path="grn"             element={<GrnPage />} />
+              <Route path="users"           element={<UsersPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

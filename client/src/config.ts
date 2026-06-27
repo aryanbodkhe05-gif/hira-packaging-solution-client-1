@@ -120,6 +120,13 @@ export const RAW_MATERIALS_KEY = 'list_raw_materials';
 export const DEFAULT_GRANULE_TYPES = ['P.P. Filler', 'RP', 'Colour'];
 export const GRANULE_TYPES_KEY = 'list_granule_types';
 
+// GRN receiving destinations (which inventory to increment)
+export const GRN_DESTINATIONS = ['Raw Materials', 'BOPP Film', 'Rolls', 'P.P. Granule'] as const;
+export type GrnDestination = typeof GRN_DESTINATIONS[number];
+
+// User roles (also in types/index for the auth User)
+export const USER_ROLES = ['OWNER', 'MANAGER', 'STAFF'] as const;
+
 export const FABRIC_TYPES = ['NW', 'MW'] as const;
 export type FabricType = typeof FABRIC_TYPES[number];
 
