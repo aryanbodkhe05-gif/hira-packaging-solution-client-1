@@ -5,7 +5,6 @@ import { AlertProvider } from './context/AlertContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
-import { ProductionPage }   from './pages/ProductionPage';
 import { PPFabricPage }     from './pages/PPFabricPage';
 import { LoomProductionPage } from './pages/LoomProductionPage';
 import { JobCardListPage }   from './pages/JobCardListPage';
@@ -41,7 +40,6 @@ export default function App() {
             <Route path="/" element={<AppLayout />}>
               <Route index             element={<DashboardPage />} />
               <Route path="materials"  element={<MaterialsPage />} />
-              <Route path="production" element={<ProductionPage />} />
               <Route path="pp-fabric"  element={<PPFabricPage />} />
               <Route path="loom"       element={<LoomProductionPage />} />
               <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
@@ -65,9 +63,7 @@ export default function App() {
               <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
               {/* remaining placeholders until each section is built */}
               <Route path="suppliers"       element={<PlaceholderPage title="Suppliers" description="Supplier master. Being built." />} />
-              <Route path="purchase-orders" element={<PlaceholderPage title="Purchase Orders" description="Raise POs to suppliers. Being built." />} />
-              <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note — receive against a PO. Being built." />} />
-              <Route path="cylinders"       element={<PlaceholderPage title="Cylinder Register" description="Gravure cylinder master. Being built." />} />
+              <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note. Being built." />} />
               <Route path="users"           element={<PlaceholderPage title="Users & Roles" description="User & role management. Being built." />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

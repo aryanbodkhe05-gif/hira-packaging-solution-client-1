@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings, UserCog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
-  ClipboardList, IndianRupee, Disc3, Boxes, FileText, Archive,
+  ClipboardList, IndianRupee, Boxes, FileText, Archive,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -32,7 +32,6 @@ const NAV: NavSection[] = [
     { label: 'Other Job Card', icon: ClipboardList, to: '/other' },
     { label: 'Loom Log',      icon: Gauge,         to: '/loom' },
     { label: 'PP Fabric',     icon: Layers,        to: '/pp-fabric' },
-    { label: 'Machines',      icon: Factory,       to: '/production' },
   ]},
   { section: 'Inventory', icon: Package, items: [
     { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls' },
@@ -42,12 +41,10 @@ const NAV: NavSection[] = [
   ]},
   { section: 'Supplier', icon: Building2, items: [
     { label: 'Suppliers',       icon: Building2,     to: '/suppliers' },
-    { label: 'Purchase Orders', icon: ShoppingCart,  to: '/purchase-orders' },
     { label: 'GRN',             icon: FileText,      to: '/grn' },
   ]},
   { section: 'Master', icon: Settings, items: [
     { label: 'Rate Master',       icon: IndianRupee, to: '/rate-master', ownerOnly: true },
-    { label: 'Cylinder Register', icon: Disc3,       to: '/cylinders' },
     { label: 'Users & Roles',     icon: UserCog,     to: '/users', ownerOnly: true },
     { label: 'Settings',          icon: Settings,    to: '/settings', ownerOnly: true },
   ]},
