@@ -15,6 +15,7 @@ import { InventoryRollsPage } from './pages/InventoryRollsPage';
 import { RawMaterialsPage }  from './pages/RawMaterialsPage';
 import { BoppFilmPage }      from './pages/BoppFilmPage';
 import { FinishedRollsPage } from './pages/FinishedRollsPage';
+import { PPGranuleStockPage } from './pages/PPGranuleStockPage';
 import { PlaceholderPage }   from './pages/PlaceholderPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
               <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
               <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
+              <Route path="inventory/pp-granule"     element={<PPGranuleStockPage />} />
               {/* remaining placeholders until each section is built */}
               <Route path="suppliers"       element={<PlaceholderPage title="Suppliers" description="Supplier master. Being built." />} />
               <Route path="grn"             element={<PlaceholderPage title="GRN" description="Goods Receipt Note. Being built." />} />

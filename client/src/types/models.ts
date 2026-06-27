@@ -290,6 +290,17 @@ export interface RawMaterial {
   dateAdded: string;
 }
 
+// P.P. Granule stock — received lots (balance per type = received − consumed by PP Fabric).
+export interface PPGranule {
+  id: string;
+  type: string;            // reusable list (P.P. Filler, RP, Colour, …)
+  kg: number;              // received quantity (kg)
+  bags: number;            // received quantity (bags)
+  dateReceived: string;    // auto-captured (yyyy-mm-dd)
+  supplier?: string;
+  grnRef?: string;
+}
+
 // Incoming BOPP film raw stock (before printing).
 export interface BoppFilm {
   id: string;

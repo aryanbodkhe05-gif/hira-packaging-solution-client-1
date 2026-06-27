@@ -37,6 +37,7 @@ const NAV: NavSection[] = [
     { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls' },
     { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials' },
     { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film' },
+    { label: 'P.P. Granule',   icon: Boxes,    to: '/inventory/pp-granule' },
     { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls' },
   ]},
   { section: 'Supplier', icon: Building2, items: [

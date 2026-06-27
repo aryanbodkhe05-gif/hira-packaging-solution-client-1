@@ -116,6 +116,10 @@ export const DEFAULT_RAW_MATERIALS = ['Gravure ink', 'Ethyl acetate', 'Toluene',
 export const ROLL_TYPES_KEY = 'list_roll_types';
 export const RAW_MATERIALS_KEY = 'list_raw_materials';
 
+// P.P. Granule stock — reusable type list
+export const DEFAULT_GRANULE_TYPES = ['P.P. Filler', 'RP', 'Colour'];
+export const GRANULE_TYPES_KEY = 'list_granule_types';
+
 export const FABRIC_TYPES = ['NW', 'MW'] as const;
 export type FabricType = typeof FABRIC_TYPES[number];
 
