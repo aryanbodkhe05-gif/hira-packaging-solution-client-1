@@ -9,6 +9,11 @@
     "setup": "npm run install:all && cd server && npx prisma generate",
     "db:migrate": "cd server && npx prisma migrate dev --name init",
     "db:seed": "cd server && npx ts-node -r tsconfig-paths/register prisma/seed.ts",
-    "db:studio": "cd server && npx prisma studio"
+    "db:studio": "cd server && npx prisma studio",
+    "build": "cd client && npm install && npm run build",
+    "start": "serve -s client/dist -l ${PORT:-3000}"
+  },
+  "dependencies": {
+    "serve": "^14.2.3"
   }
 }
