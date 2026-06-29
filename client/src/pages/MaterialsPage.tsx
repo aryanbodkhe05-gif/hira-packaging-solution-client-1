@@ -322,6 +322,7 @@ function ConsumablesSection() {
           {catItems.length === 0 ? (
             <div className="py-8 text-center text-muted text-sm">No {cat} items yet</div>
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/5">
@@ -351,6 +352,7 @@ function ConsumablesSection() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       ))}

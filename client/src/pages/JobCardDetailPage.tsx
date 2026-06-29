@@ -153,7 +153,8 @@ function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
       <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
         <IndianRupee className="w-3 h-3" /> Material consumption
       </div>
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[18rem]">
         <tbody>
           {rows.map((r) => (
             <tr key={r.materialId} className="border-t border-white/5">
@@ -183,6 +184,7 @@ function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
           </tfoot>
         )}
       </table>
+      </div>
     </div>
   );
 }

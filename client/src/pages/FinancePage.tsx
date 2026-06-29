@@ -264,6 +264,7 @@ export function FinancePage() {
       {tab === 'pl' ? (
         <div className="glass-card overflow-hidden">
           <div className="px-5 py-4 border-b border-accent/10"><p className="section-title">Monthly P&L</p></div>
+          <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
               <th className="table-header">Month</th>
@@ -288,6 +289,7 @@ export function FinancePage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <>

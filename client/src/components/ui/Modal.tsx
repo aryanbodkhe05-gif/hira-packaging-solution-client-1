@@ -1,4 +1,5 @@
 import { useEffect, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -27,7 +28,9 @@ export function Modal({ open, onClose, title, children, size = 'md' }: Props) {
 
   if (!open) return null;
 
-  return (
+  // Portal to body so the overlay is never trapped by an ancestor's transform
+  // (e.g. page `animate-fade-in`), which would break fixed-position centering.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -37,23 +40,24 @@ export function Modal({ open, onClose, title, children, size = 'md' }: Props) {
 
       {/* Modal */}
       <div className={cn(
-        'relative w-full glass-card border border-accent/30 shadow-2xl shadow-background animate-fade-in',
+        'relative w-full flex flex-col max-h-[90vh] glass-card border border-accent/30 shadow-2xl shadow-background animate-fade-in',
         SIZE_CLASSES[size]
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-accent/10">
-          <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-accent/10 flex-shrink-0">
+          <h2 className="text-base sm:text-lg font-semibold text-white truncate pr-2">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-muted hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-white/10 text-muted hover:text-white transition-colors flex-shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-4 sm:px-6 py-5 overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
