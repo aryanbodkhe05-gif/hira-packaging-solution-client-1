@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination, GranuleType } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
 
 export interface Roll {
   id: string;
@@ -318,10 +318,12 @@ export interface GRN {
 export interface PPGranuleItem {
   id: string;
   name: string;            // e.g. "Virgin PP Grade A", "CaCO3 Filler 80%"
-  type: GranuleType;       // 'P.P.' | 'Filler' | 'RP' | 'Colour'
+  type: string;            // reusable, extensible (P.P. | Filler | RP | Colour | …)
   supplier?: string;
   costPerKg?: number;
-  currentStockKg: number;  // deducted when used in PP Fabric production
+  currentStockKg: number;  // running balance (kg) — deducted when used in PP Fabric
+  bagWeightKg?: number;    // avg kg per bag (kg ÷ bags at receipt) — drives bags-remaining
+  dateReceived: string;    // auto-captured receipt date (yyyy-mm-dd)
   minStockAlert?: number;
   grnRef?: string;
   createdAt: string;
@@ -332,7 +334,7 @@ export interface PPGranuleItem {
 export interface GranuleUse {
   itemId: string;
   itemName: string;
-  type: GranuleType;
+  type: string;
   qtyKg: number;
 }
 

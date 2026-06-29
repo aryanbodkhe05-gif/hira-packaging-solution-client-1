@@ -257,10 +257,10 @@ const rawMaterialsSeed: RawMaterial[] = [
 ];
 
 const ppGranulesSeed: PPGranuleItem[] = [
-  { id: 'pg-pp1',  name: 'Virgin PP Grade A', type: 'P.P.',   supplier: 'Reliance Polymers', costPerKg: 95,  currentStockKg: 2000, minStockAlert: 300, grnRef: 'GRN-20260605-001', createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
-  { id: 'pg-fil1', name: 'CaCO3 Filler 80%',  type: 'Filler', supplier: 'Hira Masterbatch',  costPerKg: 42,  currentStockKg: 600,  minStockAlert: 100, createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
-  { id: 'pg-rp1',  name: 'Reprocessed PP',    type: 'RP',     supplier: 'Gokul Recyclers',   costPerKg: 55,  currentStockKg: 800,  minStockAlert: 150, createdAt: '2026-06-09T08:00:00Z', updatedAt: '2026-06-09T08:00:00Z' },
-  { id: 'pg-col1', name: 'Blue Masterbatch',  type: 'Colour', supplier: 'Hira Masterbatch',  costPerKg: 180, currentStockKg: 150,  minStockAlert: 30,  createdAt: '2026-06-12T08:00:00Z', updatedAt: '2026-06-12T08:00:00Z' },
+  { id: 'pg-pp1',  name: 'Virgin PP Grade A', type: 'P.P.',   supplier: 'Reliance Polymers', costPerKg: 95,  currentStockKg: 2000, bagWeightKg: 25, dateReceived: '2026-06-05', minStockAlert: 300, grnRef: 'GRN-20260605-001', createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
+  { id: 'pg-fil1', name: 'CaCO3 Filler 80%',  type: 'Filler', supplier: 'Hira Masterbatch',  costPerKg: 42,  currentStockKg: 600,  bagWeightKg: 25, dateReceived: '2026-06-05', minStockAlert: 100, createdAt: '2026-06-05T08:00:00Z', updatedAt: '2026-06-05T08:00:00Z' },
+  { id: 'pg-rp1',  name: 'Reprocessed PP',    type: 'RP',     supplier: 'Gokul Recyclers',   costPerKg: 55,  currentStockKg: 800,  bagWeightKg: 25, dateReceived: '2026-06-09', minStockAlert: 150, createdAt: '2026-06-09T08:00:00Z', updatedAt: '2026-06-09T08:00:00Z' },
+  { id: 'pg-col1', name: 'Blue Masterbatch',  type: 'Colour', supplier: 'Hira Masterbatch',  costPerKg: 180, currentStockKg: 150,  bagWeightKg: 25, dateReceived: '2026-06-12', minStockAlert: 30,  createdAt: '2026-06-12T08:00:00Z', updatedAt: '2026-06-12T08:00:00Z' },
 ];
 
 const usersSeed: User[] = [

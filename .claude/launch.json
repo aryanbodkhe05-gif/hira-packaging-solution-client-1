@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "packflow-client",
+      "name": "hira-client",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "C:\\Users\\aryan\\packflow-erp\\client",
+      "cwd": "C:\\Users\\aryan\\hira-packaging-solution-client-1\\client",
       "port": 5173
     }
   ]

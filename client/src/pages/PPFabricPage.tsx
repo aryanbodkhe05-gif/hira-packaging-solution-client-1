@@ -7,10 +7,10 @@ import {
 import toast from 'react-hot-toast';
 import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, applyGranuleUses } from '../lib/db';
 import {
-  SHIFTS, BATCH_STATUSES, WASTAGE_TYPES, WASTAGE_ACTIONS,
+  SHIFTS, BATCH_STATUSES, WASTAGE_TYPES, WASTAGE_ACTIONS, granuleTypeHex,
 } from '../config';
 import type {
-  Shift, BatchStatus, WastageType, WastageAction, GranuleType,
+  Shift, BatchStatus, WastageType, WastageAction,
 } from '../config';
 import type { FabricBatch, FabricWastage, GranuleUse, PPGranuleItem } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -33,9 +33,6 @@ const WASTAGE_TYPE_COLORS: Record<WastageType, string> = {
   'Colour change purge': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
   'Other':               'bg-slate-500/20 text-slate-300 border-slate-500/30',
 };
-
-// Hex colours per granule type for the live mix bar
-const TYPE_HEX: Record<GranuleType, string> = { 'P.P.': '#3131B5', 'Filler': '#f59e0b', 'RP': '#12B76A', 'Colour': '#a855f7' };
 
 function toNum(v: string): number {
   const n = parseFloat(v);
@@ -76,7 +73,7 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
 
   function setUse(i: number, patch: Partial<GranuleUse>) { const arr = [...uses]; arr[i] = { ...arr[i], ...patch }; set('uses', arr); }
   function pickItem(i: number, itemId: string) { const it = granuleItems.find((g) => g.id === itemId); setUse(i, { itemId, itemName: it?.name ?? '', type: it?.type ?? 'P.P.' }); }
-  function addRow() { set('uses', [...uses, { itemId: '', itemName: '', type: 'P.P.' as GranuleType, qtyKg: 0 }]); }
+  function addRow() { set('uses', [...uses, { itemId: '', itemName: '', type: 'P.P.', qtyKg: 0 }]); }
   function removeRow(i: number) { set('uses', uses.filter((_, j) => j !== i)); }
 
   const byType: Record<string, number> = {};
@@ -148,12 +145,12 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
           <span className="font-mono text-lg font-bold text-white">{total.toLocaleString('en-IN')} kg</span>
         </div>
         <div className="h-3 w-full rounded-full bg-white/10 overflow-hidden flex">
-          {Object.entries(byType).map(([t, v]) => { const pct = total > 0 ? (v / total) * 100 : 0; return pct > 0 ? <div key={t} style={{ width: `${pct}%`, background: TYPE_HEX[t as GranuleType] }} title={`${t} ${pct.toFixed(1)}%`} /> : null; })}
+          {Object.entries(byType).map(([t, v]) => { const pct = total > 0 ? (v / total) * 100 : 0; return pct > 0 ? <div key={t} style={{ width: `${pct}%`, background: granuleTypeHex(t) }} title={`${t} ${pct.toFixed(1)}%`} /> : null; })}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           {Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => (
             <div key={t} className="flex items-center gap-1.5 text-xs">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: TYPE_HEX[t as GranuleType] }} />
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: granuleTypeHex(t) }} />
               <span className="text-muted">{t}</span>
               <span className="font-mono text-white/90">{(total > 0 ? (v / total) * 100 : 0).toFixed(1)}%</span>
             </div>

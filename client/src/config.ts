@@ -122,12 +122,24 @@ export type GranuleType = typeof GRANULE_TYPES[number];
 export const DEFAULT_GRANULE_TYPES = [...GRANULE_TYPES];
 export const GRANULE_TYPES_KEY = 'list_granule_types';
 // Type colours (P.P = blue, Filler = orange) for the inventory list
-export const GRANULE_TYPE_COLORS: Record<GranuleType, string> = {
+export const GRANULE_TYPE_COLORS: Record<string, string> = {
   'P.P.':   'bg-blue-500/15 text-blue-300 border-blue-500/30',
   'Filler': 'bg-orange-500/15 text-orange-300 border-orange-500/30',
   'RP':     'bg-green-500/15 text-green-300 border-green-500/30',
   'Colour': 'bg-purple-500/15 text-purple-300 border-purple-500/30',
 };
+// Hex colours per granule type for the live mix bar / charts
+export const GRANULE_TYPE_HEX: Record<string, string> = {
+  'P.P.': '#3131B5', 'Filler': '#f59e0b', 'RP': '#12B76A', 'Colour': '#a855f7',
+};
+// Fallbacks for user-added (extensible) types not in the maps above
+export const GRANULE_FALLBACK_COLOR = 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+export const GRANULE_FALLBACK_HEX = '#64748b';
+export const granuleTypeColor = (t: string) => GRANULE_TYPE_COLORS[t] ?? GRANULE_FALLBACK_COLOR;
+export const granuleTypeHex = (t: string) => GRANULE_TYPE_HEX[t] ?? GRANULE_FALLBACK_HEX;
+
+// Default avg bag weight (kg) used when bags are entered without an explicit weight
+export const DEFAULT_BAG_WEIGHT_KG = 25;
 
 // GRN receiving destinations (which inventory to increment)
 export const GRN_DESTINATIONS = ['Raw Materials', 'BOPP Film', 'Rolls', 'P.P. Granule'] as const;
