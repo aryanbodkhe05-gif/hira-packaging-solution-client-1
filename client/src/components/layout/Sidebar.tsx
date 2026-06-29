@@ -51,9 +51,9 @@ const NAV: NavSection[] = [
   ]},
 ];
 
-interface Props { collapsed: boolean; onToggle: () => void; }
+interface Props { collapsed: boolean; onToggle: () => void; mobile?: boolean; onNavigate?: () => void; }
 
-export function Sidebar({ collapsed, onToggle }: Props) {
+export function Sidebar({ collapsed, onToggle, mobile = false, onNavigate }: Props) {
   const location = useLocation();
   const branding = useBranding();
 
@@ -94,7 +94,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           <ul className="space-y-0.5 px-2">
             {visibleSections.flatMap((s) => s.items).map(({ label, icon: Icon, to }) => (
               <li key={to}>
-                <NavLink to={to} title={label}
+                <NavLink to={to} title={label} onClick={onNavigate}
                   className={cn(
                     'flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-all duration-150',
                     isActive(to) ? 'bg-primary/30 text-white border border-primary/40' : 'text-muted hover:text-white hover:bg-white/5'
@@ -120,7 +120,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
                     <ul className="space-y-0.5 mb-1">
                       {items.map(({ label, icon: Icon, to }) => (
                         <li key={to + label}>
-                          <NavLink to={to}
+                          <NavLink to={to} onClick={onNavigate}
                             className={cn(
                               'flex items-center gap-3 pl-8 pr-3 py-2 rounded-lg text-sm font-medium transition-all duration-150',
                               isActive(to) ? 'bg-primary/30 text-white border border-primary/40' : 'text-muted hover:text-white hover:bg-white/5'
@@ -139,10 +139,12 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         )}
       </nav>
 
-      <button onClick={onToggle}
-        className="flex items-center justify-center w-full py-3 border-t border-accent/10 text-muted hover:text-white transition-colors">
-        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-      </button>
+      {!mobile && (
+        <button onClick={onToggle}
+          className="flex items-center justify-center w-full py-3 border-t border-accent/10 text-muted hover:text-white transition-colors">
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      )}
     </aside>
   );
 }

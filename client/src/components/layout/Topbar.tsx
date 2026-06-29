@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import { COMPANY } from '../../config';
 import { useBranding } from '../../lib/branding';
 import { timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../../lib/utils';
 import { useAlerts } from '../../context/AlertContext';
 import { useLiveClock } from '../../hooks/useLiveClock';
 
-export function Topbar() {
+export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const { alerts, unreadCount, markSeen, markAllSeen } = useAlerts();
   const branding = useBranding();
   const clock = useLiveClock();
@@ -22,8 +22,14 @@ export function Topbar() {
   }, []);
 
   return (
-    <header className="h-14 flex items-center justify-between px-6 border-b border-accent/10 bg-navy/80 backdrop-blur-sm flex-shrink-0">
-      <span className="text-white/60 text-sm font-medium hidden sm:block">{branding.companyName}</span>
+    <header className="h-14 flex items-center justify-between px-4 sm:px-6 border-b border-accent/10 bg-navy/80 backdrop-blur-sm flex-shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <button onClick={onMenu} aria-label="Open menu"
+          className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-white/10 text-white/70 transition-colors">
+          <Menu className="w-5 h-5" />
+        </button>
+        <span className="text-white/60 text-sm font-medium truncate">{branding.companyName}</span>
+      </div>
 
       <div className="flex items-center gap-4">
         <span className="font-mono text-sm text-muted hidden md:block">{clock} IST</span>
