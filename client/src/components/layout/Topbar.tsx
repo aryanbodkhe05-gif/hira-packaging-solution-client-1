@@ -28,7 +28,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   }, []);
 
   return (
-    <header className="h-14 flex items-center justify-between px-4 sm:px-6 border-b border-accent/10 bg-navy/80 backdrop-blur-sm flex-shrink-0">
+    <header className="relative z-30 h-14 flex items-center justify-between px-4 sm:px-6 border-b border-accent/10 bg-navy/80 backdrop-blur-sm flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <button onClick={onMenu} aria-label="Open menu"
           className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-white/10 text-white/70 transition-colors">
@@ -53,7 +53,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-12 w-80 glass-card border border-accent/20 shadow-2xl z-50 animate-fade-in">
+            <div className="fixed top-14 right-3 w-[calc(100vw-1.5rem)] max-w-sm sm:absolute sm:top-12 sm:right-0 sm:w-80 glass-card border border-accent/20 shadow-2xl z-50 animate-fade-in">
               <div className="flex items-center justify-between px-4 py-3 border-b border-accent/10">
                 <span className="text-sm font-semibold text-white">Notifications</span>
                 {unreadCount > 0 && (

@@ -235,18 +235,18 @@ export function FinancePage() {
       </div>
 
       {/* P&L summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="glass-card p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="glass-card p-4 sm:p-5 min-w-0">
           <p className="text-muted text-xs">Total Invoiced</p>
-          <p className="text-2xl font-bold font-mono text-white mt-1">{formatCurrency(totalInvoiced)}</p>
+          <p className="text-xl sm:text-2xl font-bold font-mono text-white mt-1 leading-tight break-words tabular-nums">{formatCurrency(totalInvoiced)}</p>
         </div>
-        <div className="glass-card p-5">
+        <div className="glass-card p-4 sm:p-5 min-w-0">
           <p className="text-muted text-xs">Total Received</p>
-          <p className="text-2xl font-bold font-mono text-success mt-1">{formatCurrency(totalReceived)}</p>
+          <p className="text-xl sm:text-2xl font-bold font-mono text-success mt-1 leading-tight break-words tabular-nums">{formatCurrency(totalReceived)}</p>
         </div>
-        <div className="glass-card p-5">
+        <div className="glass-card p-4 sm:p-5 min-w-0">
           <p className="text-muted text-xs">Outstanding</p>
-          <p className="text-2xl font-bold font-mono text-orange-400 mt-1">{formatCurrency(totalOutstanding)}</p>
+          <p className="text-xl sm:text-2xl font-bold font-mono text-orange-400 mt-1 leading-tight break-words tabular-nums">{formatCurrency(totalOutstanding)}</p>
         </div>
       </div>
 

@@ -26,9 +26,9 @@ export function StatCard({ label, value, icon: Icon, iconColor = 'text-accent', 
           </span>
         )}
       </div>
-      <div>
+      <div className="min-w-0">
         <p className={cn(
-          'text-2xl font-bold text-white mt-2',
+          'text-xl sm:text-2xl font-bold text-white mt-2 leading-tight break-words tabular-nums',
           mono && 'font-mono'
         )}>
           {value}

@@ -153,19 +153,19 @@ function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
         <IndianRupee className="w-3 h-3" /> Material consumption
       </div>
       <div className="overflow-x-auto">
-      <table className="w-full text-sm min-w-[18rem]">
+      <table className="w-full text-sm">
         <tbody>
           {rows.map((r) => (
             <tr key={r.materialId} className="border-t border-white/5">
-              <td className="px-3 py-1.5 text-white/80">{r.materialName}</td>
-              <td className="px-3 py-1.5 w-28">
-                <input className="input-field font-mono py-1 text-xs" type="number" min="0" step="any"
+              <td className="px-3 py-2 text-white/80 align-middle min-w-0">{r.materialName}</td>
+              <td className="py-2 pl-2 pr-1 align-middle w-[5.5rem]">
+                <input className="input-field font-mono py-1.5 text-sm text-right w-20" type="number" min="0" step="any"
                   value={r.qty || ''} placeholder="0"
                   onChange={(e) => setQty(r.materialId, e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
               </td>
-              <td className="px-2 py-1.5 text-muted text-xs whitespace-nowrap">{r.unit.replace(/^₹\s*\/\s*/, '')}</td>
+              <td className="py-2 pl-1 pr-3 text-muted text-xs whitespace-nowrap align-middle">{r.unit.replace(/^₹\s*\/\s*/, '')}</td>
               {showCosts && (
-                <td className="px-3 py-1.5 text-right font-mono text-xs whitespace-nowrap">
+                <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap align-middle">
                   {r.rateSnapshot == null
                     ? <span className="text-red-300">rate not set</span>
                     : <span className="text-white/70">{formatINR(r.lineCost)}</span>}
@@ -177,8 +177,8 @@ function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
         {showCosts && (
           <tfoot>
             <tr className="border-t border-accent/20 bg-navy/40">
-              <td className="px-3 py-1.5 text-muted text-xs" colSpan={3}>Stage material cost</td>
-              <td className="px-3 py-1.5 text-right font-mono text-white font-semibold whitespace-nowrap">{formatINR(stageTotal)}</td>
+              <td className="px-3 py-2 text-muted text-xs" colSpan={3}>Stage material cost</td>
+              <td className="px-3 py-2 text-right font-mono text-white font-semibold whitespace-nowrap">{formatINR(stageTotal)}</td>
             </tr>
           </tfoot>
         )}
