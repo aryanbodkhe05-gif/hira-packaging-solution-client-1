@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('OWNER', 'MANAGER', 'STAFF');
+CREATE TYPE "UserRole" AS ENUM ('DEVELOPER', 'OWNER', 'MANAGER', 'STAFF');
 
 -- CreateEnum
 CREATE TYPE "StockLogType" AS ENUM ('IN', 'OUT');
@@ -38,10 +38,9 @@ CREATE TYPE "AlertChannel" AS ENUM ('WHATSAPP', 'IN_APP', 'BOTH');
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "password" TEXT NOT NULL,
+    "username" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
     "role" "UserRole" NOT NULL DEFAULT 'STAFF',
-    "phone" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -269,7 +268,7 @@ CREATE TABLE "Setting" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Order_orderId_key" ON "Order"("orderId");
@@ -333,3 +332,4 @@ ALTER TABLE "PurchaseOrder" ADD CONSTRAINT "PurchaseOrder_vendorId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "PurchaseOrder" ADD CONSTRAINT "PurchaseOrder_materialId_fkey" FOREIGN KEY ("materialId") REFERENCES "Material"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+

