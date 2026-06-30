@@ -1,8 +1,10 @@
 name: Deploy to GitHub Pages
 
+# Disabled on push: the app now requires the Express + Postgres backend
+# (deployed as a combined service on Dokploy). GitHub Pages can only serve the
+# static frontend, where login can't reach an API. Kept as manual-only for
+# reference; do not rely on the github.io URL for the live app.
 on:
-  push:
-    branches: [master, main]
   workflow_dispatch:
 
 permissions:
