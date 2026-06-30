@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Pencil, Trash2, UserCog, Copy, KeyRound, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../lib/api';
+import * as auth from '../lib/auth';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
-import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { formatDate, cn } from '../lib/utils';
 import type { AuthUser, UserRole } from '../types';
 
@@ -17,14 +16,10 @@ const ROLE_COLORS: Record<string, string> = {
   STAFF:   'bg-slate-500/20 text-slate-300 border-slate-500/30',
 };
 
-function errMsg(err: unknown, fallback: string): string {
-  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? fallback;
-}
-
 // ── Add / edit form ────────────────────────────────────────────────────────────
 function UserForm({ initial, onSaved, onClose }: {
   initial?: AuthUser;
-  onSaved: (creds?: { username: string; password: string }) => void;
+  onSaved: (creds?: auth.Credentials) => void;
   onClose: () => void;
 }) {
   const editing = !!initial;
@@ -33,30 +28,22 @@ function UserForm({ initial, onSaved, onClose }: {
   const [active, setActive] = useState(initial?.active ?? true);
   const [useCustomPw, setUseCustomPw] = useState(false);
   const [password, setPassword] = useState('');
-  const [saving, setSaving] = useState(false);
 
-  async function submit() {
+  function submit() {
     if (!name.trim()) { toast.error('Name is required'); return; }
     if (useCustomPw && password.trim().length < 6) { toast.error('Password must be at least 6 characters'); return; }
-    setSaving(true);
     try {
       if (editing) {
-        const body: Record<string, unknown> = { name: name.trim(), role, active };
-        if (useCustomPw) body.password = password;
-        const res = await api.patch(`/users/${initial!.id}`, body);
+        const res = auth.updateUser(initial!.id, { name: name.trim(), role, active, password: useCustomPw ? password : undefined });
         toast.success('User updated');
-        onSaved(res.data.credentials);
+        onSaved(res.credentials);
       } else {
-        const body: Record<string, unknown> = { name: name.trim(), role };
-        if (useCustomPw) body.password = password;
-        const res = await api.post('/users', body);
+        const res = auth.createUser(name.trim(), role, useCustomPw ? password : undefined);
         toast.success('User created');
-        onSaved(res.data.credentials);
+        onSaved(res.credentials);
       }
     } catch (err) {
-      toast.error(errMsg(err, 'Save failed'));
-    } finally {
-      setSaving(false);
+      toast.error((err as Error).message || 'Save failed');
     }
   }
 
@@ -74,7 +61,7 @@ function UserForm({ initial, onSaved, onClose }: {
       {editing && (
         <label className="flex items-center gap-2 text-sm text-white/80">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-          Active (unchecking revokes access immediately)
+          Active (unchecking revokes access)
         </label>
       )}
 
@@ -94,14 +81,14 @@ function UserForm({ initial, onSaved, onClose }: {
 
       <div className="flex flex-col sm:flex-row gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} disabled={saving} className="btn-primary flex-1 justify-center">{saving ? 'Saving…' : editing ? 'Save Changes' : 'Create User'}</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center">{editing ? 'Save Changes' : 'Create User'}</button>
       </div>
     </div>
   );
 }
 
 // ── Credentials shown exactly once after create / password reset ─────────────────
-function CredentialsModal({ creds, onClose }: { creds: { username: string; password: string }; onClose: () => void }) {
+function CredentialsModal({ creds, onClose }: { creds: auth.Credentials; onClose: () => void }) {
   const copy = (text: string) => { navigator.clipboard?.writeText(text); toast.success('Copied'); };
   const both = `username: ${creds.username}\npassword: ${creds.password}`;
   return (
@@ -128,33 +115,16 @@ function CredentialsModal({ creds, onClose }: { creds: { username: string; passw
 
 export function UsersPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; user?: AuthUser } | null>(null);
-  const [creds, setCreds] = useState<{ username: string; password: string } | null>(null);
+  const [creds, setCreds] = useState<auth.Credentials | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.get('/users');
-      setUsers(res.data.users);
-    } catch (err) {
-      toast.error(errMsg(err, 'Failed to load users'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  const load = useCallback(() => setUsers(auth.listUsers()), []);
   useEffect(() => { load(); }, [load]);
 
-  async function handleDelete(u: AuthUser) {
+  function handleDelete(u: AuthUser) {
     if (!window.confirm(`Delete ${u.name}? This logs them out immediately.`)) return;
-    try {
-      await api.delete(`/users/${u.id}`);
-      toast.success('User deleted');
-      load();
-    } catch (err) {
-      toast.error(errMsg(err, 'Delete failed'));
-    }
+    try { auth.deleteUser(u.id); toast.success('User deleted'); load(); }
+    catch (err) { toast.error((err as Error).message || 'Delete failed'); }
   }
 
   return (
@@ -174,9 +144,7 @@ export function UsersPage() {
               {['Name', 'Username', 'Role', 'Status', 'Created', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="py-10"><LoadingSpinner /></td></tr>
-              ) : users.length === 0 ? (
+              {users.length === 0 ? (
                 <tr><td colSpan={6}><EmptyState icon={UserCog} title="No users yet" description="Add Owner, Manager or Staff logins." action={{ label: 'Add First User', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
               ) : users.map((u) => (
                 <tr key={u.id} className="table-row">
@@ -198,7 +166,7 @@ export function UsersPage() {
             </tbody>
           </table>
         </div>
-        {!loading && <div className="px-5 py-2 border-t border-accent/10 text-muted text-xs">{users.length} user{users.length === 1 ? '' : 's'}</div>}
+        <div className="px-5 py-2 border-t border-accent/10 text-muted text-xs">{users.length} user{users.length === 1 ? '' : 's'}</div>
       </div>
 
       {modal && (

@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import api from '../lib/api';
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import * as auth from '../lib/auth';
 import { setCurrentRole } from '../lib/roles';
 import type { AuthUser } from '../types';
 
@@ -12,41 +12,35 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
-  loading: true,
+  loading: false,
   login: async () => {},
   logout: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Auth lives in localStorage — resolve the session synchronously on first render.
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const u = auth.currentUser();
+    setCurrentRole(u?.role ?? null);
+    return u;
+  });
 
   const apply = useCallback((u: AuthUser | null) => {
     setUser(u);
     setCurrentRole(u?.role ?? null);
   }, []);
 
-  // On load, ask the server who we are (the httpOnly cookie travels automatically).
-  useEffect(() => {
-    let alive = true;
-    api.get('/auth/me')
-      .then((res) => { if (alive) apply(res.data.user); })
-      .catch(() => { if (alive) apply(null); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [apply]);
-
   const login = useCallback(async (username: string, password: string) => {
-    const res = await api.post('/auth/login', { username, password });
-    apply(res.data.user);
+    apply(auth.login(username, password));
   }, [apply]);
 
   const logout = useCallback(async () => {
-    try { await api.post('/auth/logout'); } finally { apply(null); }
+    auth.logout();
+    apply(null);
   }, [apply]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading: false, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
