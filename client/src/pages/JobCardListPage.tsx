@@ -9,7 +9,6 @@ import type { JobCard } from '../types/models';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatCard } from '../components/ui/StatCard';
 import { Pagination } from '../components/ui/Pagination';
-import { RoleSwitcher } from '../components/ui/RoleSwitcher';
 import { computeCosting, formatINR, normalizeJobCard } from '../lib/jobcard';
 import { canViewCosts } from '../lib/roles';
 import { formatDate, cn } from '../lib/utils';
@@ -34,7 +33,6 @@ export function JobCardListPage({ cardType }: { cardType?: CardType }) {
   const [stageFilter, setStageFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [, force] = useState(0);
   const showCosts = canViewCosts();
 
   function reload() { setCards(jobCardsDb.getAll().map(normalizeJobCard)); }
@@ -69,7 +67,6 @@ export function JobCardListPage({ cardType }: { cardType?: CardType }) {
           <h1 className="page-header">{title}</h1>
           <p className="text-muted text-sm mt-1">Digital order traveler — one live card per order, machine to machine</p>
         </div>
-        <RoleSwitcher onChange={() => force((n) => n + 1)} />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

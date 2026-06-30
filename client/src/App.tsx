@@ -1,8 +1,10 @@
+import { ReactElement } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { AlertProvider } from './context/AlertContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage }        from './pages/LoginPage';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
 import { PPFabricPage }     from './pages/PPFabricPage';
@@ -26,51 +28,86 @@ import { FinancePage }      from './pages/FinancePage';
 import { VendorsPage }      from './pages/VendorsPage';
 import { AlertEnginePage }  from './pages/AlertEnginePage';
 import { SettingsPage }     from './pages/SettingsPage';
-import { seedDatabase }     from './lib/seed';
-import { migrateStorage }   from './lib/db';
+import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings } from './lib/roles';
+import { seedDatabase } from './lib/seed';
+import { migrateStorage } from './lib/db';
+import type { UserRole } from './types';
 
-// Migrate any legacy nicoflex_* keys to packflow_* (one-time, no data loss),
-// then seed demo data on first ever load.
+// Migrate legacy localStorage keys and seed demo business data (client-side).
 migrateStorage();
 seedDatabase();
+
+// Client-side route guard. This is convenience UX layered on top of backend
+// RBAC — the server independently returns 403 for protected APIs.
+function Guard({ allow, children }: { allow: boolean; children: ReactElement }) {
+  return allow ? children : <Navigate to="/" replace />;
+}
+
+function AppRoutes() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Logged out → only the login screen, nothing else.
+  if (!user) return <LoginPage />;
+
+  const role: UserRole = user.role;
+
+  return (
+    <Routes>
+      <Route path="/" element={<AppLayout />}>
+        {/* Everyone */}
+        <Route index             element={<DashboardPage />} />
+        <Route path="alerts"     element={<AlertEnginePage />} />
+        {/* Production — everyone */}
+        <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
+        <Route path="job-card/:id"    element={<JobCardDetailPage />} />
+        <Route path="other"           element={<JobCardListPage cardType="Other" />} />
+        <Route path="loom"            element={<LoomProductionPage />} />
+        <Route path="pp-fabric"       element={<PPFabricPage />} />
+        <Route path="materials"       element={<MaterialsPage />} />
+        {/* Inventory — everyone */}
+        <Route path="inventory/rolls"          element={<InventoryRollsPage />} />
+        <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
+        <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
+        <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
+        <Route path="inventory/pp-granule"     element={<PPGranuleStockPage />} />
+
+        {/* Sales — not Staff */}
+        <Route path="orders"        element={<Guard allow={canAccessSales(role)}><OrdersPage /></Guard>} />
+        <Route path="dispatch"      element={<Guard allow={canAccessSales(role)}><DispatchPage /></Guard>} />
+        <Route path="dispatch/bags"  element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Bag" /></Guard>} />
+        <Route path="dispatch/rolls" element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Roll" /></Guard>} />
+        <Route path="crm"           element={<Guard allow={canAccessSales(role)}><CRMPage /></Guard>} />
+        <Route path="finance"       element={<Guard allow={canAccessSales(role)}><FinancePage /></Guard>} />
+        <Route path="vendors"       element={<Guard allow={canAccessSales(role)}><VendorsPage /></Guard>} />
+
+        {/* Supplier — not Staff */}
+        <Route path="suppliers"     element={<Guard allow={canAccessSupplier(role)}><SuppliersPage /></Guard>} />
+        <Route path="grn"           element={<Guard allow={canAccessSupplier(role)}><GrnPage /></Guard>} />
+
+        {/* Master */}
+        <Route path="rate-master"   element={<Guard allow={canEditRates(role)}><RateMasterPage /></Guard>} />
+        <Route path="users"         element={<Guard allow={canManageUsers(role)}><UsersPage /></Guard>} />
+        <Route path="settings"      element={<Guard allow={canAccessSettings(role)}><SettingsPage /></Guard>} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
 
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AuthProvider>
         <AlertProvider>
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
-              <Route index             element={<DashboardPage />} />
-              <Route path="materials"  element={<MaterialsPage />} />
-              <Route path="pp-fabric"  element={<PPFabricPage />} />
-              <Route path="loom"       element={<LoomProductionPage />} />
-              <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
-              <Route path="job-card/:id"    element={<JobCardDetailPage />} />
-              <Route path="other"           element={<JobCardListPage cardType="Other" />} />
-              <Route path="rate-master"     element={<RateMasterPage />} />
-              <Route path="orders"     element={<OrdersPage />} />
-              <Route path="dispatch"   element={<DispatchPage />} />
-              <Route path="crm"        element={<CRMPage />} />
-              <Route path="finance"    element={<FinancePage />} />
-              <Route path="vendors"    element={<VendorsPage />} />
-              <Route path="alerts"     element={<AlertEnginePage />} />
-              <Route path="settings"   element={<SettingsPage />} />
-
-              {/* ── New 6-section routes ── */}
-              <Route path="dispatch/bags"  element={<DispatchRegisterPage type="Bag" />} />
-              <Route path="dispatch/rolls" element={<DispatchRegisterPage type="Roll" />} />
-              <Route path="inventory/rolls"          element={<InventoryRollsPage />} />
-              <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
-              <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
-              <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
-              <Route path="inventory/pp-granule"     element={<PPGranuleStockPage />} />
-              <Route path="suppliers"       element={<SuppliersPage />} />
-              <Route path="grn"             element={<GrnPage />} />
-              <Route path="users"           element={<UsersPage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <AppRoutes />
         </AlertProvider>
       </AuthProvider>
       <Toaster

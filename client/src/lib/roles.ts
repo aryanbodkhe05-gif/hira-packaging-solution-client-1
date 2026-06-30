@@ -1,32 +1,51 @@
-// ── Role-based cost visibility ─────────────────────────────────────────────────
-// The app's auth is currently hardcoded to an OWNER user (see AuthContext), so
-// there is no real role enforcement yet. Cost gating below is therefore UI-only.
-// All cost/Rate-Master visibility funnels through canViewCosts()/canEditRates()
-// so flipping to real backend roles later is a one-spot change.
-//
-// A demo "view as role" override (stored in settings) lets you preview the
-// Staff experience — operators see quantities/balances but no ₹ figures.
+// ── Role-based access (UI layer) ───────────────────────────────────────────────
+// These helpers drive nav filtering, route guards, and cost (₹) visibility.
+// They are UI conveniences ONLY — every protected capability is also enforced
+// on the backend (auth + users). The role comes from the authenticated session
+// (/api/auth/me), pushed here by AuthContext, never from client-trusted storage.
 
 import type { UserRole } from '../types';
-import { getSettings, saveSettings } from './db';
 
-const VIEW_ROLE_KEY = 'view_role';
+let currentRole: UserRole | null = null;
 
-export function getViewRole(): UserRole {
-  const r = getSettings()[VIEW_ROLE_KEY];
-  return r === 'MANAGER' || r === 'STAFF' || r === 'OWNER' ? r : 'OWNER';
+export function setCurrentRole(role: UserRole | null): void {
+  currentRole = role;
+}
+export function getRole(): UserRole | null {
+  return currentRole;
 }
 
-export function setViewRole(role: UserRole): void {
-  saveSettings({ [VIEW_ROLE_KEY]: role });
+// Everyone except Staff (Developer / Owner / Manager).
+function isAdminTier(role: UserRole | null): boolean {
+  return role === 'DEVELOPER' || role === 'OWNER' || role === 'MANAGER';
 }
 
-// Owner/Manager can see money; Staff/operators cannot.
-export function canViewCosts(role: UserRole = getViewRole()): boolean {
-  return role === 'OWNER' || role === 'MANAGER';
+// Owner/Manager/Developer can see money; Staff cannot.
+export function canViewCosts(role: UserRole | null = currentRole): boolean {
+  return isAdminTier(role);
 }
 
-// Only Owner/Manager maintain the Rate Master.
-export function canEditRates(role: UserRole = getViewRole()): boolean {
-  return role === 'OWNER' || role === 'MANAGER';
+// Rate Master — Developer / Owner / Manager (not Staff).
+export function canEditRates(role: UserRole | null = currentRole): boolean {
+  return isAdminTier(role);
+}
+
+// Sales (Orders, Dispatch, CRM, Finance) — not Staff.
+export function canAccessSales(role: UserRole | null = currentRole): boolean {
+  return isAdminTier(role);
+}
+
+// Supplier (Suppliers, GRN) — not Staff.
+export function canAccessSupplier(role: UserRole | null = currentRole): boolean {
+  return isAdminTier(role);
+}
+
+// Users & Roles — Developer / Owner only.
+export function canManageUsers(role: UserRole | null = currentRole): boolean {
+  return role === 'DEVELOPER' || role === 'OWNER';
+}
+
+// Settings (admin) — Developer / Owner only.
+export function canAccessSettings(role: UserRole | null = currentRole): boolean {
+  return role === 'DEVELOPER' || role === 'OWNER';
 }

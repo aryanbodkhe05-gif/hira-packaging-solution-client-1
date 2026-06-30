@@ -1,5 +1,16 @@
-export type UserRole = 'OWNER' | 'MANAGER' | 'STAFF';
+export type UserRole = 'DEVELOPER' | 'OWNER' | 'MANAGER' | 'STAFF';
 
+// Authenticated user as returned by the backend (/api/auth/me).
+export interface AuthUser {
+  id: string;
+  name: string;
+  username: string;
+  role: UserRole;
+  active?: boolean;
+  createdAt?: string;
+}
+
+// Legacy localStorage user shape (kept for existing client-side seed data).
 export interface User {
   id: string;
   name: string;

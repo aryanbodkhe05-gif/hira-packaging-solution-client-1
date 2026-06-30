@@ -17,7 +17,6 @@ import {
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts } from '../lib/roles';
 import { useBranding } from '../lib/branding';
-import { RoleSwitcher } from '../components/ui/RoleSwitcher';
 import { cn } from '../lib/utils';
 
 // ── Stock Consumed panel — pick a Roll / BOPP Film from current Inventory stock,
@@ -244,7 +243,7 @@ export function JobCardDetailPage() {
   const isNew = id === 'new';
   const branding = useBranding();
   const [items] = useState<RateMasterItem[]>(() => rateMasterDb.getAll());
-  const [showCosts, setShowCosts] = useState(canViewCosts());
+  const showCosts = canViewCosts();
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
   const [showInkThinner, setShowInkThinner] = useState(false);
 
@@ -377,7 +376,6 @@ export function JobCardDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <RoleSwitcher onChange={() => setShowCosts(canViewCosts())} />
           <button onClick={() => window.print()} className="btn-secondary"><Printer className="w-4 h-4" /> Print</button>
           <button onClick={() => persist(card)} className="btn-primary"><Save className="w-4 h-4" /> Save</button>
         </div>

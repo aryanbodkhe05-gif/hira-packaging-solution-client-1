@@ -1,13 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Menu } from 'lucide-react';
-import { COMPANY } from '../../config';
+import { Bell, Menu, LogOut } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useBranding } from '../../lib/branding';
 import { timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../../lib/utils';
 import { useAlerts } from '../../context/AlertContext';
+import { useAuth } from '../../context/AuthContext';
 import { useLiveClock } from '../../hooks/useLiveClock';
+
+const ROLE_LABEL: Record<string, string> = {
+  DEVELOPER: 'Developer', OWNER: 'Owner', MANAGER: 'Manager', STAFF: 'Staff',
+};
 
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const { alerts, unreadCount, markSeen, markAllSeen } = useAlerts();
+  const { user, logout } = useAuth();
   const branding = useBranding();
   const clock = useLiveClock();
   const [notifOpen, setNotifOpen] = useState(false);
@@ -79,12 +85,22 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
           )}
         </div>
 
-        {/* Owner chip */}
-        <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">
-            {COMPANY.owner.charAt(0)}
+        {/* User chip + logout */}
+        <div className="flex items-center gap-2 pl-1">
+          <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {(user?.name ?? '?').charAt(0).toUpperCase()}
           </div>
-          <span className="hidden sm:block text-white text-xs font-medium">{COMPANY.owner}</span>
+          <div className="hidden sm:block leading-tight">
+            <p className="text-white text-xs font-medium">{user?.name}</p>
+            <p className="text-muted text-[10px]">{user ? ROLE_LABEL[user.role] ?? user.role : ''}</p>
+          </div>
+          <button
+            onClick={async () => { await logout(); toast.success('Logged out'); }}
+            title="Log out"
+            className="p-2 rounded-lg hover:bg-white/10 text-muted hover:text-white transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>

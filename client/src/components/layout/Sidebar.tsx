@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
-import { canEditRates } from '../../lib/roles';
+import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings } from '../../lib/roles';
+import { useAuth } from '../../context/AuthContext';
 import { useBranding } from '../../lib/branding';
+import type { UserRole } from '../../types';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Users, DollarSign, Building2, Bell, Settings, UserCog,
@@ -11,21 +13,23 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-interface NavItem { label: string; icon: LucideIcon; to: string; ownerOnly?: boolean }
+type AccessFn = (role: UserRole) => boolean;
+interface NavItem { label: string; icon: LucideIcon; to: string; access?: AccessFn }
 interface NavSection { section: string; icon: LucideIcon; items: NavItem[] }
 
-// 6-section tree. ownerOnly items are hidden for Staff (canEditRates()).
+// 6-section tree. Items without `access` are visible to everyone; the rest are
+// gated by the same role helpers the backend enforces.
 const NAV: NavSection[] = [
   { section: 'Dashboard', icon: LayoutDashboard, items: [
     { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
     { label: 'Alerts',    icon: Bell,            to: '/alerts' },
   ]},
   { section: 'Sales', icon: ShoppingCart, items: [
-    { label: 'Orders',           icon: ShoppingCart, to: '/orders' },
-    { label: 'Dispatch – Bags',  icon: Truck,        to: '/dispatch/bags' },
-    { label: 'Dispatch – Rolls', icon: Truck,        to: '/dispatch/rolls' },
-    { label: 'CRM',              icon: Users,        to: '/crm' },
-    { label: 'Finance',          icon: DollarSign,   to: '/finance' },
+    { label: 'Orders',           icon: ShoppingCart, to: '/orders',         access: canAccessSales },
+    { label: 'Dispatch – Bags',  icon: Truck,        to: '/dispatch/bags',  access: canAccessSales },
+    { label: 'Dispatch – Rolls', icon: Truck,        to: '/dispatch/rolls', access: canAccessSales },
+    { label: 'CRM',              icon: Users,        to: '/crm',            access: canAccessSales },
+    { label: 'Finance',          icon: DollarSign,   to: '/finance',        access: canAccessSales },
   ]},
   { section: 'Production', icon: Factory, items: [
     { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card' },
@@ -41,13 +45,13 @@ const NAV: NavSection[] = [
     { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls' },
   ]},
   { section: 'Supplier', icon: Building2, items: [
-    { label: 'Suppliers',       icon: Building2,     to: '/suppliers' },
-    { label: 'GRN',             icon: FileText,      to: '/grn' },
+    { label: 'Suppliers',       icon: Building2,     to: '/suppliers', access: canAccessSupplier },
+    { label: 'GRN',             icon: FileText,      to: '/grn',       access: canAccessSupplier },
   ]},
   { section: 'Master', icon: Settings, items: [
-    { label: 'Rate Master',       icon: IndianRupee, to: '/rate-master', ownerOnly: true },
-    { label: 'Users & Roles',     icon: UserCog,     to: '/users', ownerOnly: true },
-    { label: 'Settings',          icon: Settings,    to: '/settings', ownerOnly: true },
+    { label: 'Rate Master',       icon: IndianRupee, to: '/rate-master', access: canEditRates },
+    { label: 'Users & Roles',     icon: UserCog,     to: '/users',       access: canManageUsers },
+    { label: 'Settings',          icon: Settings,    to: '/settings',    access: canAccessSettings },
   ]},
 ];
 
@@ -56,9 +60,11 @@ interface Props { collapsed: boolean; onToggle: () => void; mobile?: boolean; on
 export function Sidebar({ collapsed, onToggle, mobile = false, onNavigate }: Props) {
   const location = useLocation();
   const branding = useBranding();
+  const { user } = useAuth();
+  const role = user?.role;
 
   const visibleSections = NAV
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.ownerOnly || canEditRates()) }))
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.access || (role != null && i.access(role))) }))
     .filter((s) => s.items.length > 0);
 
   const isActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to));
