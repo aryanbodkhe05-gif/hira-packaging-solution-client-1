@@ -6,6 +6,7 @@ import { timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../../lib/uti
 import { useAlerts } from '../../context/AlertContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLiveClock } from '../../hooks/useLiveClock';
+import { InstallButton } from '../ui/InstallButton';
 
 const ROLE_LABEL: Record<string, string> = {
   DEVELOPER: 'Developer', OWNER: 'Owner', MANAGER: 'Manager', STAFF: 'Staff',
@@ -39,6 +40,8 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
 
       <div className="flex items-center gap-4">
         <span className="font-mono text-sm text-muted hidden md:block">{clock} IST</span>
+
+        <InstallButton />
 
         {/* Notification bell */}
         <div ref={notifRef} className="relative">
