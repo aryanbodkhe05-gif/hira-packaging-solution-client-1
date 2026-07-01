@@ -1,8 +1,8 @@
 import { dbSeedOnce, saveSettings, syncRollsFromProduction, STORAGE_PREFIX } from './db';
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm, PPGranuleItem, Supplier, GRN } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, RateMasterItem, InvRoll, RawMaterial, BoppFilm, PPGranuleItem, Supplier, GRN } from '../types/models';
 import type { User } from '../types';
 import type { ProductType, OrderStatus } from '../config';
-import { GST_RATE, RATE_MASTER_SEED } from '../config';
+import { RATE_MASTER_SEED } from '../config';
 
 // ── Rolls seed ────────────────────────────────────────────────────────────────
 const rollsSeed: Roll[] = [
@@ -96,54 +96,6 @@ const ordersSeed: Order[] = [
   makeOrder('o24', 3, 'Star Polymers',           'UL',        22, 28, 0.85, 310, 13000, 'In Production','2026-06-03T09:00:00Z'),
   makeOrder('o25', 4, 'Amrit Snacks Pvt Ltd',   'Natural',   30, 35, 1.10, 220, 6500,  'In Production','2026-06-04T09:00:00Z'),
   makeOrder('o26', 5, 'Reliable Exports',        'BOPP',      28, 38, 1.05, 495, 12500, 'Pending',    '2026-06-04T09:00:00Z'),
-];
-
-// ── Leads seed ────────────────────────────────────────────────────────────────
-const leadsSeed: Lead[] = [
-  { id: 'l1', companyName: 'Gujarat Polymers Ltd',     contactPerson: 'Ramesh Patel',   phone: '+912764001234', email: 'ramesh@gujaratpoly.com',  source: 'Trade Show',  productInterest: 'BOPP rolls',      estimatedOrderSize: 500000,  status: 'Interested',     notes: 'Met at PlastIndia 2026', lastContactedAt: '2026-05-28T10:00:00Z', createdAt: '2026-05-15T09:00:00Z', updatedAt: '2026-05-28T10:00:00Z' },
-  { id: 'l2', companyName: 'Rajasthan Food Pack',       contactPerson: 'Suresh Sharma',  phone: '+917414005678', email: 'suresh@rjfoodpack.com',   source: 'Referral',    productInterest: 'Laminated film',  estimatedOrderSize: 800000,  status: 'Proposal Sent',  notes: 'Sent quote on 2 Jun',    lastContactedAt: '2026-06-02T11:00:00Z', createdAt: '2026-05-20T09:00:00Z', updatedAt: '2026-06-02T11:00:00Z' },
-  { id: 'l3', companyName: 'Delhi Snacks Pvt Ltd',      contactPerson: 'Anil Gupta',     phone: '+911124009012', email: 'anil@delhisnacks.in',     source: 'Cold Call',   productInterest: 'BOPP + Natural',  estimatedOrderSize: 300000,  status: 'Contacted',      notes: 'Interested, needs sample', lastContactedAt: '2026-06-01T09:00:00Z', createdAt: '2026-05-25T09:00:00Z', updatedAt: '2026-06-01T09:00:00Z' },
-  { id: 'l4', companyName: 'Punjab Agro Industries',    contactPerson: 'Harpreet Singh',  phone: '+917814003456', email: 'hp@punjabagroi.com',     source: 'Website',     productInterest: 'UL bags',         estimatedOrderSize: 1200000, status: 'Won',            notes: 'First order placed Jun', lastContactedAt: '2026-06-03T14:00:00Z', createdAt: '2026-04-10T09:00:00Z', updatedAt: '2026-06-03T14:00:00Z' },
-  { id: 'l5', companyName: 'Haryana Packaging Works',   contactPerson: 'Vikas Yadav',    phone: '+916374007890', email: 'vikas@hpworks.com',      source: 'Trade Show',  productInterest: 'Laminated',       estimatedOrderSize: 650000,  status: 'New',            notes: 'Collected card at expo', lastContactedAt: undefined,           createdAt: '2026-06-03T09:00:00Z', updatedAt: '2026-06-03T09:00:00Z' },
-  { id: 'l6', companyName: 'UP Confections Ltd',        contactPerson: 'Mohit Verma',    phone: '+915124001234', email: 'mohit@upconfections.in', source: 'Cold Call',   productInterest: 'BOPP',            estimatedOrderSize: 200000,  status: 'Lost',           notes: 'Went with competitor',   lastContactedAt: '2026-05-10T10:00:00Z', createdAt: '2026-04-20T09:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
-  { id: 'l7', companyName: 'Maharashtra FMCG Corp',     contactPerson: 'Priya Joshi',    phone: '+912024005678', email: 'priya@mhfmcg.com',       source: 'Referral',    productInterest: 'UL + Laminated',  estimatedOrderSize: 950000,  status: 'Interested',     notes: 'Very keen, follow up',   lastContactedAt: '2026-05-30T15:00:00Z', createdAt: '2026-05-18T09:00:00Z', updatedAt: '2026-05-30T15:00:00Z' },
-];
-
-// ── Invoices seed ─────────────────────────────────────────────────────────────
-function makeInvoice(
-  id: string, seq: number, orderId: string, clientName: string,
-  orderDetails: string, sizeDisplay: string, productType: string,
-  subtotal: number, dateStr: string, dueDays: number,
-  status: 'Draft' | 'Sent' | 'Paid' | 'Overdue',
-  paidAt?: string, quantityKg?: number
-): Invoice {
-  const d = new Date(dateStr);
-  const ymd = d.toISOString().slice(0,10).replace(/-/g,'');
-  const gstAmt = Math.round(subtotal * GST_RATE / 100);
-  const dueDate = new Date(d.getTime() + dueDays * 86400000).toISOString().slice(0,10);
-  return {
-    id, invoiceNumber: `INV-${ymd}-${String(seq).padStart(4,'0')}`,
-    orderId, clientName, orderDetails, sizeDisplay, productType,
-    subtotal, gstRate: GST_RATE, gstAmount: gstAmt,
-    totalAmount: subtotal + gstAmt, dueDate,
-    paidAt, paidAmount: paidAt ? subtotal + gstAmt : undefined,
-    status, createdAt: dateStr, quantityKg,
-  };
-}
-
-const invoicesSeed: Invoice[] = [
-  makeInvoice('i1',  1, 'o1',  'Amrit Snacks Pvt Ltd',    'PKG-20260118-0001', '25 × 30 + 0.96 gm', 'BOPP',      67500, '2026-01-18T10:00:00Z', 30, 'Paid',    '2026-02-10T10:00:00Z', 450),
-  makeInvoice('i2',  2, 'o2',  'Surya Foods Ltd',          'PKG-20260122-0001', '30 × 40 + 1.20 gm', 'Laminated', 93000, '2026-01-22T10:00:00Z', 30, 'Paid',    '2026-02-18T10:00:00Z', 620),
-  makeInvoice('i3',  3, 'o3',  'National Packaging Co.',   'PKG-20260128-0001', '20 × 25 + 0.80 gm', 'UL',        46500, '2026-01-28T10:00:00Z', 30, 'Paid',    '2026-02-25T10:00:00Z', 310),
-  makeInvoice('i4',  1, 'o5',  'Amrit Snacks Pvt Ltd',    'PKG-20260215-0001', '25 × 30 + 0.96 gm', 'BOPP',      78000, '2026-02-15T10:00:00Z', 30, 'Paid',    '2026-03-12T10:00:00Z', 520),
-  makeInvoice('i5',  2, 'o6',  'Reliable Exports',         'PKG-20260220-0001', '40 × 50 + 1.40 gm', 'Laminated', 117000,'2026-02-20T10:00:00Z', 30, 'Paid',    '2026-03-18T10:00:00Z', 780),
-  makeInvoice('i6',  1, 'o9',  'Surya Foods Ltd',          'PKG-20260312-0001', '25 × 30 + 0.96 gm', 'BOPP',      90000, '2026-03-12T10:00:00Z', 30, 'Paid',    '2026-04-08T10:00:00Z', 600),
-  makeInvoice('i7',  2, 'o10', 'National Packaging Co.',   'PKG-20260318-0001', '35 × 45 + 1.30 gm', 'Laminated', 127500,'2026-03-18T10:00:00Z', 30, 'Paid',    '2026-04-15T10:00:00Z', 850),
-  makeInvoice('i8',  1, 'o14', 'Metro Retail Ltd',         'PKG-20260414-0001', '25 × 30 + 0.96 gm', 'BOPP',      72000, '2026-04-14T10:00:00Z', 30, 'Paid',    '2026-05-10T10:00:00Z', 480),
-  makeInvoice('i9',  2, 'o15', 'Star Polymers',            'PKG-20260420-0001', '30 × 40 + 1.20 gm', 'Laminated', 108000,'2026-04-20T10:00:00Z', 30, 'Sent',    undefined,              720),
-  makeInvoice('i10', 1, 'o18', 'Amrit Snacks Pvt Ltd',    'PKG-20260516-0001', '25 × 30 + 0.96 gm', 'BOPP',      82500, '2026-05-16T10:00:00Z', 30, 'Sent',    undefined,              550),
-  makeInvoice('i11', 2, 'o19', 'Reliable Exports',         'PKG-20260521-0001', '40 × 50 + 1.40 gm', 'Laminated', 135000,'2026-05-21T10:00:00Z', 30, 'Sent',    undefined,              900),
-  makeInvoice('i12', 1, 'o22', 'Surya Foods Ltd',          'PKG-20260605-0001', '25 × 30 + 0.96 gm', 'BOPP',      87000, '2026-06-05T10:00:00Z', 30, 'Overdue', undefined,              580),
 ];
 
 // ── Vendors seed ──────────────────────────────────────────────────────────────
@@ -297,8 +249,6 @@ export function seedDatabase() {
   dbSeedOnce('rolls', rollsSeed);
   dbSeedOnce('consumables', consumablesSeed);
   dbSeedOnce('orders', [...ordersSeed, ...demoRoutingOrders]);
-  dbSeedOnce('leads', leadsSeed);
-  dbSeedOnce('invoices', invoicesSeed);
   dbSeedOnce('vendors', vendorsSeed);
   dbSeedOnce('purchase_orders', purchaseOrdersSeed);
   dbSeedOnce('machines', machinesSeed);

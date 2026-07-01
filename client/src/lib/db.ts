@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Lead, Invoice, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -96,20 +96,6 @@ export const ordersDb = {
   create:  (r: Omit<Order, 'id'>) => dbCreate<Order>('orders', r),
   update:  (id: string, p: Partial<Order>) => dbUpdate<Order>('orders', id, p),
   delete:  (id: string) => dbDelete('orders', id),
-};
-
-export const leadsDb = {
-  getAll:  () => dbGetAll<Lead>('leads'),
-  create:  (r: Omit<Lead, 'id'>) => dbCreate<Lead>('leads', r),
-  update:  (id: string, p: Partial<Lead>) => dbUpdate<Lead>('leads', id, p),
-  delete:  (id: string) => dbDelete('leads', id),
-};
-
-export const invoicesDb = {
-  getAll:  () => dbGetAll<Invoice>('invoices'),
-  create:  (r: Omit<Invoice, 'id'>) => dbCreate<Invoice>('invoices', r),
-  update:  (id: string, p: Partial<Invoice>) => dbUpdate<Invoice>('invoices', id, p),
-  delete:  (id: string) => dbDelete('invoices', id),
 };
 
 export const vendorsDb = {

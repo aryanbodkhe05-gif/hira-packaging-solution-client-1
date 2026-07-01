@@ -26,7 +26,7 @@ function loadContacts(s: Record<string, string>): WaContact[] {
 }
 
 export function SettingsPage() {
-  const [s, setS] = useState(() => ({ followup_days: '3', ...getSettings() }));
+  const [s] = useState(() => ({ ...getSettings() }));
   const [b, setB] = useState(() => getBranding());
   const [contacts, setContacts] = useState<WaContact[]>(() => loadContacts(getSettings()));
   const [saved, setSaved] = useState(false);
@@ -114,18 +114,6 @@ export function SettingsPage() {
           })}
         </div>
         <button onClick={addContact} className="btn-secondary"><Plus className="w-4 h-4" /> Add Number</button>
-      </div>
-
-      {/* CRM follow-up threshold */}
-      <div className="glass-card p-5 space-y-4">
-        <p className="section-title">CRM Follow-up Threshold</p>
-        <div>
-          <label className="label">Remind if no contact for (days)</label>
-          <input className="input-field font-mono w-32" type="number" min="1" max="30"
-            value={s.followup_days}
-            onChange={(e) => setS((p) => ({ ...p, followup_days: e.target.value }))} />
-          <p className="text-muted text-xs mt-1">Leads not contacted in this many days show in the CRM follow-up reminder section.</p>
-        </div>
       </div>
 
       <button onClick={save} className="btn-primary px-6 py-2.5">

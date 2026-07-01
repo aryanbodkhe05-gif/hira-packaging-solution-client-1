@@ -7,7 +7,7 @@ import { useBranding } from '../../lib/branding';
 import type { UserRole } from '../../types';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
-  Users, DollarSign, Building2, Bell, Settings, UserCog,
+  Building2, Bell, Settings, UserCog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
   ClipboardList, IndianRupee, Boxes, FileText, Archive,
 } from 'lucide-react';
@@ -28,8 +28,6 @@ const NAV: NavSection[] = [
     { label: 'Orders',           icon: ShoppingCart, to: '/orders',         access: canAccessSales },
     { label: 'Dispatch – Bags',  icon: Truck,        to: '/dispatch/bags',  access: canAccessSales },
     { label: 'Dispatch – Rolls', icon: Truck,        to: '/dispatch/rolls', access: canAccessSales },
-    { label: 'CRM',              icon: Users,        to: '/crm',            access: canAccessSales },
-    { label: 'Finance',          icon: DollarSign,   to: '/finance',        access: canAccessSales },
   ]},
   { section: 'Production', icon: Factory, items: [
     { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card' },

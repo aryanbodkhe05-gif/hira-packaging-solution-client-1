@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Bell, CheckCheck, Zap, ExternalLink } from 'lucide-react';
 import { differenceInDays, format, isPast, parseISO } from 'date-fns';
-import { ordersDb, invoicesDb, leadsDb, purchaseOrdersDb, alertsDb, getSettings, saveSettings } from '../lib/db';
+import { ordersDb, purchaseOrdersDb, alertsDb, getSettings, saveSettings } from '../lib/db';
 import { COMPANY, ALERT_TYPES } from '../config';
 import type { AppAlert } from '../types/models';
 import { cn, timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS } from '../lib/utils';
@@ -25,7 +25,6 @@ function openWhatsApp(phone: string, message: string) {
 // ── Scan for live conditions → push alerts ────────────────────────────────────
 function scanAndCreateAlerts(): number {
   const settings   = getSettings();
-  const threshold  = parseInt(settings.followup_days ?? '3', 10);
   const existing   = alertsDb.getAll();
   const now        = new Date();
   let count = 0;
@@ -51,32 +50,6 @@ function scanAndCreateAlerts(): number {
       });
   }
 
-  // Payment defaults
-  if (settings.alert_payment === 'true') {
-    invoicesDb.getAll()
-      .filter((i) => i.status !== 'Paid' && isPast(parseISO(i.dueDate)))
-      .forEach((i) => {
-        const days = differenceInDays(now, parseISO(i.dueDate));
-        push('PAYMENT_DEFAULT', `Payment Overdue: ${i.invoiceNumber}`,
-          `💸 PAYMENT OVERDUE — ${i.clientName} owes ₹${i.totalAmount.toLocaleString('en-IN')}. Due ${days} day(s) ago`, 'BOTH');
-      });
-  }
-
-  // Follow-up reminders
-  if (settings.alert_followup === 'true') {
-    leadsDb.getAll()
-      .filter((l) => {
-        if (l.status === 'Won' || l.status === 'Lost') return false;
-        const last = l.lastContactedAt ? parseISO(l.lastContactedAt) : parseISO(l.createdAt);
-        return differenceInDays(now, last) >= threshold;
-      })
-      .forEach((l) => {
-        const days = differenceInDays(now, l.lastContactedAt ? parseISO(l.lastContactedAt) : parseISO(l.createdAt));
-        push('FOLLOW_UP', `Follow-up: ${l.companyName}`,
-          `📋 FOLLOW-UP REMINDER: ${l.companyName} hasn't been contacted in ${days} days. Last action: ${l.notes || '—'}. Contact: ${l.phone}`, 'IN_APP');
-      });
-  }
-
   // PO delays
   if (settings.alert_po_delay === 'true') {
     purchaseOrdersDb.getAll()
@@ -94,10 +67,6 @@ function scanAndCreateAlerts(): number {
 function buildDailySummary(): string {
   const now = new Date();
   const orders   = ordersDb.getAll();
-  const invoices = invoicesDb.getAll();
-  const leads    = leadsDb.getAll();
-  const settings = getSettings();
-  const threshold = parseInt(settings.followup_days ?? '3', 10);
 
   const pendingDispatch = orders.filter((o) => o.status === 'Ready').length;
   const overdueOrders   = orders.filter((o) => o.status !== 'Dispatched' && isPast(parseISO(o.createdAt))).length;
@@ -105,31 +74,12 @@ function buildDailySummary(): string {
     o.dispatchedAt && new Date(o.dispatchedAt).toDateString() === now.toDateString()
   ).length;
 
-  const outstandingInv  = invoices.filter((i) => i.status !== 'Paid');
-  const outstandingAmt  = outstandingInv.reduce((s, i) => s + i.totalAmount, 0);
-  const dueToday        = outstandingInv.filter((i) => i.dueDate === format(now, 'yyyy-MM-dd')).length;
-
-  const newLeads        = leads.filter((l) => l.status === 'New').length;
-  const followupDue     = leads.filter((l) => {
-    if (l.status === 'Won' || l.status === 'Lost') return false;
-    const last = l.lastContactedAt ? parseISO(l.lastContactedAt) : parseISO(l.createdAt);
-    return differenceInDays(now, last) >= threshold;
-  }).length;
-
   return `🏭 *${COMPANY.name} Daily Report — ${format(now, 'dd MMM yyyy')}*
 
 📦 *Orders*
 - Pending dispatch: ${pendingDispatch} orders
 - Overdue: ${overdueOrders} orders
 - Dispatched today: ${dispatchedToday} orders
-
-💰 *Finance*
-- Outstanding: ₹${outstandingAmt.toLocaleString('en-IN')} from ${outstandingInv.length} clients
-- Invoices due today: ${dueToday}
-
-👥 *CRM*
-- New leads: ${newLeads}
-- Follow-ups due: ${followupDue}
 
 *Have a productive day! — ${COMPANY.shortName} ERP*`;
 }
@@ -182,9 +132,7 @@ function AlertSettings() {
   const alertKeys = [
     { key: 'alert_low_stock', label: 'Low Stock', type: 'LOW_STOCK' },
     { key: 'alert_overdue',   label: 'Overdue Orders', type: 'OVERDUE_ORDER' },
-    { key: 'alert_payment',   label: 'Payment Defaults', type: 'PAYMENT_DEFAULT' },
     { key: 'alert_dispatch',  label: 'Dispatch Delays', type: 'DISPATCH_DELAY' },
-    { key: 'alert_followup',  label: 'CRM Follow-ups', type: 'FOLLOW_UP' },
     { key: 'alert_po_delay',  label: 'PO Delivery Delays', type: 'PO_DELAY' },
   ];
 

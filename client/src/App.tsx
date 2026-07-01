@@ -23,8 +23,6 @@ import { SuppliersPage }     from './pages/SuppliersPage';
 import { GrnPage }           from './pages/GrnPage';
 import { OrdersPage }       from './pages/OrdersPage';
 import { DispatchPage }     from './pages/DispatchPage';
-import { CRMPage }          from './pages/CRMPage';
-import { FinancePage }      from './pages/FinancePage';
 import { VendorsPage }      from './pages/VendorsPage';
 import { AlertEnginePage }  from './pages/AlertEnginePage';
 import { SettingsPage }     from './pages/SettingsPage';
@@ -84,8 +82,6 @@ function AppRoutes() {
         <Route path="dispatch"      element={<Guard allow={canAccessSales(role)}><DispatchPage /></Guard>} />
         <Route path="dispatch/bags"  element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Bag" /></Guard>} />
         <Route path="dispatch/rolls" element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Roll" /></Guard>} />
-        <Route path="crm"           element={<Guard allow={canAccessSales(role)}><CRMPage /></Guard>} />
-        <Route path="finance"       element={<Guard allow={canAccessSales(role)}><FinancePage /></Guard>} />
         <Route path="vendors"       element={<Guard allow={canAccessSales(role)}><VendorsPage /></Guard>} />
 
         {/* Supplier — not Staff */}

@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, LeadSource, LeadStatus, InvoiceStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
 
 export interface Roll {
   id: string;
@@ -389,44 +389,6 @@ export interface Consumable {
   quantity: number;
   unit: string;
   notes?: string;
-  createdAt: string;
-}
-
-// ── Module 5 — CRM ────────────────────────────────────────────────────────────
-export interface Lead {
-  id: string;
-  companyName: string;
-  contactPerson: string;
-  phone: string;
-  email?: string;
-  source: LeadSource;
-  productInterest?: string;
-  estimatedOrderSize?: number;
-  status: LeadStatus;
-  notes?: string;
-  lastContactedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── Module 6 — Finance ────────────────────────────────────────────────────────
-export interface Invoice {
-  id: string;
-  invoiceNumber: string;   // INV-YYYYMMDD-XXXX
-  orderId: string;
-  clientName: string;
-  orderDetails: string;
-  sizeDisplay: string;
-  quantityKg?: number;
-  productType: string;
-  subtotal: number;
-  gstRate: number;
-  gstAmount: number;
-  totalAmount: number;
-  dueDate: string;
-  paidAt?: string;
-  paidAmount?: number;
-  status: InvoiceStatus;
   createdAt: string;
 }
 
