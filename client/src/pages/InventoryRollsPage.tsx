@@ -63,10 +63,12 @@ export function InventoryRollsPage() {
   }
   function handleDelete(id: string) { invRollsDb.delete(id); toast.success('Roll deleted'); reload(); }
 
+  // Dispatched-from-stock rolls leave available inventory (they show in Dispatch – Rolls).
+  const available = useMemo(() => rolls.filter((r) => !r.dispatched), [rolls]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rolls.filter((r) => !q || r.rollNo.toLowerCase().includes(q) || r.type.toLowerCase().includes(q));
-  }, [rolls, search]);
+    return available.filter((r) => !q || r.rollNo.toLowerCase().includes(q) || r.type.toLowerCase().includes(q));
+  }, [available, search]);
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
@@ -77,9 +79,9 @@ export function InventoryRollsPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard label="Rolls in Stock" value={rolls.filter((r) => !r.balanceUsed).length} icon={Boxes} iconColor="text-accent" mono />
-        <StatCard label="Balance (used) Rolls" value={rolls.filter((r) => r.balanceUsed).length} icon={Boxes} iconColor="text-yellow-400" mono />
-        <StatCard label="Total Net Wt (kg)" value={rolls.reduce((s, r) => s + (r.nWt || 0), 0).toLocaleString('en-IN')} icon={Boxes} iconColor="text-green-400" mono />
+        <StatCard label="Rolls in Stock" value={available.filter((r) => !r.balanceUsed).length} icon={Boxes} iconColor="text-accent" mono />
+        <StatCard label="Balance (used) Rolls" value={available.filter((r) => r.balanceUsed).length} icon={Boxes} iconColor="text-yellow-400" mono />
+        <StatCard label="Total Net Wt (kg)" value={available.reduce((s, r) => s + (r.nWt || 0), 0).toLocaleString('en-IN')} icon={Boxes} iconColor="text-green-400" mono />
       </div>
 
       <div className="relative max-w-sm">

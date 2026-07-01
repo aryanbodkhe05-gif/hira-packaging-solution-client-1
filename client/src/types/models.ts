@@ -222,7 +222,8 @@ export interface JobCardHeader {
 export interface DispatchRecord {
   id: string;
   type: DispatchType;           // 'Roll' | 'Bag'
-  jobCardId: string;
+  jobCardId?: string;           // set when dispatched from a Job Card
+  rollId?: string;              // set when dispatched directly from roll inventory
   jobNo: string;
   orderRef?: string;            // linked Order.id
   orderNo?: string;
@@ -275,6 +276,8 @@ export interface InvRoll {
   meter: number;
   dateAdded: string;       // auto-captured entry date (yyyy-mm-dd)
   balanceUsed?: boolean;   // flagged when partially consumed in production
+  dispatched?: boolean;    // flagged when dispatched directly from stock
+  dispatchedAt?: string;
 }
 
 // Consumables: ink, thread, thinner, solvents, etc.
