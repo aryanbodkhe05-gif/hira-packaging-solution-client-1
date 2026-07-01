@@ -1,5 +1,8 @@
 // Generates the Hira Packaging PWA icon set from a vector "H" mark.
-// Run: node scripts/gen-pwa-icons.mjs   (from client/)
+// Dev-only tool — NOT part of the app build (icons are committed under public/).
+// Regenerate: npm i -D sharp png-to-ico && node scripts/gen-pwa-icons.mjs  (from client/)
+// (sharp is intentionally not a project dependency — it's a heavy native module
+//  that can break the Nixpacks/Docker build.)
 import sharp from 'sharp';
 import pngToIco from 'png-to-ico';
 import { mkdirSync, writeFileSync } from 'fs';
