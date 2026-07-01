@@ -28,6 +28,23 @@ export function migrateStorage(): void {
   } catch { /* ignore quota / access errors */ }
 }
 
+// One-time handover purge: wipe ALL business/demo data from this browser but
+// keep the login accounts (Users & Roles) and the current session. Runs once
+// per browser, guarded by a flag, so it never touches real client data later.
+export function purgeBusinessDataOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}handover_purged_v1`;
+  const KEEP = new Set([`${STORAGE_PREFIX}auth_users`, `${STORAGE_PREFIX}session`, FLAG]);
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    for (const key of Object.keys(localStorage)) {
+      if ((key.startsWith(STORAGE_PREFIX) || key.startsWith(LEGACY_PREFIX)) && !KEEP.has(key)) {
+        localStorage.removeItem(key);
+      }
+    }
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore quota / access errors */ }
+}
+
 function getAll<T>(table: string): T[] {
   try {
     const raw = localStorage.getItem(getKey(table));
