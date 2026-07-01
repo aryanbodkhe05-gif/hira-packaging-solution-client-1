@@ -1,32 +1,53 @@
 import { useState } from 'react';
-import { Save, RefreshCw, Building2 } from 'lucide-react';
+import { Save, Building2, MessageCircle, Plus, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getSettings, saveSettings } from '../lib/db';
 import { getBranding, saveBranding } from '../lib/branding';
 
+// ── WhatsApp contacts (multiple numbers, each tagged with a role) ───────────────
+const WA_ROLES = ['Owner', 'Manager', 'Staff'] as const;
+type WaRole = typeof WA_ROLES[number];
+interface WaContact { id: string; number: string; role: WaRole; label?: string }
+
+const WA_KEY = 'whatsapp_contacts';
+const isValidPhone = (n: string) => /^\+?[0-9]{8,15}$/.test(n.trim());
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// Load saved contacts; migrate any legacy single owner/alert numbers into rows.
+function loadContacts(s: Record<string, string>): WaContact[] {
+  try {
+    const raw = s[WA_KEY];
+    if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) return arr; }
+  } catch { /* ignore */ }
+  const migrated: WaContact[] = [];
+  if (s.owner_whatsapp) migrated.push({ id: genId(), number: s.owner_whatsapp, role: 'Owner', label: 'Owner' });
+  if (s.alert_whatsapp && s.alert_whatsapp !== s.owner_whatsapp) migrated.push({ id: genId(), number: s.alert_whatsapp, role: 'Manager', label: 'Alert group' });
+  return migrated;
+}
+
 export function SettingsPage() {
-  const [s, setS] = useState(() => ({
-    owner_whatsapp:  '',
-    alert_whatsapp:  '',
-    followup_days:   '3',
-    ...getSettings(),
-  }));
+  const [s, setS] = useState(() => ({ followup_days: '3', ...getSettings() }));
   const [b, setB] = useState(() => getBranding());
+  const [contacts, setContacts] = useState<WaContact[]>(() => loadContacts(getSettings()));
   const [saved, setSaved] = useState(false);
 
+  const setContact = (id: string, patch: Partial<WaContact>) =>
+    setContacts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const addContact = () => setContacts((cs) => [...cs, { id: genId(), number: '', role: 'Owner', label: '' }]);
+  const removeContact = (id: string) => setContacts((cs) => cs.filter((c) => c.id !== id));
+
   function save() {
-    saveSettings(s);
+    const cleaned = contacts.map((c) => ({ ...c, number: c.number.trim(), label: c.label?.trim() || undefined }));
+    const bad = cleaned.find((c) => c.number && !isValidPhone(c.number));
+    if (bad) { toast.error(`Invalid phone: ${bad.number} — use +91XXXXXXXXXX`); return; }
+    const kept = cleaned.filter((c) => c.number); // drop empty rows
+    setContacts(kept.length ? kept : cleaned);
+
+    saveSettings({ ...s, [WA_KEY]: JSON.stringify(kept) });
     saveBranding(b);
     setSaved(true);
     toast.success('Settings saved');
     setTimeout(() => setSaved(false), 2000);
-  }
-
-  function resetData() {
-    if (!confirm('This will clear ALL app data (orders, materials, leads etc.) and reload with fresh seed data. Continue?')) return;
-    const keysToDelete = Object.keys(localStorage).filter((k) => k.startsWith('packflow_') || k.startsWith('nicoflex_'));
-    keysToDelete.forEach((k) => localStorage.removeItem(k));
-    window.location.reload();
   }
 
   return (
@@ -36,7 +57,7 @@ export function SettingsPage() {
         <p className="text-muted text-sm mt-1">Company config, WhatsApp numbers, reminder thresholds</p>
       </div>
 
-      {/* Branding — app + company name (editable, read everywhere) */}
+      {/* Branding */}
       <div className="glass-card p-5 space-y-4">
         <p className="section-title flex items-center gap-2"><Building2 className="w-4 h-4 text-accent" /> Branding</p>
         <p className="text-muted text-xs">These appear across the app — sidebar, header, dashboard, and printed forms.</p>
@@ -64,30 +85,38 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* WhatsApp config */}
+      {/* WhatsApp config — multiple numbers, each with a role */}
       <div className="glass-card p-5 space-y-4">
-        <p className="section-title">WhatsApp Configuration</p>
+        <p className="section-title flex items-center gap-2"><MessageCircle className="w-4 h-4 text-accent" /> WhatsApp Numbers</p>
         <p className="text-muted text-xs">
-          Used to open WhatsApp with pre-filled messages via <code className="text-accent">wa.me</code> links.
-          Format: +91XXXXXXXXXX
+          Numbers alerts can route to, tagged by role. More than one per role is allowed. Format: <span className="font-mono text-accent">+91XXXXXXXXXX</span>.
         </p>
-        <div className="space-y-3">
-          <div>
-            <label className="label">Owner WhatsApp (Daily Summary & Alerts)</label>
-            <input className="input-field font-mono" value={s.owner_whatsapp}
-              onChange={(e) => setS((p) => ({ ...p, owner_whatsapp: e.target.value }))}
-              placeholder="+919876543210" />
-          </div>
-          <div>
-            <label className="label">Alert Group WhatsApp</label>
-            <input className="input-field font-mono" value={s.alert_whatsapp}
-              onChange={(e) => setS((p) => ({ ...p, alert_whatsapp: e.target.value }))}
-              placeholder="+919876543210" />
-          </div>
+
+        <div className="space-y-2">
+          {contacts.length === 0 && <p className="text-muted text-xs">No numbers yet — add one below.</p>}
+          {contacts.map((c) => {
+            const invalid = c.number.trim() !== '' && !isValidPhone(c.number);
+            return (
+              <div key={c.id} className="flex flex-col sm:flex-row gap-2 sm:items-start">
+                <div className="flex-1">
+                  <input className={`input-field font-mono ${invalid ? 'border-red-500/60' : ''}`} value={c.number}
+                    onChange={(e) => setContact(c.id, { number: e.target.value })} placeholder="+919876543210" />
+                  {invalid && <p className="text-red-300 text-[10px] mt-0.5">Use +country code, 8–15 digits</p>}
+                </div>
+                <select className="input-field sm:w-32" value={c.role} onChange={(e) => setContact(c.id, { role: e.target.value as WaRole })}>
+                  {WA_ROLES.map((r) => <option key={r}>{r}</option>)}
+                </select>
+                <input className="input-field sm:w-40" value={c.label ?? ''} onChange={(e) => setContact(c.id, { label: e.target.value })} placeholder="Label (optional)" />
+                <button onClick={() => removeContact(c.id)} title="Remove"
+                  className="p-2 rounded-lg hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors self-start"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            );
+          })}
         </div>
+        <button onClick={addContact} className="btn-secondary"><Plus className="w-4 h-4" /> Add Number</button>
       </div>
 
-      {/* CRM settings */}
+      {/* CRM follow-up threshold */}
       <div className="glass-card p-5 space-y-4">
         <p className="section-title">CRM Follow-up Threshold</p>
         <div>
@@ -95,21 +124,8 @@ export function SettingsPage() {
           <input className="input-field font-mono w-32" type="number" min="1" max="30"
             value={s.followup_days}
             onChange={(e) => setS((p) => ({ ...p, followup_days: e.target.value }))} />
-          <p className="text-muted text-xs mt-1">
-            Leads not contacted in this many days will show in the CRM follow-up reminder section.
-          </p>
+          <p className="text-muted text-xs mt-1">Leads not contacted in this many days show in the CRM follow-up reminder section.</p>
         </div>
-      </div>
-
-      {/* Data management */}
-      <div className="glass-card p-5 space-y-4 border-red-500/20">
-        <p className="section-title text-red-400">Data Management</p>
-        <p className="text-muted text-xs">
-          All data is stored in your browser's localStorage. Clearing browser data will erase everything.
-        </p>
-        <button onClick={resetData} className="btn-danger">
-          <RefreshCw className="w-4 h-4" /> Reset to Demo Data
-        </button>
       </div>
 
       <button onClick={save} className="btn-primary px-6 py-2.5">
