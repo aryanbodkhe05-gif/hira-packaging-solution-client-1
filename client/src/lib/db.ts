@@ -12,6 +12,57 @@ const LEGACY_PREFIX = 'nicoflex_';
 
 function getKey(table: string) { return `${STORAGE_PREFIX}${table}`; }
 
+// ── Server sync (shared multi-device data) ──────────────────────────────────────
+// When the backend is deployed, it is the source of truth; localStorage is a
+// local mirror used for synchronous reads and offline tolerance. On boot we
+// hydrate the mirror from the server (see main.tsx), and every write is pushed
+// back to the server (debounced per table). If the server is unreachable the app
+// falls back to local-only behaviour.
+const API = '/api';
+// Device-local keys that must never sync to the server.
+const LOCAL_ONLY = new Set([`${STORAGE_PREFIX}session`, `${STORAGE_PREFIX}handover_purged_v1`]);
+
+let syncEnabled = false;                 // true once a hydrate succeeds
+const pushTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+// Push one table to the server (debounced so rapid edits coalesce).
+export function pushTable(table: string, data: unknown): void {
+  if (!syncEnabled) return;
+  clearTimeout(pushTimers[table]);
+  pushTimers[table] = setTimeout(() => {
+    fetch(`${API}/data/${encodeURIComponent(table)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    }).catch(() => { /* best-effort; stays in localStorage */ });
+  }, 350);
+}
+
+// Pull every table from the server into the local mirror. Returns false if the
+// server is unreachable (the app then runs on whatever is in localStorage).
+export async function hydrateFromServer(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}/data`);
+    if (!res.ok) return false;
+    const all = await res.json() as Record<string, unknown>;
+    const serverKeys = new Set(Object.keys(all));
+    for (const [key, value] of Object.entries(all)) {
+      localStorage.setItem(getKey(key), JSON.stringify(value));
+    }
+    syncEnabled = true;
+    // Adopt: the first device to connect uploads any local table the server
+    // doesn't have yet (e.g. the seeded login accounts on a fresh deploy).
+    for (const lsKey of Object.keys(localStorage)) {
+      if (!lsKey.startsWith(STORAGE_PREFIX) || LOCAL_ONLY.has(lsKey)) continue;
+      const table = lsKey.slice(STORAGE_PREFIX.length);
+      if (!serverKeys.has(table)) {
+        try { pushTable(table, JSON.parse(localStorage.getItem(lsKey) || 'null')); } catch { /* skip */ }
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // One-time migration: copy any legacy `nicoflex_*` keys to `packflow_*` when the
 // new key doesn't already exist, so existing data is never lost on rebrand.
 // Safe to call on every load — it no-ops once migrated.
@@ -54,6 +105,7 @@ function getAll<T>(table: string): T[] {
 
 function setAll<T>(table: string, data: T[]): void {
   localStorage.setItem(getKey(table), JSON.stringify(data));
+  pushTable(table, data);
 }
 
 function genId(): string {
@@ -138,7 +190,7 @@ export const alertsDb = {
   markAllSeen: () => {
     const all = dbGetAll<AppAlert>('app_alerts');
     const updated = all.map((a) => ({ ...a, seen: true }));
-    localStorage.setItem(getKey('app_alerts'), JSON.stringify(updated));
+    setAll('app_alerts', updated);
   },
 };
 
@@ -367,6 +419,7 @@ export function getSettings(): Record<string, string> {
   } catch { return {}; }
 }
 export function saveSettings(patch: Record<string, string>): void {
-  const existing = getSettings();
-  localStorage.setItem(getKey('settings'), JSON.stringify({ ...existing, ...patch }));
+  const merged = { ...getSettings(), ...patch };
+  localStorage.setItem(getKey('settings'), JSON.stringify(merged));
+  pushTable('settings', merged);
 }

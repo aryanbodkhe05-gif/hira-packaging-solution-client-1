@@ -27,13 +27,7 @@ import { VendorsPage }      from './pages/VendorsPage';
 import { AlertEnginePage }  from './pages/AlertEnginePage';
 import { SettingsPage }     from './pages/SettingsPage';
 import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings } from './lib/roles';
-import { migrateStorage, purgeBusinessDataOnce } from './lib/db';
 import type { UserRole } from './types';
-
-// Handover build: no demo data. Migrate legacy keys, then one-time-purge any
-// existing business/demo data (keeping only the Users & Roles login accounts).
-migrateStorage();
-purgeBusinessDataOnce();
 
 // Client-side route guard. This is convenience UX layered on top of backend
 // RBAC — the server independently returns 403 for protected APIs.

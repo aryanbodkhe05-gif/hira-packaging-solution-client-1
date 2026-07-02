@@ -5,6 +5,7 @@
 // with devtools can bypass it; for true enforcement you'd need a backend.
 
 import bcrypt from 'bcryptjs';
+import { pushTable } from './db';
 import type { AuthUser, UserRole } from '../types';
 
 const USERS_KEY = 'packflow_auth_users';
@@ -25,7 +26,12 @@ function readUsers(): StoredUser[] {
   try { const raw = localStorage.getItem(USERS_KEY); return raw ? JSON.parse(raw) : []; }
   catch { return []; }
 }
-function writeUsers(u: StoredUser[]): void { localStorage.setItem(USERS_KEY, JSON.stringify(u)); }
+// Accounts are shared: mirror to localStorage and push to the server so logins
+// work across devices. (`auth_users` == USERS_KEY without the prefix.)
+function writeUsers(u: StoredUser[]): void {
+  localStorage.setItem(USERS_KEY, JSON.stringify(u));
+  pushTable('auth_users', u);
+}
 function genId(): string { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function toAuthUser(u: StoredUser): AuthUser {
   return { id: u.id, name: u.name, username: u.username, role: u.role, active: u.active, createdAt: u.createdAt };
