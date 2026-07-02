@@ -6,7 +6,9 @@ import dataRouter from './routes/data';
 import { prisma } from './lib/prisma';
 
 const app = express();
-const PORT = parseInt(process.env.PORT ?? '3001', 10);
+// Default to 3000 (matches the port the old static Dokploy service used, and a
+// common platform default). Dokploy's injected PORT still wins when present.
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const CLIENT_URL = process.env.CLIENT_URL ?? 'http://localhost:5173';
 
 // In the combined deployment the API + SPA share an origin (no CORS needed);
