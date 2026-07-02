@@ -12,29 +12,42 @@ router.use((req: Request, res: Response, next) => {
   res.status(401).json({ error: 'unauthorized' });
 });
 
+// If the DB is down/misconfigured we return 503 (not a crash) so the SPA keeps
+// serving and the client falls back to local-only mode.
+function dbError(res: Response, err: unknown) {
+  console.error('data API DB error:', err instanceof Error ? err.message : err);
+  res.status(503).json({ error: 'database unavailable' });
+}
+
 // GET /api/data → { [table]: data } for every table (one-shot hydrate).
 router.get('/', async (_req: Request, res: Response) => {
-  const rows = await prisma.store.findMany();
-  const out: Record<string, unknown> = {};
-  for (const r of rows) out[r.key] = r.data;
-  res.json(out);
+  try {
+    const rows = await prisma.store.findMany();
+    const out: Record<string, unknown> = {};
+    for (const r of rows) out[r.key] = r.data;
+    res.json(out);
+  } catch (err) { dbError(res, err); }
 });
 
 // GET /api/data/:key → one table's data (or null).
 router.get('/:key', async (req: Request, res: Response) => {
-  const row = await prisma.store.findUnique({ where: { key: req.params.key } });
-  res.json(row?.data ?? null);
+  try {
+    const row = await prisma.store.findUnique({ where: { key: req.params.key } });
+    res.json(row?.data ?? null);
+  } catch (err) { dbError(res, err); }
 });
 
 // PUT /api/data/:key → replace one table's data. Body is the array (or { data }).
 router.put('/:key', async (req: Request, res: Response) => {
-  const data = (req.body && typeof req.body === 'object' && 'data' in req.body) ? req.body.data : req.body;
-  await prisma.store.upsert({
-    where: { key: req.params.key },
-    update: { data },
-    create: { key: req.params.key, data },
-  });
-  res.json({ ok: true });
+  try {
+    const data = (req.body && typeof req.body === 'object' && 'data' in req.body) ? req.body.data : req.body;
+    await prisma.store.upsert({
+      where: { key: req.params.key },
+      update: { data },
+      create: { key: req.params.key, data },
+    });
+    res.json({ ok: true });
+  } catch (err) { dbError(res, err); }
 });
 
 export default router;

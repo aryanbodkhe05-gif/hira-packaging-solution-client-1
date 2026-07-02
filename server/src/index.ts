@@ -3,6 +3,7 @@ import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import dataRouter from './routes/data';
+import { prisma } from './lib/prisma';
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
@@ -15,7 +16,13 @@ app.use(express.json({ limit: '10mb' })); // data blobs can be sizeable
 
 // ── API ───────────────────────────────────────────────────────────────────────
 app.use('/api/data', dataRouter);
-app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+// Health reports whether the shared database is reachable (so you can tell
+// "app up but DB down" from a full outage).
+app.get('/api/health', async (_req, res) => {
+  let db = false;
+  try { await prisma.$queryRaw`SELECT 1`; db = true; } catch { /* db down */ }
+  res.json({ status: 'ok', db, timestamp: new Date().toISOString() });
+});
 
 // ── Static client (combined service) ──────────────────────────────────────────
 const clientDist = path.resolve(__dirname, '../../client/dist');

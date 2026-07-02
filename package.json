@@ -11,6 +11,6 @@
     "build:client": "cd client && npm install && npm run build",
     "build:server": "cd server && npm install && npx prisma generate && npm run build",
     "build": "npm run build:client && npm run build:server",
-    "start": "cd server && npx prisma migrate deploy && NODE_ENV=production node dist/index.js"
+    "start": "cd server && (npx prisma migrate deploy || echo 'WARN: prisma migrate failed (no/invalid DATABASE_URL) — app will run local-only until DB is configured') && NODE_ENV=production node dist/index.js"
   }
 }
