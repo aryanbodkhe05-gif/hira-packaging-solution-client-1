@@ -290,6 +290,16 @@ export interface RawMaterial {
   dateAdded: string;
 }
 
+// Machines master (purpose-built) — the actual machines the factory has. Feeds
+// the Cutting/BCS selector on job cards and the Loom selector on the Loom Log.
+export interface FactoryMachine {
+  id: string;
+  name: string;            // machine name / number, e.g. "Cutting-1", "Loom 3"
+  type: string;            // extensible: Cutting/BCS, Loom, Printing, Flexo, Lamination, Slitting, Metalize
+  active: boolean;
+  createdAt: string;
+}
+
 // Supplier master
 export interface Supplier {
   id: string;
@@ -450,9 +460,14 @@ export interface Order {
   quantityNos?: number;
   quantityUnit: 'KG' | 'Nos' | 'Both';
   status: OrderStatus;
+  bagType?: string;                    // reusable type-ahead (handle/laminated/…)
+  boppFilmSize?: string;               // BOPP film size in mm (coexists with bag/roll size)
   // Production routing (Sales → Production). Making Type applies only to BOPP.
   makingType?: MakingType;             // when BOPP: 'Roll' | 'Bag'
   jobCardId?: string;                  // linked Job Card once sent to production
+  closedAt?: string;                   // set when short-closed (Part H)
+  closedBy?: string;
+  closeReason?: string;
   notes?: string;
   billNo?: string;
   dispatchDate?: string;

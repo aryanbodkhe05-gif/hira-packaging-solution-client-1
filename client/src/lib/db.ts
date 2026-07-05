@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -363,6 +363,12 @@ export const usersDb = {
   create:  (r: Omit<User, 'id'>) => dbCreate<User>('users', r),
   update:  (id: string, p: Partial<User>) => dbUpdate<User>('users', id, p),
   delete:  (id: string) => dbDelete('users', id),
+};
+export const factoryMachinesDb = {
+  getAll:  () => dbGetAll<FactoryMachine>('factory_machines'),
+  create:  (r: Omit<FactoryMachine, 'id'>) => dbCreate<FactoryMachine>('factory_machines', r),
+  update:  (id: string, p: Partial<FactoryMachine>) => dbUpdate<FactoryMachine>('factory_machines', id, p),
+  delete:  (id: string) => dbDelete('factory_machines', id),
 };
 export const suppliersDb = {
   getAll:  () => dbGetAll<Supplier>('suppliers'),

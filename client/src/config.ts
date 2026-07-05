@@ -159,6 +159,14 @@ export type CoatingSide = typeof COATING_SIDES[number];
 
 export const BCS_OPTIONS = [1, 2, 3, 4] as const;
 
+// ── Machines master — extensible machine types the factory can add ──────────────
+export const DEFAULT_MACHINE_TYPES = ['Cutting/BCS', 'Loom', 'Printing', 'Flexo', 'Lamination', 'Slitting', 'Metalize'];
+export const MACHINE_TYPES_KEY = 'list_machine_types';
+
+// Bag Type — reusable type-ahead list (order + job-card header). Extensible.
+export const DEFAULT_BAG_TYPES = ['Handle', 'Laminated', 'Non-laminated'];
+export const BAG_TYPES_KEY = 'list_bag_types';
+
 // Rate Master categories — a material belongs to one stage (or 'Any')
 export const RATE_CATEGORIES = ['Printing', 'Metalize', 'Slitting', 'Lamination', 'Cutting', 'Dispatch', 'Any'] as const;
 export type RateCategory = typeof RATE_CATEGORIES[number];

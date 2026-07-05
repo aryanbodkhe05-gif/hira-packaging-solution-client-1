@@ -19,6 +19,7 @@ import { BoppFilmPage }      from './pages/BoppFilmPage';
 import { FinishedRollsPage } from './pages/FinishedRollsPage';
 import { PPGranuleStockPage } from './pages/PPGranuleStockPage';
 import { UsersPage }         from './pages/UsersPage';
+import { MachinesPage }      from './pages/MachinesPage';
 import { SuppliersPage }     from './pages/SuppliersPage';
 import { GrnPage }           from './pages/GrnPage';
 import { OrdersPage }       from './pages/OrdersPage';
@@ -84,6 +85,7 @@ function AppRoutes() {
 
         {/* Master */}
         <Route path="rate-master"   element={<Guard allow={canEditRates(role)}><RateMasterPage /></Guard>} />
+        <Route path="machines"      element={<Guard allow={canEditRates(role)}><MachinesPage /></Guard>} />
         <Route path="users"         element={<Guard allow={canManageUsers(role)}><UsersPage /></Guard>} />
         <Route path="settings"      element={<Guard allow={canAccessSettings(role)}><SettingsPage /></Guard>} />
       </Route>

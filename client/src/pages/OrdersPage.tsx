@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { ordersDb, jobCardsDb } from '../lib/db';
-import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES } from '../config';
+import { ordersDb, jobCardsDb, getList, addToList } from '../lib/db';
+import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
 import type { Order } from '../types/models';
 import type { ProductType, OrderStatus, MakingType } from '../config';
 import { createJobCardFromOrder, genJobNo } from '../lib/jobcard';
@@ -35,6 +35,7 @@ const emptyOrder: Omit<Order, 'id'> = {
   orderId: '', clientName: '', productType: 'BOPP',
   makingType: 'Bag',
   length: 0, width: 0, gsm: 0, sizeDisplay: '',
+  bagType: '', boppFilmSize: '',
   quantityKg: undefined, quantityNos: undefined, quantityUnit: 'Both',
   status: 'Pending', notes: '', createdAt: new Date().toISOString(),
 };
@@ -68,6 +69,7 @@ function OrderForm({ initial, onSave, onClose }: {
     setF((p) => ({
       ...p,
       clientName: o.clientName, productType: o.productType, makingType: o.makingType,
+      bagType: o.bagType ?? '', boppFilmSize: o.boppFilmSize ?? '',
       length: o.length, width: o.width, gsm: o.gsm, sizeDisplay: o.sizeDisplay,
       quantityKg: o.quantityKg, quantityNos: o.quantityNos, quantityUnit: o.quantityUnit,
       notes: o.notes ?? '',
@@ -85,7 +87,8 @@ function OrderForm({ initial, onSave, onClose }: {
   function submit() {
     if (!f.clientName.trim()) { toast.error('Client name required'); return; }
     if (!f.length || !f.width) { toast.error('Length and width required'); return; }
-    onSave({ ...f, sizeDisplay: `${f.length} × ${f.width} + ${f.gsm} gm` });
+    if (f.bagType?.trim()) addToList(BAG_TYPES_KEY, f.bagType.trim(), DEFAULT_BAG_TYPES); // remember for type-ahead
+    onSave({ ...f, bagType: f.bagType?.trim(), sizeDisplay: `${f.length} × ${f.width} + ${f.gsm} gm` });
   }
 
   return (
@@ -149,6 +152,21 @@ function OrderForm({ initial, onSave, onClose }: {
           <div className="mt-1.5 flex items-center gap-2 text-xs">
             <span className="badge bg-accent/20 text-accent border border-accent/30">Loaded from {loadedFrom.orderId} · {format(parseISO(loadedFrom.date), 'dd MMM yy')}</span>
             <button type="button" onClick={startFresh} className="text-muted hover:text-white underline">Start Fresh</button>
+          </div>
+        )}
+      </div>
+
+      {/* Bag Type (type-ahead) + BOPP film size (mm) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="label">Bag Type</label>
+          <input className="input-field" list="order-bag-types" value={f.bagType ?? ''} onChange={(e) => set('bagType', e.target.value)} placeholder="handle / laminated / non-laminated" />
+          <datalist id="order-bag-types">{getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES).map((t) => <option key={t} value={t} />)}</datalist>
+        </div>
+        {f.productType === 'BOPP' && (
+          <div>
+            <label className="label">BOPP Film Size (mm)</label>
+            <input className="input-field font-mono" value={f.boppFilmSize ?? ''} onChange={(e) => set('boppFilmSize', e.target.value)} placeholder="e.g. 520" />
           </div>
         )}
       </div>
