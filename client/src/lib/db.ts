@@ -96,6 +96,57 @@ export function purgeBusinessDataOnce(): void {
   } catch { /* ignore quota / access errors */ }
 }
 
+// One-time rename of legacy values in stored data: UL → Milky, RP → Master Batch.
+// Rewrites records, granule mixes, and the reusable dropdown lists, then pushes
+// the changes to the server. Runs once (flagged).
+export function migrateRenamesOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}renamed_ul_rp_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const remap = (v: string) =>
+      v === 'UL' ? 'Milky' : v === 'UL Multi Colour' ? 'Milky Multi Colour'
+      : (v === 'RP' || v === 'R.P.') ? 'Master Batch' : v;
+
+    const rewriteField = (table: string, field: string) => {
+      const arr = getAll<Record<string, unknown>>(table);
+      let changed = false;
+      for (const r of arr) {
+        const v = r[field];
+        if (typeof v === 'string' && remap(v) !== v) { r[field] = remap(v); changed = true; }
+      }
+      if (changed) setAll(table, arr);
+    };
+    rewriteField('rolls', 'type');
+    rewriteField('inv_rolls', 'type');
+    rewriteField('orders', 'productType');
+    rewriteField('inv_pp_granules', 'type');
+
+    // PP-fabric batch granule mixes
+    const fb = getAll<{ uses?: { type?: string }[] }>('fabric_batches');
+    let fbc = false;
+    for (const b of fb) for (const u of b.uses ?? []) {
+      if (u.type && remap(u.type) !== u.type) { u.type = remap(u.type); fbc = true; }
+    }
+    if (fbc) setAll('fabric_batches', fb);
+
+    // Reusable dropdown lists (stored JSON strings in settings)
+    const s = getSettings();
+    let sc = false;
+    for (const key of ['list_roll_types', 'list_granule_types']) {
+      if (s[key]) {
+        try {
+          const list = (JSON.parse(s[key]) as string[]).map(remap);
+          s[key] = JSON.stringify([...new Set(list)]);
+          sc = true;
+        } catch { /* skip bad json */ }
+      }
+    }
+    if (sc) saveSettings(s);
+
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
 function getAll<T>(table: string): T[] {
   try {
     const raw = localStorage.getItem(getKey(table));

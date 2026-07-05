@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Pending':       'bg-white/10 text-white/60 border-white/10',
 };
 const TYPE_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', UL: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
 };
 
 function genOrderId(): string {

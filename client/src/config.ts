@@ -9,7 +9,8 @@ export const COMPANY = {
   email:       'info@hirapackaging.com',
 } as const;
 
-export const PRODUCT_TYPES = ['BOPP', 'UL', 'Natural', 'Laminated'] as const;
+// "Milky" is the company's name for the fabric formerly labelled "UL".
+export const PRODUCT_TYPES = ['BOPP', 'Milky', 'Natural', 'Laminated'] as const;
 export type ProductType = typeof PRODUCT_TYPES[number];
 
 export const CONSUMABLE_CATEGORIES = ['Ink', 'Thread', 'Filler', 'Custom'] as const;
@@ -111,26 +112,28 @@ export const DISPATCH_TYPES = ['Roll', 'Bag'] as const;
 export type DispatchType = typeof DISPATCH_TYPES[number];
 
 // ── Module 14 — Inventory defaults (reusable, extensible lists) ─────────────────
-export const DEFAULT_ROLL_TYPES = ['UL', 'Natural', 'Lamination', 'UL Multi Colour'];
+export const DEFAULT_ROLL_TYPES = ['Milky', 'Natural', 'Lamination', 'Milky Multi Colour'];
 export const DEFAULT_RAW_MATERIALS = ['Gravure ink', 'Ethyl acetate', 'Toluene', 'IPA', 'Sewing thread', 'Thinner'];
 export const ROLL_TYPES_KEY = 'list_roll_types';
 export const RAW_MATERIALS_KEY = 'list_raw_materials';
 
-// P.P. Granule stock — named items are typed as one of these (P.P and Filler tracked separately)
-export const GRANULE_TYPES = ['P.P.', 'Filler', 'RP', 'Colour'] as const;
+// P.P. Granule stock — named items are typed as one of these (extensible).
+// "Master Batch" was formerly "RP". Enhancer added per the shop-floor list.
+export const GRANULE_TYPES = ['P.P.', 'Filler', 'Master Batch', 'Colour', 'Enhancer'] as const;
 export type GranuleType = typeof GRANULE_TYPES[number];
 export const DEFAULT_GRANULE_TYPES = [...GRANULE_TYPES];
 export const GRANULE_TYPES_KEY = 'list_granule_types';
-// Type colours (P.P = blue, Filler = orange) for the inventory list
+// Type colours for the inventory list
 export const GRANULE_TYPE_COLORS: Record<string, string> = {
-  'P.P.':   'bg-blue-500/15 text-blue-300 border-blue-500/30',
-  'Filler': 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-  'RP':     'bg-green-500/15 text-green-300 border-green-500/30',
-  'Colour': 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  'P.P.':         'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  'Filler':       'bg-orange-500/15 text-orange-300 border-orange-500/30',
+  'Master Batch': 'bg-green-500/15 text-green-300 border-green-500/30',
+  'Colour':       'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  'Enhancer':     'bg-teal-500/15 text-teal-300 border-teal-500/30',
 };
 // Hex colours per granule type for the live mix bar / charts
 export const GRANULE_TYPE_HEX: Record<string, string> = {
-  'P.P.': '#3131B5', 'Filler': '#f59e0b', 'RP': '#12B76A', 'Colour': '#a855f7',
+  'P.P.': '#3131B5', 'Filler': '#f59e0b', 'Master Batch': '#12B76A', 'Colour': '#a855f7', 'Enhancer': '#14b8a6',
 };
 // Fallbacks for user-added (extensible) types not in the maps above
 export const GRANULE_FALLBACK_COLOR = 'bg-slate-500/15 text-slate-300 border-slate-500/30';

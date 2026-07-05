@@ -6,7 +6,7 @@ import { cn } from '../lib/utils';
 import { EmptyState } from '../components/ui/EmptyState';
 
 const TYPE_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', UL: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
 };
 
 export function DispatchPage() {

@@ -13,7 +13,7 @@ import { StatCard } from '../components/ui/StatCard';
 import { format, parseISO } from 'date-fns';
 
 const PRODUCT_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', UL: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
 };
 
 function ChartTip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) {

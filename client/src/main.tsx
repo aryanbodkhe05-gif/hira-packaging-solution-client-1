@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import { migrateStorage, purgeBusinessDataOnce, hydrateFromServer } from './lib/db';
+import { migrateStorage, purgeBusinessDataOnce, hydrateFromServer, migrateRenamesOnce } from './lib/db';
 
 // Boot: migrate legacy keys, one-time handover purge, then hydrate the local
 // mirror from the shared server (best-effort — falls back to local data if the
@@ -11,6 +11,7 @@ async function boot() {
   migrateStorage();
   purgeBusinessDataOnce();
   await hydrateFromServer();
+  migrateRenamesOnce(); // UL → Milky, RP → Master Batch (after hydrate so it syncs up)
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <App />
