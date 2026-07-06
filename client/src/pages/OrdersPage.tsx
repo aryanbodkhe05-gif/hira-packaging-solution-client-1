@@ -1,13 +1,16 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { ordersDb, jobCardsDb, getList, addToList } from '../lib/db';
+import { ordersDb, jobCardsDb, dispatchesDb, getList, addToList } from '../lib/db';
+import { orderDispatchProgress, progressBarClass } from '../lib/dispatch';
+import { canEditRates } from '../lib/roles';
 import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
 import type { Order } from '../types/models';
 import type { ProductType, OrderStatus, MakingType } from '../config';
 import { createJobCardFromOrder, genJobNo } from '../lib/jobcard';
+import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../lib/utils';
@@ -19,6 +22,8 @@ const STATUS_COLORS: Record<string, string> = {
   'In Production': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   'QC Check':      'bg-purple-500/20 text-purple-400 border-purple-500/30',
   'Pending':       'bg-white/10 text-white/60 border-white/10',
+  'Partially Dispatched': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  'Short-Closed':  'bg-orange-500/20 text-orange-300 border-orange-500/30',
 };
 const TYPE_COLORS: Record<string, string> = {
   BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
@@ -277,7 +282,20 @@ export function OrdersPage() {
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; order?: Order } | null>(null);
   const nav = useNavigate();
 
+  const { user } = useAuth();
   const reload = useCallback(() => setOrders(ordersDb.getAll()), []);
+  const dispatches = useMemo(() => dispatchesDb.getAll(), [orders]);
+
+  // Short-close: owner/manager closes an order before 100% (client wanted less /
+  // capacity). Requires a confirm; records who + optional reason; stops pending.
+  function shortClose(o: Order) {
+    const p = orderDispatchProgress(o, dispatches);
+    if (!window.confirm(`⚠️ Are you sure?\n\nThis will CLOSE order ${o.orderId} with ${p.pendingPcs.toLocaleString('en-IN')} pcs / ${p.pendingKg.toLocaleString('en-IN')} kg still pending, and stop it counting as pending.`)) return;
+    const reason = window.prompt('Optional reason for short-close:') ?? '';
+    ordersDb.update(o.id, { closedAt: new Date().toISOString(), closedBy: user?.name ?? 'unknown', closeReason: reason.trim() || undefined });
+    toast.success(`Order ${o.orderId} short-closed`);
+    reload();
+  }
 
   // Push an order into Production — creates the correct, pre-filled, linked Job Card.
   function sendToProduction(order: Order) {
@@ -414,6 +432,7 @@ export function OrdersPage() {
                     <th className="table-header">KG</th>
                     <th className="table-header">Nos</th>
                     <th className="table-header">Status</th>
+                    <th className="table-header">Dispatch</th>
                     <th className="table-header">Bill No.</th>
                     <th className="table-header"></th>
                   </tr>
@@ -432,7 +451,17 @@ export function OrdersPage() {
                       <td className="table-cell font-mono">{o.quantityKg?.toLocaleString('en-IN') ?? '—'}</td>
                       <td className="table-cell font-mono">{o.quantityNos?.toLocaleString('en-IN') ?? '—'}</td>
                       <td className="table-cell">
-                        <span className={cn('badge border text-xs', STATUS_COLORS[o.status] ?? 'bg-white/10 text-muted')}>{o.status}</span>
+                        {(() => { const st = orderDispatchProgress(o, dispatches).status; return (
+                          <span className={cn('badge border text-xs', STATUS_COLORS[st] ?? STATUS_COLORS[o.status] ?? 'bg-white/10 text-muted')}>{st}</span>
+                        ); })()}
+                      </td>
+                      <td className="table-cell">
+                        {(() => { const p = orderDispatchProgress(o, dispatches); return (
+                          <div className="min-w-[76px]">
+                            <p className="text-[10px] text-muted mb-0.5">{p.closed ? 'closed' : `${Math.round(p.pct)}%`}</p>
+                            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className={cn('h-full', progressBarClass(p.pct))} style={{ width: `${p.pct}%` }} /></div>
+                          </div>
+                        ); })()}
                       </td>
                       <td className="table-cell font-mono text-xs">{o.billNo ?? '—'}</td>
                       <td className="table-cell">
@@ -452,6 +481,12 @@ export function OrdersPage() {
                             className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors">
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
+                          {canEditRates() && !o.closedAt && (
+                            <button onClick={() => shortClose(o)} title="Short-close order"
+                              className="p-1.5 rounded hover:bg-orange-500/20 text-muted hover:text-orange-400 transition-colors">
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button onClick={() => handleDelete(o.id)}
                             className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors">
                             <Trash2 className="w-3.5 h-3.5" />

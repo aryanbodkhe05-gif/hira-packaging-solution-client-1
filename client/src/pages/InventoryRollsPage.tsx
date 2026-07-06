@@ -54,7 +54,11 @@ export function InventoryRollsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; roll?: InvRoll } | null>(null);
+  const [activeGroup, setActiveGroup] = useState<string>('all');
   const reload = useCallback(() => setRolls(invRollsDb.getAll()), []);
+
+  // Group by size + quality (e.g. "22 / 2.5"). Groups auto-appear as rolls are added.
+  const groupKey = (r: InvRoll) => `${r.size || '—'} / ${r.quality || '—'}`;
 
   function handleSave(data: Omit<InvRoll, 'id'>) {
     if (modal?.type === 'edit' && modal.roll) { invRollsDb.update(modal.roll.id, data); toast.success('Roll updated'); }
@@ -65,10 +69,24 @@ export function InventoryRollsPage() {
 
   // Dispatched-from-stock rolls leave available inventory (they show in Dispatch – Rolls).
   const available = useMemo(() => rolls.filter((r) => !r.dispatched), [rolls]);
+  const groups = useMemo(() => {
+    const m = new Map<string, { count: number; kg: number }>();
+    for (const r of available) { const k = groupKey(r); const g = m.get(k) ?? { count: 0, kg: 0 }; g.count++; g.kg += r.nWt || 0; m.set(k, g); }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [available]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return available.filter((r) => !q || r.rollNo.toLowerCase().includes(q) || r.type.toLowerCase().includes(q));
-  }, [available, search]);
+    return available.filter((r) => (activeGroup === 'all' || groupKey(r) === activeGroup) &&
+      (!q || r.rollNo.toLowerCase().includes(q) || r.type.toLowerCase().includes(q)));
+  }, [available, search, activeGroup]);
+  const groupTotals = useMemo(() => filtered.reduce((a, r) => ({ count: a.count + 1, kg: a.kg + (r.nWt || 0) }), { count: 0, kg: 0 }), [filtered]);
+  // Next roll-no suggestion within the active group (per-group sequence).
+  function suggestRollNo(): string {
+    if (activeGroup === 'all') return '';
+    const n = available.filter((r) => groupKey(r) === activeGroup).length + 1;
+    const [size, quality] = activeGroup.split(' / ');
+    return `R-${size}-${quality}-${n}`.replace(/\s/g, '');
+  }
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
@@ -88,6 +106,21 @@ export function InventoryRollsPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search roll no or type…" className="input-field pl-9" />
       </div>
+
+      {/* Size / quality group chips — each with its own running total */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <button onClick={() => setActiveGroup('all')} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors', activeGroup === 'all' ? 'bg-primary text-white border-primary' : 'bg-white/5 text-muted border-white/10 hover:text-white')}>
+          All ({available.length})
+        </button>
+        {groups.map(([k, g]) => (
+          <button key={k} onClick={() => setActiveGroup(k)} className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors', activeGroup === k ? 'bg-primary text-white border-primary' : 'bg-white/5 text-white/70 border-white/10 hover:text-white')}>
+            {k} · {g.count} · {g.kg.toLocaleString('en-IN')}kg
+          </button>
+        ))}
+      </div>
+      {activeGroup !== 'all' && (
+        <p className="text-muted text-xs">Group <span className="text-white/80 font-mono">{activeGroup}</span> — {groupTotals.count} rolls · {groupTotals.kg.toLocaleString('en-IN')} kg. New rolls here get a per-group number.</p>
+      )}
 
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -122,7 +155,10 @@ export function InventoryRollsPage() {
 
       {modal && (
         <Modal open onClose={() => setModal(null)} title={modal.type === 'add' ? 'Add Roll' : 'Edit Roll'} size="lg">
-          <RollForm initial={modal.roll ?? { ...emptyRoll, dateAdded: today() }} onSave={handleSave} onClose={() => setModal(null)} />
+          <RollForm initial={modal.roll ?? {
+            ...emptyRoll, dateAdded: today(),
+            ...(activeGroup !== 'all' ? { size: activeGroup.split(' / ')[0].trim(), quality: parseFloat(activeGroup.split(' / ')[1]) || 0, rollNo: suggestRollNo() } : {}),
+          }} onSave={handleSave} onClose={() => setModal(null)} />
         </Modal>
       )}
     </div>

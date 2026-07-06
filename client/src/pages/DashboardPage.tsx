@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 import { Link } from 'react-router-dom';
 import { Package, ShoppingCart, Truck, Clock, TrendingUp, AlertTriangle, Layers, Gauge, Percent, Plus } from 'lucide-react';
-import { rollsDb, consumablesDb, ordersDb, fabricBatchesDb, fabricWastageDb, loomEntriesDb } from '../lib/db';
+import { rollsDb, consumablesDb, ordersDb, dispatchesDb, fabricBatchesDb, fabricWastageDb, loomEntriesDb } from '../lib/db';
+import { orderDispatchProgress } from '../lib/dispatch';
 import { PRODUCT_TYPES } from '../config';
 import { useBranding } from '../lib/branding';
 import { useAuth } from '../context/AuthContext';
@@ -36,13 +37,15 @@ export function DashboardPage() {
   const orders      = ordersDb.getAll();
 
   const stats = useMemo(() => {
+    const dispatches = dispatchesDb.getAll();
     const total      = orders.length;
     const dispatched = orders.filter((o) => o.status === 'Dispatched').length;
     const pending    = orders.filter((o) => o.status === 'Pending').length;
     const inProd     = orders.filter((o) => o.status === 'In Production').length;
     const ready      = orders.filter((o) => o.status === 'Ready').length;
+    const partiallyDispatched = orders.filter((o) => orderDispatchProgress(o, dispatches).status === 'Partially Dispatched').length;
     const totalKg    = orders.reduce((s, o) => s + (o.quantityKg ?? 0), 0);
-    return { total, dispatched, pending, inProd, ready, totalKg };
+    return { total, dispatched, pending, inProd, ready, partiallyDispatched, totalKg };
   }, [orders]);
 
   // Orders per month (last 6 months)
@@ -114,6 +117,7 @@ export function DashboardPage() {
         <StatCard label="Total Orders"     value={stats.total}          icon={ShoppingCart}  iconColor="text-accent"   mono />
         <StatCard label="Dispatched"       value={stats.dispatched}     icon={Truck}         iconColor="text-success"  mono />
         <StatCard label="Pending"          value={stats.pending}        icon={Clock}         iconColor="text-yellow-400" mono />
+        <StatCard label="Partially Dispatched" value={stats.partiallyDispatched} icon={Truck}    iconColor="text-blue-400" mono />
         <StatCard label="In Production"    value={stats.inProd}         icon={TrendingUp}    iconColor="text-blue-400" mono />
         <StatCard label="Rolls in Stock"   value={rolls.length}         icon={Package}       iconColor="text-purple-400" mono />
         <StatCard label="Low Consumables"  value={lowConsumables.length} icon={AlertTriangle} iconColor="text-red-400"  mono />

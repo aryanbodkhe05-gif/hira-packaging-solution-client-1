@@ -190,9 +190,9 @@ function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
 }
 
 // ── Stage shell (collapsible + N/A + metrics) ──────────────────────────────────
-function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children }: {
+function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label }: {
   jobKey: StageKey; card: JobCard; expanded: boolean;
-  onToggle: () => void; onSetNA: (na: boolean) => void; children: ReactNode;
+  onToggle: () => void; onSetNA: (na: boolean) => void; children: ReactNode; label?: string;
 }) {
   // Hide stages this card variant doesn't use (Normal / roll-only jobs).
   if (!visibleStageKeys(card).includes(jobKey)) return null;
@@ -208,7 +208,7 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children }: {
       <div className="flex items-center justify-between px-4 py-3 border-b border-accent/10">
         <button onClick={onToggle} className="flex items-center gap-2 text-left">
           {expanded ? <ChevronDown className="w-4 h-4 text-accent" /> : <ChevronRight className="w-4 h-4 text-muted" />}
-          <span className="text-white font-semibold">{STAGE_LABEL[jobKey]}</span>
+          <span className="text-white font-semibold">{label ?? STAGE_LABEL[jobKey]}</span>
           {!stage.na && (myIn > 0 || m.output > 0) && (
             <span className="text-xs text-muted font-mono ml-2">
               bal {m.balance.toFixed(1)} kg · yield {m.yieldPct.toFixed(0)}%
@@ -466,6 +466,7 @@ export function JobCardDetailPage() {
               <Field label="Meter (m)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
               <Field label="Output (kg)"><Num value={card.printing.outputKg} onChange={(v) => { patchStage('printing', { outputKg: v }); }} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('printing')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
@@ -481,6 +482,7 @@ export function JobCardDetailPage() {
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
               <Field label="Output (kg)"><Num value={card.metalize.outputKg} onChange={(v) => patchStage('metalize', { outputKg: v })} /></Field>
               <Field label="Output (mtr)"><Num value={card.metalize.outputMtr} onChange={(v) => patchStage('metalize', { outputMtr: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('metalize')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
@@ -495,6 +497,7 @@ export function JobCardDetailPage() {
               <Field label="Operator"><Txt value={card.slitting.operator} onChange={(v) => patchStage('slitting', { operator: v })} /></Field>
               <Field label="Gross Input (kg)"><Num value={card.slitting.grossInputKg} onChange={(v) => patchStage('slitting', { grossInputKg: v })} /></Field>
               <Field label="Input Core (kg)"><Num value={card.slitting.inputCoreKg} onChange={(v) => patchStage('slitting', { inputCoreKg: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.slitting.balanceKg} onChange={(v) => patchStage('slitting', { balanceKg: v })} /></Field>
               <Field label="Trim (kg)"><Num value={card.slitting.trimKg} onChange={(v) => patchStage('slitting', { trimKg: v })} /></Field>
             </div>
@@ -608,8 +611,24 @@ export function JobCardDetailPage() {
           )}
           </>)}
 
-          {/* ════ Other card: Cutting → Printing → Dispatch ════ */}
+          {/* ════ Other/Flexo card: Lamination → Flexo → Cutting → Dispatch ════ */}
           {card.cardType === 'Other' && (<>
+          {/* Lamination (with granule consumption) */}
+          <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label="Date"><DateInput value={card.lamination.date} onChange={(v) => patchStage('lamination', { date: v })} /></Field>
+              <Field label="Operator"><Txt value={card.lamination.operator} onChange={(v) => patchStage('lamination', { operator: v })} /></Field>
+              <Field label="Input (kg)"><Num value={card.lamination.inputKg} onChange={(v) => patchStage('lamination', { inputKg: v })} /></Field>
+              <Field label="Output"><Num value={card.lamination.outputKg} onChange={(v) => patchStage('lamination', { outputKg: v })} /></Field>
+              <Field label="Roll No"><Txt value={card.lamination.rollNo} onChange={(v) => patchStage('lamination', { rollNo: v })} /></Field>
+              <Field label="Balance Roll No"><Txt value={card.lamination.balanceRollNo} onChange={(v) => patchStage('lamination', { balanceRollNo: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.lamination.rejectionKg} onChange={(v) => patchStage('lamination', { rejectionKg: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.lamination.balanceKg} onChange={(v) => patchStage('lamination', { balanceKg: v })} /></Field>
+            </div>
+            <GranuleUsesEditor value={card.lamination.granuleUses ?? []} onChange={(u) => patchStage('lamination', { granuleUses: u })} origByItem={laminationOrig} />
+            <ConsumptionEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
+          </StageCard>
+
           {/* Cutting (same method as BOPP cutting) */}
           <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -650,8 +669,8 @@ export function JobCardDetailPage() {
             </button>
           </div>
 
-          {/* Printing (Other) */}
-          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
+          {/* Flexo (Other) */}
+          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} label="Flexo">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
               <Field label="Operator"><Txt value={card.printing.operator} onChange={(v) => patchStage('printing', { operator: v })} /></Field>
@@ -697,9 +716,8 @@ export function JobCardDetailPage() {
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
               <Field label="Operator"><Txt value={card.dispatch.operator} onChange={(v) => patchStage('dispatch', { operator: v })} /></Field>
               <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
-              <Field label="Pending (kg)"><Num value={card.dispatch.pendingKg} onChange={(v) => patchStage('dispatch', { pendingKg: v })} /></Field>
-              <Field label="Pending (pcs)"><Num value={card.dispatch.pendingPcs} onChange={(v) => patchStage('dispatch', { pendingPcs: v })} /></Field>
             </div>
+            <p className="text-muted text-xs">Pending is computed automatically on the order (order total − all dispatched) — no longer entered here.</p>
             <p className="label !mb-1">Dispatch lines: Quantity (kg) · Pieces · Date</p>
             {card.dispatch.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-3 gap-2">

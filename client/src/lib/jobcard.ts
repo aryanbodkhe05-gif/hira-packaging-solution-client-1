@@ -33,7 +33,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
     printing:   { ...base } as PrintingStage,
     metalize:   { ...base, na: isOther || finish !== 'Metalized' } as MetalizeStage,
     slitting:   { ...base, na: isOther, rolls: [] } as SlittingStage,
-    lamination: { ...base, na: isOther, rows: [{}] } as LaminationStage,
+    lamination: { ...base, na: false, rows: [{}], granuleUses: [] } as LaminationStage,
     cutting:    { ...base, na: isRoll, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
     status: 'In Progress',
@@ -46,7 +46,8 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
 // Stages shown for a card, by variant. Roll jobs stop at the slitting/roll output
 // (bag-conversion stages hidden); Normal cards run Printing → Cutting → Dispatch.
 export function visibleStageKeys(card: Pick<JobCard, 'cardType' | 'makingType'>): StageKey[] {
-  if (card.cardType === 'Other') return ['cutting', 'printing', 'dispatch'];
+  // Other (flexo) card per the paper form: Lamination → Flexo(printing) → Cutting → Dispatch.
+  if (card.cardType === 'Other') return ['lamination', 'printing', 'cutting', 'dispatch'];
   if (card.makingType === 'Roll') return ['printing', 'metalize', 'slitting', 'lamination', 'dispatch'];
   return [...STAGE_KEYS];
 }
