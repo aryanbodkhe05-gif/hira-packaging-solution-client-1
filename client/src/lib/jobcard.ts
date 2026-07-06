@@ -58,6 +58,8 @@ export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
   const card = emptyJobCard(cardType, 'Glossy', makingType);
   card.header.brand = order.clientName;
   card.header.size = order.sizeDisplay;
+  card.header.bagType = order.bagType;
+  card.header.boppFilmSize = order.boppFilmSize;
   card.header.qty = order.quantityNos ?? order.quantityKg ?? 0;
   card.header.qtyUnit = order.quantityUnit === 'KG' ? 'Kg' : 'Nos';
   card.client = order.clientName;
@@ -76,6 +78,7 @@ export function normalizeJobCard(j: JobCard): JobCard {
   (j.slitting as SlittingStage).rolls ??= [];
   j.lamination.consumption ??= [];
   (j.lamination as LaminationStage).rows ??= [{}];
+  (j.lamination as LaminationStage).granuleUses ??= [];
   j.cutting.consumption ??= [];
   (j.cutting as CuttingStage).rows ??= [{}];
   j.dispatch.consumption ??= [];

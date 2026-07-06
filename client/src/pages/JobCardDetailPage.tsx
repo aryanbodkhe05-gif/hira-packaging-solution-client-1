@@ -5,10 +5,11 @@ import {
   IndianRupee, Plus, Trash2, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb, syncRawMaterialStock } from '../lib/db';
-import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BCS_OPTIONS } from '../config';
+import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb, syncRawMaterialStock, applyGranuleUses, factoryMachinesDb, getList, addToList } from '../lib/db';
+import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide } from '../config';
-import type { JobCard, RateMasterItem, Consumption, DispatchRecord } from '../types/models';
+import type { JobCard, RateMasterItem, Consumption, DispatchRecord, GranuleUse } from '../types/models';
+import { GranuleUsesEditor } from '../components/ui/GranuleUsesEditor';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, materialsForStage, formatINR,
@@ -244,6 +245,8 @@ export function JobCardDetailPage() {
   const branding = useBranding();
   const [items] = useState<RateMasterItem[]>(() => rateMasterDb.getAll());
   const showCosts = canViewCosts();
+  const cuttingMachines = useMemo(() => factoryMachinesDb.getAll().filter((m) => m.active && m.type === 'Cutting/BCS'), []);
+  const bagTypeOptions = useMemo(() => getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES), []);
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
   const [showInkThinner, setShowInkThinner] = useState(false);
 
@@ -259,9 +262,22 @@ export function JobCardDetailPage() {
 
   // Costing recomputed live from current state (no save needed for display)
   const cost = useMemo(() => (card ? computeCosting(card) : null), [card]);
+  // Qty this card already booked against granule stock (so editing doesn't false-fail balances)
+  const laminationOrig = useMemo(() => {
+    const saved = card?.id ? jobCardsDb.get(card.id) : null;
+    const m: Record<string, number> = {};
+    (saved?.lamination?.granuleUses ?? []).forEach((u) => { if (u.itemId) m[u.itemId] = (m[u.itemId] || 0) + u.qtyKg; });
+    return m;
+  }, [card?.id]);
 
   const persist = useCallback((c: JobCard, silent = false) => {
     const now = new Date().toISOString();
+    // Granule consumption (Lamination) → decrement P.P. Granule stock. Restore the
+    // previously-saved uses first so edits recompute cleanly.
+    const prev = c.id ? jobCardsDb.get(c.id) : null;
+    if (prev?.lamination?.granuleUses?.length) applyGranuleUses(prev.lamination.granuleUses, 1);
+    const newUses = (c.lamination?.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
+    if (newUses.length) applyGranuleUses(newUses, -1);
     if (!c.id) {
       const jobNo = c.jobNo || genJobNo(jobCardsDb.getAll().map((x) => x.jobNo));
       const created = jobCardsDb.create({ ...c, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now } as Omit<JobCard, 'id'>);
@@ -397,13 +413,16 @@ export function JobCardDetailPage() {
                     <option>Nos</option><option>Kg</option>
                   </select>
                 </Field>
-                <Field label="Finish (Plain / Printed)">
+                <Field label="Type (Plain / Flexo)">
                   <div className="flex gap-2">
-                    {([['Plain', false], ['Printed', true]] as const).map(([lbl, val]) => (
+                    {([['Plain', false], ['Flexo', true]] as const).map(([lbl, val]) => (
                       <button key={lbl} type="button" onClick={() => patchHeader({ printed: val })}
                         className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors', (!!h.printed === val) ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>{lbl}</button>
                     ))}
                   </div>
+                </Field>
+                <Field label="Bag Type">
+                  <input className="input-field" list="jc-bag-types" value={h.bagType ?? ''} onChange={(e) => patchHeader({ bagType: e.target.value })} placeholder="handle / laminated" />
                 </Field>
               </>) : (<>
                 <Field label="Qty"><Num value={h.qty || undefined} onChange={(v) => patchHeader({ qty: v ?? 0 })} /></Field>
@@ -415,7 +434,12 @@ export function JobCardDetailPage() {
                     {FINISHES.map((f) => <option key={f}>{f}</option>)}
                   </select>
                 </Field>
+                <Field label="Bag Type">
+                  <input className="input-field" list="jc-bag-types" value={h.bagType ?? ''} onChange={(e) => patchHeader({ bagType: e.target.value })} placeholder="handle / laminated" />
+                </Field>
+                <Field label="BOPP Film Size (mm)"><Txt value={h.boppFilmSize} onChange={(v) => patchHeader({ boppFilmSize: v })} placeholder="e.g. 520" /></Field>
               </>)}
+              <datalist id="jc-bag-types">{bagTypeOptions.map((t) => <option key={t} value={t} />)}</datalist>
               <Field label="Status">
                 <select className="input-field" value={card.status} onChange={(e) => setCard((p) => p && ({ ...p, status: e.target.value as JobCardStatus }))}>
                   {JOBCARD_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -531,10 +555,13 @@ export function JobCardDetailPage() {
               </div>
             ))}
             {card.lamination.rows.length < 3 && <button onClick={() => patchStage('lamination', { rows: [...card.lamination.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Total Roll (count)"><Num value={card.lamination.totalRoll} onChange={(v) => patchStage('lamination', { totalRoll: v })} /></Field>
               <Field label="Balance Roll (kg)"><Num value={card.lamination.balanceRoll} onChange={(v) => patchStage('lamination', { balanceRoll: v })} /></Field>
+              <Field label="Rejection (kg)"><Num value={card.lamination.rejectionKg} onChange={(v) => patchStage('lamination', { rejectionKg: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.lamination.balanceKg} onChange={(v) => patchStage('lamination', { balanceKg: v })} /></Field>
             </div>
+            <GranuleUsesEditor value={card.lamination.granuleUses ?? []} onChange={(u) => patchStage('lamination', { granuleUses: u })} origByItem={laminationOrig} />
             <button onClick={() => carryForward('lamination')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
             <ConsumptionEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
           </StageCard>
@@ -555,8 +582,10 @@ export function JobCardDetailPage() {
               <div key={i} className="grid grid-cols-3 gap-2">
                 <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
                 <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
-                <select className="input-field" value={r.bcs ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], bcs: e.target.value ? Number(e.target.value) : undefined }; patchStage('cutting', { rows }); }}>
-                  <option value="">BCS</option>{BCS_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
+                <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
+                  <option value="">BCS / machine</option>
+                  {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
+                  {r.machine && !cuttingMachines.some((mc) => mc.name === r.machine) && <option>{r.machine}</option>}
                 </select>
               </div>
             ))}
@@ -598,8 +627,10 @@ export function JobCardDetailPage() {
               <div key={i} className="grid grid-cols-3 gap-2">
                 <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
                 <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
-                <select className="input-field" value={r.bcs ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], bcs: e.target.value ? Number(e.target.value) : undefined }; patchStage('cutting', { rows }); }}>
-                  <option value="">BCS</option>{BCS_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
+                <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
+                  <option value="">BCS / machine</option>
+                  {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
+                  {r.machine && !cuttingMachines.some((mc) => mc.name === r.machine) && <option>{r.machine}</option>}
                 </select>
               </div>
             ))}

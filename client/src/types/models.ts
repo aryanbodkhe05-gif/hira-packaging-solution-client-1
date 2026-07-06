@@ -110,6 +110,7 @@ export interface LoomEntry {
   rollCount: number;
   reedCount?: number;
   rpm?: number;             // loom RPM if tracked
+  granuleUses?: GranuleUse[]; // granule consumption (auto-decrements P.P. Granule stock)
   downtimeMin: number;      // stoppage during shift
   downtimeReason?: string;  // shown when downtimeMin > 0
   notes?: string;
@@ -189,9 +190,17 @@ export interface LaminationStage extends StageBase {
   rows: LaminationRow[];        // up to 3
   totalRoll?: number;
   balanceRoll?: number;
+  rejectionKg?: number;
+  balanceKg?: number;
+  granuleUses?: GranuleUse[];   // granule consumption (auto-decrements P.P. Granule stock)
+  // Other/Flexo card lamination extras
+  inputKg?: number;
+  outputKg?: number;
+  rollNo?: string;
+  balanceRollNo?: string;
 }
 
-export interface CuttingRow { inputKg?: number; noOfBags?: number; bcs?: number; }
+export interface CuttingRow { inputKg?: number; noOfBags?: number; bcs?: number; machine?: string; rollNo?: string }
 export interface CuttingStage extends StageBase {
   gusset: boolean;
   perforation: boolean;
@@ -214,6 +223,8 @@ export interface JobCardHeader {
   size: string;
   finish: Finish;
   date: string;
+  bagType?: string;         // reusable type-ahead (handle/laminated/…)
+  boppFilmSize?: string;    // BOPP film size in mm
   qtyUnit?: 'Nos' | 'Kg';   // Other card — Nos/Kg indicator
   printed?: boolean;        // Other card — Plain (false) / Printed (true)
 }

@@ -5,7 +5,8 @@ import {
   Ruler, Settings2, ListChecks, CheckCircle2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { loomsDb, loomEntriesDb, getSettings, saveSettings } from '../lib/db';
+import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, applyGranuleUses } from '../lib/db';
+import { GranuleUsesEditor } from '../components/ui/GranuleUsesEditor';
 import {
   SHIFTS, LOOM_STATUSES, WIDTH_UNITS,
   LOOM_DOWNTIME_REASONS, DEFAULT_SHIFT_HOURS,
@@ -56,7 +57,7 @@ function efficiency(e: Pick<LoomEntry, 'rpm' | 'downtimeMin'>, loom: Loom | unde
 const emptyEntry: Omit<LoomEntry, 'id'> = {
   entryId: '', date: today(), shift: 'Morning', loomNo: '', operator: '',
   width: 0, widthUnit: 'inches', meters: 0, quality: 0, weightKg: 0,
-  rollCount: 0, reedCount: undefined, rpm: undefined, downtimeMin: 0,
+  rollCount: 0, reedCount: undefined, rpm: undefined, granuleUses: [], downtimeMin: 0,
   downtimeReason: '', notes: '', createdAt: '', updatedAt: '',
 };
 
@@ -68,6 +69,18 @@ function EntryForm({ initial, looms, onSave, onClose }: {
 }) {
   const [f, setF] = useState(initial);
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
+
+  // Loom options come from the Machines master (type Loom), merged with any
+  // legacy Looms-tab entries so nothing disappears.
+  const loomOptions = useMemo(() => {
+    const machines = factoryMachinesDb.getAll().filter((m) => m.active && m.type === 'Loom').map((m) => m.name);
+    return [...new Set([...machines, ...looms.map((l) => l.loomNo)])];
+  }, [looms]);
+  const granuleOrig = useMemo(() => {
+    const m: Record<string, number> = {};
+    (initial.granuleUses ?? []).forEach((u) => { if (u.itemId) m[u.itemId] = (m[u.itemId] || 0) + u.qtyKg; });
+    return m;
+  }, [initial]);
 
   const loom = looms.find((l) => l.loomNo === f.loomNo);
   const mpk = metersPerKg(f);
@@ -108,7 +121,8 @@ function EntryForm({ initial, looms, onSave, onClose }: {
           <label className="label">Loom No. *</label>
           <select className="input-field" value={f.loomNo} onChange={(e) => set('loomNo', e.target.value)}>
             <option value="">Select loom…</option>
-            {looms.map((l) => <option key={l.id} value={l.loomNo}>{l.loomNo}{l.status !== 'Active' ? ` (${l.status})` : ''}</option>)}
+            {loomOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+            {f.loomNo && !loomOptions.includes(f.loomNo) && <option>{f.loomNo}</option>}
           </select>
         </div>
         <div>
@@ -172,6 +186,8 @@ function EntryForm({ initial, looms, onSave, onClose }: {
         </div>
       )}
 
+      <GranuleUsesEditor value={f.granuleUses ?? []} onChange={(u) => set('granuleUses', u)} origByItem={granuleOrig} />
+
       <div>
         <label className="label">Notes</label>
         <textarea className="input-field min-h-[56px] resize-y" value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional" />
@@ -225,6 +241,10 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
 
   function handleSave(data: Omit<LoomEntry, 'id'>) {
     const now = new Date().toISOString();
+    // Granule consumption → decrement P.P. Granule stock (restore old on edit).
+    if (modal?.type === 'edit' && modal.entry?.granuleUses?.length) applyGranuleUses(modal.entry.granuleUses, 1);
+    const gUses = (data.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
+    if (gUses.length) applyGranuleUses(gUses, -1);
     if (modal?.type === 'edit' && modal.entry) {
       loomEntriesDb.update(modal.entry.id, { ...data, updatedAt: now });
       toast.success('Entry updated');
