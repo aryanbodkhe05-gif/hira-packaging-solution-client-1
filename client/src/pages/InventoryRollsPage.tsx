@@ -16,18 +16,19 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 
 const emptyRoll: Omit<InvRoll, 'id'> = {
-  rollNo: '', type: '', size: '', quality: 0, gWt: 0, nWt: 0, meter: 0, dateAdded: today(),
+  rollNo: '', type: '', size: '', quality: 0, gWt: 0, nWt: 0, meter: 0, rate: null, dateAdded: today(),
 };
 
 function RollForm({ initial, onSave, onClose }: {
   initial: Omit<InvRoll, 'id'>; onSave: (d: Omit<InvRoll, 'id'>) => void; onClose: () => void;
 }) {
   const [f, setF] = useState(initial);
+  const [rateText, setRateText] = useState(initial.rate == null ? '' : String(initial.rate));
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
   function submit() {
     if (!f.rollNo.trim()) { toast.error('Roll No. is required'); return; }
     if (!f.type) { toast.error('Type is required'); return; }
-    onSave({ ...f, rollNo: f.rollNo.trim() });
+    onSave({ ...f, rollNo: f.rollNo.trim(), rate: rateText.trim() === '' ? null : num(rateText) });
   }
   return (
     <div className="space-y-4">
@@ -39,8 +40,15 @@ function RollForm({ initial, onSave, onClose }: {
         <div><label className="label">G.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.gWt || ''} onChange={(e) => set('gWt', num(e.target.value))} /></div>
         <div><label className="label">N.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.nWt || ''} onChange={(e) => set('nWt', num(e.target.value))} /></div>
         <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
+        <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="leave blank if not known" /></div>
         <div><label className="label">Date</label><input className="input-field" type="date" value={f.dateAdded} onChange={(e) => set('dateAdded', e.target.value)} /></div>
       </div>
+      {rateText.trim() === '' && (
+        <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+          Saved without a rate. This roll is excluded from cost totals until you price it — never counted as ₹0.
+        </p>
+      )}
+      <p className="text-muted text-xs">Each roll is costed at its own rate when consumed on a job card.</p>
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
         <button onClick={submit} className="btn-primary flex-1 justify-center">Save Roll</button>
@@ -126,11 +134,11 @@ export function InventoryRollsPage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
-              {['Roll No', 'Type', 'Size', 'Quality', 'G.WT', 'N.WT', 'Meter', 'Date', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Roll No', 'Type', 'Size', 'Quality', 'G.WT', 'N.WT', 'Meter', 'Rate', 'Date', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={9}><EmptyState icon={Boxes} title="No rolls in stock" action={{ label: 'Add First Roll', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
+                <tr><td colSpan={10}><EmptyState icon={Boxes} title="No rolls in stock" action={{ label: 'Add First Roll', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
               ) : pageRows.map((r) => (
                 <tr key={r.id} className={cn('table-row', r.balanceUsed && 'bg-yellow-500/10')}>
                   <td className="table-cell font-mono text-accent whitespace-nowrap">{r.rollNo}{r.balanceUsed && <span className="ml-1.5 text-[10px] text-yellow-300">used</span>}</td>
@@ -140,6 +148,11 @@ export function InventoryRollsPage() {
                   <td className="table-cell font-mono text-white/70">{r.gWt || '—'}</td>
                   <td className="table-cell font-mono text-white/80">{r.nWt || '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.meter || '—'}</td>
+                  <td className="table-cell font-mono whitespace-nowrap">
+                    {r.rate == null
+                      ? <span className="badge bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 text-[10px]">rate not set</span>
+                      : <span className="text-white/80">₹{r.rate.toLocaleString('en-IN')}</span>}
+                  </td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{formatDate(r.dateAdded)}</td>
                   <td className="table-cell"><div className="flex gap-1.5">
                     <button onClick={() => setModal({ type: 'edit', roll: r })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>

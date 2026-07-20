@@ -15,14 +15,18 @@ const PAGE_SIZE = 20;
 const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 
-const emptyFilm: Omit<BoppFilm, 'id'> = { filmNo: '', kg: 0, meter: 0, finish: undefined, micron: undefined, dateAdded: today() };
+const emptyFilm: Omit<BoppFilm, 'id'> = { filmNo: '', kg: 0, meter: 0, finish: undefined, micron: undefined, rate: null, dateAdded: today() };
 
 function FilmForm({ initial, onSave, onClose }: {
   initial: Omit<BoppFilm, 'id'>; onSave: (d: Omit<BoppFilm, 'id'>) => void; onClose: () => void;
 }) {
   const [f, setF] = useState(initial);
+  const [rateText, setRateText] = useState(initial.rate == null ? '' : String(initial.rate));
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
-  function submit() { if (!f.filmNo.trim()) { toast.error('Film No. is required'); return; } onSave({ ...f, filmNo: f.filmNo.trim() }); }
+  function submit() {
+    if (!f.filmNo.trim()) { toast.error('Film No. is required'); return; }
+    onSave({ ...f, filmNo: f.filmNo.trim(), rate: rateText.trim() === '' ? null : num(rateText) });
+  }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -35,8 +39,15 @@ function FilmForm({ initial, onSave, onClose }: {
         <div><label className="label">KG (weight)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.kg || ''} onChange={(e) => set('kg', num(e.target.value))} /></div>
         <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
         <div><label className="label">Micron</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.micron ?? ''} onChange={(e) => set('micron', e.target.value === '' ? undefined : num(e.target.value))} placeholder="optional" /></div>
+        <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="leave blank if not known" /></div>
         <div><label className="label">Date</label><input className="input-field" type="date" value={f.dateAdded} onChange={(e) => set('dateAdded', e.target.value)} /></div>
       </div>
+      {rateText.trim() === '' && (
+        <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+          Saved without a rate. This film is excluded from cost totals until you price it — never counted as ₹0.
+        </p>
+      )}
+      <p className="text-muted text-xs">Each film is costed at its own rate when consumed on a job card.</p>
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
         <button onClick={submit} className="btn-primary flex-1 justify-center">Save Film</button>
@@ -87,11 +98,11 @@ export function BoppFilmPage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
-              {['Film No', 'Finish', 'KG', 'Meter', 'Micron', 'Date', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Film No', 'Finish', 'KG', 'Meter', 'Micron', 'Rate', 'Date', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={7}><EmptyState icon={Layers} title="No BOPP film in stock" action={{ label: 'Add First Film', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
+                <tr><td colSpan={8}><EmptyState icon={Layers} title="No BOPP film in stock" action={{ label: 'Add First Film', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
               ) : pageRows.map((r) => (
                 <tr key={r.id} className={cn('table-row', r.balanceUsed && 'bg-yellow-500/10')}>
                   <td className="table-cell font-mono text-accent whitespace-nowrap">{r.filmNo}{r.balanceUsed && <span className="ml-1.5 text-[10px] text-yellow-300">used</span>}</td>
@@ -99,6 +110,11 @@ export function BoppFilmPage() {
                   <td className="table-cell font-mono text-white/80">{r.kg || '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.meter || '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.micron ?? '—'}</td>
+                  <td className="table-cell font-mono whitespace-nowrap">
+                    {r.rate == null
+                      ? <span className="badge bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 text-[10px]">rate not set</span>
+                      : <span className="text-white/80">₹{r.rate.toLocaleString('en-IN')}</span>}
+                  </td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{formatDate(r.dateAdded)}</td>
                   <td className="table-cell"><div className="flex gap-1.5">
                     <button onClick={() => setModal({ type: 'edit', film: r })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>

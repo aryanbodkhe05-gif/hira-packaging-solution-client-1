@@ -1,104 +1,35 @@
-import { useState, useMemo, useEffect, useCallback, ReactNode } from 'react';
+import { useState, useMemo, useCallback, ReactNode } from 'react';
 import { useParams, useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, Save, Printer, ArrowLeft, AlertTriangle,
   IndianRupee, Plus, Trash2, Truck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, invRollsDb, boppFilmsDb, finishedRollsDb, finishedFilmsDb, syncRawMaterialStock, applyGranuleUses, factoryMachinesDb, getList, addToList } from '../lib/db';
-import { FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
-import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide } from '../config';
-import type { JobCard, RateMasterItem, Consumption, DispatchRecord, GranuleUse } from '../types/models';
-import { GranuleUsesEditor } from '../components/ui/GranuleUsesEditor';
+import {
+  jobCardsDb, rateMasterDb, dispatchesDb, ordersDb, rawMaterialsDb,
+  syncBatchStock, consumeRoll, factoryMachinesDb, getList,
+} from '../lib/db';
+import {
+  FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES,
+  BAG_TYPES_KEY, DEFAULT_BAG_TYPES, CUTTING_METHODS,
+  INK_PCT_KEY, THREAD_PCT_KEY, DEFAULT_INK_PCT, DEFAULT_THREAD_PCT,
+  PRINTING_INK, PRINTING_SOLVENTS, METALIZE_MATERIALS, LAMINATION_MATERIALS,
+  BCS_THREAD, BACKSEAL_GLUE,
+} from '../config';
+import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide, CuttingMethod } from '../config';
+import type { JobCard, RateMasterItem, Consumption, DispatchRecord, RollUse } from '../types/models';
+import { MaterialLine, AddMaterial, previewAllocation } from '../components/ui/MaterialConsumption';
+import { RollUsesPanel } from '../components/ui/RollUses';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
-  stageMetrics, stageCost, computeCosting, materialsForStage, formatINR,
+  stageMetrics, stageCost, computeCosting, buildLabourConsumption, formatINR,
   prevActiveStage, nextActiveStage, stagePrimary, visibleStageKeys, totalBags,
+  autoPct, autoQty,
 } from '../lib/jobcard';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts } from '../lib/roles';
 import { useBranding } from '../lib/branding';
 import { cn } from '../lib/utils';
-
-// ── Stock Consumed panel — pick a Roll / BOPP Film from current Inventory stock,
-// then mark it Finished (moves to Finished Rolls/Film) or Balance (updates the
-// remaining weight in stock and flags it "used"). Shown on both job cards.
-function StockConsumedPanel({ jobNo, orderNo, isBopp }: { jobNo: string; orderNo?: string; isBopp: boolean }) {
-  const [tick, setTick] = useState(0);
-  const reload = () => setTick((t) => t + 1);
-  const rolls = useMemo(() => { void tick; return invRollsDb.getAll().filter((r) => !r.balanceUsed); }, [tick]);
-  const films = useMemo(() => { void tick; return boppFilmsDb.getAll().filter((f) => !f.balanceUsed); }, [tick]);
-  const [rollId, setRollId] = useState('');
-  const [filmId, setFilmId] = useState('');
-  const [balRoll, setBalRoll] = useState('');
-  const [balFilm, setBalFilm] = useState('');
-
-  function finishRoll() {
-    const r = rolls.find((x) => x.id === rollId); if (!r) { toast.error('Select a roll'); return; }
-    const { id, balanceUsed, ...rest } = r; void id; void balanceUsed;
-    finishedRollsDb.create({ ...rest, consumedAt: new Date().toISOString(), jobNo, orderNo });
-    invRollsDb.delete(r.id);
-    toast.success(`Roll ${r.rollNo} finished → Finished Rolls`);
-    setRollId(''); reload();
-  }
-  function balanceRoll() {
-    const r = rolls.find((x) => x.id === rollId); if (!r) { toast.error('Select a roll'); return; }
-    const w = parseFloat(balRoll); if (!(w >= 0)) { toast.error('Enter remaining weight'); return; }
-    invRollsDb.update(r.id, { nWt: w, balanceUsed: true });
-    toast.success(`Roll ${r.rollNo} balance set to ${w} kg (flagged used)`);
-    setBalRoll(''); setRollId(''); reload();
-  }
-  function finishFilm() {
-    const r = films.find((x) => x.id === filmId); if (!r) { toast.error('Select a film'); return; }
-    const { id, balanceUsed, ...rest } = r; void id; void balanceUsed;
-    finishedFilmsDb.create({ ...rest, consumedAt: new Date().toISOString(), jobNo, orderNo });
-    boppFilmsDb.delete(r.id);
-    toast.success(`Film ${r.filmNo} finished → Finished BOPP Film`);
-    setFilmId(''); reload();
-  }
-  function balanceFilm() {
-    const r = films.find((x) => x.id === filmId); if (!r) { toast.error('Select a film'); return; }
-    const w = parseFloat(balFilm); if (!(w >= 0)) { toast.error('Enter remaining weight'); return; }
-    boppFilmsDb.update(r.id, { kg: w, balanceUsed: true });
-    toast.success(`Film ${r.filmNo} balance set to ${w} kg (flagged used)`);
-    setBalFilm(''); setFilmId(''); reload();
-  }
-
-  return (
-    <div className="glass-card p-4 space-y-3 no-print">
-      <p className="section-title text-base">Stock Consumed</p>
-      {/* Roll */}
-      <div className="space-y-1.5">
-        <label className="label">Roll No (from stock)</label>
-        <div className="flex gap-2 flex-wrap items-center">
-          <select className="input-field w-auto min-w-40" value={rollId} onChange={(e) => setRollId(e.target.value)}>
-            <option value="">Select roll…</option>
-            {rolls.map((r) => <option key={r.id} value={r.id}>{r.rollNo} · {r.type} · {r.nWt}kg</option>)}
-          </select>
-          <button onClick={finishRoll} disabled={!rollId} className="btn-secondary disabled:opacity-40">Roll Finished</button>
-          <input className="input-field font-mono w-28" type="number" min="0" step="any" value={balRoll} onChange={(e) => setBalRoll(e.target.value)} placeholder="rem. kg" />
-          <button onClick={balanceRoll} disabled={!rollId} className="btn-secondary disabled:opacity-40">Balance</button>
-        </div>
-      </div>
-      {/* Film (BOPP only) */}
-      {isBopp && (
-        <div className="space-y-1.5">
-          <label className="label">BOPP Film No (from stock)</label>
-          <div className="flex gap-2 flex-wrap items-center">
-            <select className="input-field w-auto min-w-40" value={filmId} onChange={(e) => setFilmId(e.target.value)}>
-              <option value="">Select film…</option>
-              {films.map((r) => <option key={r.id} value={r.id}>{r.filmNo} · {r.finish ?? '—'} · {r.kg}kg</option>)}
-            </select>
-            <button onClick={finishFilm} disabled={!filmId} className="btn-secondary disabled:opacity-40">Film Finished</button>
-            <input className="input-field font-mono w-28" type="number" min="0" step="any" value={balFilm} onChange={(e) => setBalFilm(e.target.value)} placeholder="rem. kg" />
-            <button onClick={balanceFilm} disabled={!filmId} className="btn-secondary disabled:opacity-40">Balance</button>
-          </div>
-        </div>
-      )}
-      <p className="text-muted text-xs">Finished = roll/film fully used (archived to Finished Rolls). Balance = enter remaining weight; the stock roll is updated and flagged used.</p>
-    </div>
-  );
-}
 
 // ── Small field helpers ─────────────────────────────────────────────────────────
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -118,73 +49,61 @@ function DateInput({ value, onChange }: { value?: string; onChange: (v: string) 
   return <input className="input-field" type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
 }
 
-// ── Consumption editor (qty always shown; ₹ only when canViewCosts) ─────────────
-function ConsumptionEditor({ stage, items, consumption, showCosts, onChange }: {
-  stage: JobStage;
-  items: RateMasterItem[];
-  consumption: Consumption[];
-  showCosts: boolean;
-  onChange: (rows: Consumption[]) => void;
-}) {
-  // Merge rate-master materials with any stored quantities. Snapshot the rate at
-  // entry: keep the stored snapshot once a qty exists; otherwise use current rate.
-  const rows: Consumption[] = materialsForStage(items, stage).map((m) => {
-    const prev = consumption.find((c) => c.materialId === m.id);
-    const qty = prev?.qty ?? 0;
-    const rate = prev && qty > 0 && prev.rateSnapshot != null ? prev.rateSnapshot : m.rate;
-    return { materialId: m.id, materialName: m.name, unit: m.unit, qty, rateSnapshot: rate, lineCost: rate != null ? qty * rate : 0 };
-  });
+// Brand + Operator appear on every stage.
+function StageWho({ brand, operator, onOperator }: { brand: string; operator?: string; onOperator: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="Brand Name"><input className="input-field bg-white/5" value={brand} readOnly /></Field>
+      <Field label="Operator Name"><Txt value={operator} onChange={onOperator} placeholder="operator" /></Field>
+    </div>
+  );
+}
 
-  function setQty(materialId: string, qty: number | undefined) {
-    const next = rows.map((r) => {
-      if (r.materialId !== materialId) return r;
-      const q = qty ?? 0;
-      return { ...r, qty: q, lineCost: r.rateSnapshot != null ? q * r.rateSnapshot : 0 };
-    });
-    onChange(next);
+// ── Labour / overhead lines (Rate Master) ──────────────────────────────────────
+function LabourEditor({ stage, items, consumption, showCosts, onChange }: {
+  stage: JobStage; items: RateMasterItem[]; consumption: Consumption[];
+  showCosts: boolean; onChange: (rows: Consumption[]) => void;
+}) {
+  const labour = consumption.filter((c) => c.source === 'labour');
+  const rows = buildLabourConsumption(items, stage, labour);
+  if (rows.length === 0) return null;
+
+  function setQty(materialId: string, qty: number) {
+    const next = rows.map((r) => (r.materialId === materialId
+      ? { ...r, qty, lineCost: r.rateSnapshot != null ? qty * r.rateSnapshot : 0 }
+      : r));
+    onChange([...consumption.filter((c) => c.source !== 'labour'), ...next]);
   }
 
-  if (rows.length === 0) return <p className="text-muted text-xs">No materials configured for this stage in the Rate Master.</p>;
-
-  const stageTotal = rows.reduce((s, r) => s + r.lineCost, 0);
-
+  const total = rows.reduce((s, r) => s + r.lineCost, 0);
   return (
     <div className="rounded-lg border border-accent/10 overflow-hidden">
-      <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-        <IndianRupee className="w-3 h-3" /> Material consumption
-      </div>
-      <div className="overflow-x-auto">
+      <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide">Labour &amp; overheads</div>
       <table className="w-full text-sm">
         <tbody>
           {rows.map((r) => (
             <tr key={r.materialId} className="border-t border-white/5">
-              <td className="px-3 py-2 text-white/80 align-middle min-w-0">{r.materialName}</td>
-              <td className="py-2 pl-2 pr-1 align-middle w-[5.5rem]">
-                <input className="input-field font-mono py-1.5 text-sm text-right w-20" type="number" min="0" step="any"
-                  value={r.qty || ''} placeholder="0"
-                  onChange={(e) => setQty(r.materialId, e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
+              <td className="px-3 py-2 text-white/80">{r.materialName}</td>
+              <td className="py-2 px-2 w-24">
+                <input className="input-field font-mono py-1 text-sm text-right" type="number" min="0" step="any"
+                  value={r.qty || ''} onChange={(e) => setQty(r.materialId, Math.max(0, parseFloat(e.target.value) || 0))} />
               </td>
-              <td className="py-2 pl-1 pr-3 text-muted text-xs whitespace-nowrap align-middle">{r.unit.replace(/^₹\s*\/\s*/, '')}</td>
+              <td className="py-2 pr-3 text-muted text-xs">{r.unit.replace(/^₹\s*\/\s*/, '')}</td>
               {showCosts && (
-                <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap align-middle">
-                  {r.rateSnapshot == null
-                    ? <span className="text-red-300">rate not set</span>
-                    : <span className="text-white/70">{formatINR(r.lineCost)}</span>}
+                <td className="px-3 py-2 text-right font-mono text-xs">
+                  {r.rateSnapshot == null ? <span className="text-yellow-300">rate not set</span> : <span className="text-white/70">{formatINR(r.lineCost)}</span>}
                 </td>
               )}
             </tr>
           ))}
         </tbody>
         {showCosts && (
-          <tfoot>
-            <tr className="border-t border-accent/20 bg-navy/40">
-              <td className="px-3 py-2 text-muted text-xs" colSpan={3}>Stage material cost</td>
-              <td className="px-3 py-2 text-right font-mono text-white font-semibold whitespace-nowrap">{formatINR(stageTotal)}</td>
-            </tr>
-          </tfoot>
+          <tfoot><tr className="border-t border-accent/20 bg-navy/40">
+            <td className="px-3 py-2 text-muted text-xs" colSpan={3}>Stage labour</td>
+            <td className="px-3 py-2 text-right font-mono text-white font-semibold">{formatINR(total)}</td>
+          </tr></tfoot>
         )}
       </table>
-      </div>
     </div>
   );
 }
@@ -194,7 +113,6 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label 
   jobKey: StageKey; card: JobCard; expanded: boolean;
   onToggle: () => void; onSetNA: (na: boolean) => void; children: ReactNode; label?: string;
 }) {
-  // Hide stages this card variant doesn't use (Normal / roll-only jobs).
   if (!visibleStageKeys(card).includes(jobKey)) return null;
   const stage = card[jobKey];
   const m = stageMetrics(card, jobKey);
@@ -210,9 +128,7 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label 
           {expanded ? <ChevronDown className="w-4 h-4 text-accent" /> : <ChevronRight className="w-4 h-4 text-muted" />}
           <span className="text-white font-semibold">{label ?? STAGE_LABEL[jobKey]}</span>
           {!stage.na && (myIn > 0 || m.output > 0) && (
-            <span className="text-xs text-muted font-mono ml-2">
-              bal {m.balance.toFixed(1)} kg · yield {m.yieldPct.toFixed(0)}%
-            </span>
+            <span className="text-xs text-muted font-mono ml-2">bal {m.balance.toFixed(1)} kg · yield {m.yieldPct.toFixed(0)}%</span>
           )}
         </button>
         <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
@@ -248,7 +164,6 @@ export function JobCardDetailPage() {
   const cuttingMachines = useMemo(() => factoryMachinesDb.getAll().filter((m) => m.active && m.type === 'Cutting/BCS'), []);
   const bagTypeOptions = useMemo(() => getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES), []);
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
-  const [showInkThinner, setShowInkThinner] = useState(false);
 
   const [card, setCard] = useState<JobCard | null>(() => {
     if (isNew) {
@@ -260,36 +175,44 @@ export function JobCardDetailPage() {
     return found ? normalizeJobCard(found) : null;
   });
 
-  // Costing recomputed live from current state (no save needed for display)
   const cost = useMemo(() => (card ? computeCosting(card) : null), [card]);
-  // Qty this card already booked against granule stock (so editing doesn't false-fail balances)
-  const laminationOrig = useMemo(() => {
-    const saved = card?.id ? jobCardsDb.get(card.id) : null;
-    const m: Record<string, number> = {};
-    (saved?.lamination?.granuleUses ?? []).forEach((u) => { if (u.itemId) m[u.itemId] = (m[u.itemId] || 0) + u.qtyKg; });
-    return m;
-  }, [card?.id]);
 
   const persist = useCallback((c: JobCard, silent = false) => {
     const now = new Date().toISOString();
-    // Granule consumption (Lamination) → decrement P.P. Granule stock. Restore the
-    // previously-saved uses first so edits recompute cleanly.
-    const prev = c.id ? jobCardsDb.get(c.id) : null;
-    if (prev?.lamination?.granuleUses?.length) applyGranuleUses(prev.lamination.granuleUses, 1);
-    const newUses = (c.lamination?.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
-    if (newUses.length) applyGranuleUses(newUses, -1);
-    if (!c.id) {
-      const jobNo = c.jobNo || genJobNo(jobCardsDb.getAll().map((x) => x.jobNo));
-      const created = jobCardsDb.create({ ...c, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now } as Omit<JobCard, 'id'>);
+    // Commit roll/film consumption to inventory, then re-snapshot each line's rate
+    // from the roll it actually consumed.
+    const committed: JobCard = { ...c };
+    for (const k of STAGE_KEYS) {
+      const uses = (committed[k].rollUses ?? []).filter((u) => u.qtyKg > 0);
+      if (!uses.length) continue;
+      const prevUses = c.id ? (jobCardsDb.get(c.id)?.[k].rollUses ?? []) : [];
+      const next: RollUse[] = uses.map((u) => {
+        // Only commit a line the first time it is saved, so re-saving a card
+        // doesn't decrement the same roll twice.
+        const already = prevUses.find((p) => p.rollId === u.rollId && p.qtyKg === u.qtyKg && p.finished === u.finished);
+        if (already) return u;
+        const rate = consumeRoll({ rollId: u.rollId, kind: u.kind, qtyKg: u.qtyKg, finished: u.finished },
+          { jobNo: c.jobNo, orderNo: c.orderNo });
+        const eff = u.rate ?? rate;
+        return { ...u, rate: eff, lineCost: eff != null ? +(u.qtyKg * eff).toFixed(2) : 0 };
+      });
+      (committed[k] as { rollUses?: RollUse[] }).rollUses = next;
+    }
+
+    if (!committed.id) {
+      const jobNo = committed.jobNo || genJobNo(jobCardsDb.getAll().map((x) => x.jobNo));
+      const created = jobCardsDb.create({ ...committed, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now } as Omit<JobCard, 'id'>);
+      syncBatchStock();
       if (!silent) toast.success(`Job card ${created.jobNo} created`);
       nav(`/job-card/${created.id}`, { replace: true });
-      setCard(created);
+      setCard(normalizeJobCard(jobCardsDb.get(created.id) ?? created));
     } else {
-      jobCardsDb.update(c.id, { ...c, ratesAsOf: now, updatedAt: now });
+      jobCardsDb.update(committed.id, { ...committed, ratesAsOf: now, updatedAt: now });
+      syncBatchStock();   // re-derive batch remainders + FIFO lots for every card
       if (!silent) toast.success('Saved');
-      setCard({ ...c, ratesAsOf: now, updatedAt: now });
+      const fresh = jobCardsDb.get(committed.id);
+      setCard(fresh ? normalizeJobCard(fresh) : { ...committed, ratesAsOf: now, updatedAt: now });
     }
-    syncRawMaterialStock();   // decrement Raw Materials stock from this card's consumption
   }, [nav]);
 
   if (!card) return <Navigate to="/job-card" replace />;
@@ -302,7 +225,36 @@ export function JobCardDetailPage() {
     setCard((p) => p && ({ ...p, [key]: { ...p[key], ...patch } } as JobCard));
   }
 
-  // Auto-suggest next active stage's input from this stage's output (if empty)
+  // Material consumption on a stage: set a quantity and preview its FIFO draw.
+  function setMaterialQty(key: StageKey, materialId: string, qty: number) {
+    setCard((p) => {
+      if (!p) return p;
+      const existing = p[key].consumption.find((c) => c.materialId === materialId);
+      const row = previewAllocation(materialId, qty, existing);
+      const rest = p[key].consumption.filter((c) => c.materialId !== materialId);
+      return { ...p, [key]: { ...p[key], consumption: [...rest, row] } } as JobCard;
+    });
+  }
+  function removeMaterial(key: StageKey, materialId: string) {
+    setCard((p) => p && ({ ...p, [key]: { ...p[key], consumption: p[key].consumption.filter((c) => c.materialId !== materialId) } } as JobCard));
+  }
+  // Look up a raw-material id by name (case-insensitive) for the fixed per-stage lists.
+  const materialIdByName = useCallback((name: string) => {
+    const m = rawMaterialsDb.getAll().find((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase());
+    return m?.id;
+  }, []);
+
+  function batchRows(key: StageKey): Consumption[] {
+    return card![key].consumption.filter((c) => c.source !== 'labour');
+  }
+  // Render a fixed named material line, creating an empty row if it has none yet.
+  function namedRow(key: StageKey, name: string): Consumption | null {
+    const id = materialIdByName(name);
+    if (!id) return null;
+    const found = card![key].consumption.find((c) => c.materialId === id);
+    return found ?? { materialId: id, materialName: name, unit: rawMaterialsDb.getAll().find((m) => m.id === id)?.unit ?? 'kg', qty: 0, rateSnapshot: null, lineCost: 0, lots: [], source: 'batch' };
+  }
+
   function carryForward(fromKey: StageKey) {
     setCard((p) => {
       if (!p) return p;
@@ -312,16 +264,19 @@ export function JobCardDetailPage() {
       if (out <= 0) return p;
       const clone = { ...p } as JobCard;
       const setIfEmpty = (cur: number | undefined) => (cur == null || cur === 0 ? out : cur);
-      if (next === 'metalize') clone.metalize = { ...clone.metalize, metalizeInputKg: setIfEmpty(clone.metalize.metalizeInputKg) };
-      else if (next === 'slitting') clone.slitting = { ...clone.slitting, grossInputKg: setIfEmpty(clone.slitting.grossInputKg) };
+      if (next === 'metalize') clone.metalize = { ...clone.metalize, boppInputKg: setIfEmpty(clone.metalize.boppInputKg) };
+      else if (next === 'slitting') clone.slitting = { ...clone.slitting, inputKg: setIfEmpty(clone.slitting.inputKg) };
       else if (next === 'lamination') {
         const rows = clone.lamination.rows.length ? [...clone.lamination.rows] : [{}];
         rows[0] = { ...rows[0], boppInKg: setIfEmpty(rows[0].boppInKg) };
         clone.lamination = { ...clone.lamination, rows };
       } else if (next === 'cutting') {
-        const rows = clone.cutting.rows.length ? [...clone.cutting.rows] : [{}];
-        rows[0] = { ...rows[0], inputKg: setIfEmpty(rows[0].inputKg) };
-        clone.cutting = { ...clone.cutting, rows };
+        if (clone.cutting.method === 'Back Seal') clone.cutting = { ...clone.cutting, bsInputKg: setIfEmpty(clone.cutting.bsInputKg) };
+        else {
+          const rows = clone.cutting.rows.length ? [...clone.cutting.rows] : [{}];
+          rows[0] = { ...rows[0], inputKg: setIfEmpty(rows[0].inputKg) };
+          clone.cutting = { ...clone.cutting, rows };
+        }
       }
       return clone;
     });
@@ -330,26 +285,20 @@ export function JobCardDetailPage() {
   function toggleExpand(k: StageKey) {
     setExpanded((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
   }
+  function setNA(k: StageKey, na: boolean) { patchStage(k, { na } as Partial<JobCard[StageKey]>); }
 
-  function setNA(k: StageKey, na: boolean) {
-    patchStage(k, { na } as Partial<JobCard[StageKey]>);
-  }
-
-  // 1-click Send to Dispatch — posts a Roll or Bag dispatch record, marks the
-  // job Dispatched, and flips the linked order to Dispatched.
   function sendToDispatch(kind: 'Roll' | 'Bag') {
     if (!card) return;
     if (!card.id) { toast.error('Save the job card first'); return; }
     const now = new Date().toISOString();
     let rec: Omit<DispatchRecord, 'id'>;
     if (kind === 'Roll') {
-      const rolls = card.slitting.rolls || [];
       rec = {
         type: 'Roll', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
         party: card.client || card.header.brand, brand: card.header.brand,
-        qtyKg: rolls.reduce((s, r) => s + (r.outputKg || 0), 0),
-        qtyMeters: rolls.reduce((s, r) => s + (r.meter || 0), 0),
-        rolls: rolls.filter((r) => (r.outputKg || 0) > 0).length,
+        qtyKg: card.slitting.outputKg ?? card.slitting.rolls.reduce((s, r) => s + (r.outputKg || 0), 0),
+        qtyMeters: card.slitting.outputMeter ?? card.slitting.rolls.reduce((s, r) => s + (r.meter || 0), 0),
+        rolls: card.dispatch.noOfBales || card.slitting.rolls.filter((r) => (r.outputKg || 0) > 0).length,
         date: now.slice(0, 10), createdAt: now,
       };
     } else {
@@ -357,7 +306,7 @@ export function JobCardDetailPage() {
         type: 'Bag', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
         party: card.client || card.header.brand, brand: card.header.brand,
         qtyPieces: totalBags(card),
-        qtyKg: card.cutting.rows.reduce((s, r) => s + (r.inputKg || 0), 0),
+        qtyKg: stagePrimary(card, 'cutting').input,
         date: now.slice(0, 10), createdAt: now,
       };
     }
@@ -370,10 +319,61 @@ export function JobCardDetailPage() {
   }
 
   const h = card.header;
+  const brand = h.brand;
+
+  // Ink auto-calc: % of BOPP input kg. Default from Settings, editable per card.
+  const inkPct = autoPct(card.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT);
+  const inkQty = autoQty(card.printing.inputKg, inkPct);
+  const threadPct = autoPct(card.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT);
+  const threadQty = autoQty(stagePrimary(card, 'cutting').input, threadPct);
+
+  // Fixed named material line for a stage (ink/solvents/adhesive/…).
+  const renderNamed = (key: StageKey, name: string, opts?: { readOnlyQty?: boolean; hint?: string; label?: string }) => {
+    const row = namedRow(key, name);
+    if (!row) {
+      return (
+        <p key={name} className="text-[11px] text-yellow-300/90">
+          "{name}" is not in Raw Materials — add it there to consume and cost it.
+        </p>
+      );
+    }
+    return (
+      <MaterialLine key={name} row={row} label={opts?.label} hint={opts?.hint} readOnlyQty={opts?.readOnlyQty}
+        onQty={(q) => setMaterialQty(key, row.materialId, q)} />
+    );
+  };
+
+  const fixedNames = (key: StageKey): string[] =>
+    key === 'printing' ? [PRINTING_INK, ...PRINTING_SOLVENTS]
+    : key === 'metalize' ? METALIZE_MATERIALS
+    : key === 'lamination' ? LAMINATION_MATERIALS
+    : key === 'cutting' ? [BCS_THREAD, BACKSEAL_GLUE]
+    : [];
+
+  // Extra ad-hoc materials the operator added beyond the fixed per-stage list.
+  const extraRows = (key: StageKey) => {
+    const fixedIds = fixedNames(key).map(materialIdByName).filter(Boolean) as string[];
+    return batchRows(key).filter((r) => !fixedIds.includes(r.materialId));
+  };
+
+  const MaterialsBlock = ({ stageKey }: { stageKey: StageKey }) => (
+    <div className="rounded-lg border border-accent/10 overflow-hidden">
+      <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+        <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
+      </div>
+      <div className="p-3 space-y-2">
+        {extraRows(stageKey).map((r) => (
+          <MaterialLine key={r.materialId} row={r}
+            onQty={(q) => setMaterialQty(stageKey, r.materialId, q)}
+            onRemove={() => removeMaterial(stageKey, r.materialId)} />
+        ))}
+        <AddMaterial exclude={batchRows(stageKey).map((r) => r.materialId)} onAdd={(mid) => setMaterialQty(stageKey, mid, 0)} />
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 animate-fade-in print-area">
-      {/* Print-only company header (reads from editable Settings branding) */}
       <div className="print-only mb-4 border-b border-black pb-2">
         <h2 className="text-xl font-bold">{branding.companyName}</h2>
         {(branding.companyAddress || branding.companyGstin) && (
@@ -382,7 +382,6 @@ export function JobCardDetailPage() {
         <p className="text-xs">{branding.appName} — Job Card {card.jobNo}</p>
       </div>
 
-      {/* Top bar */}
       <div className="flex items-start justify-between gap-3 flex-wrap no-print">
         <div className="flex items-center gap-3">
           <button onClick={() => nav('/job-card')} className="p-2 rounded-lg hover:bg-white/10 text-muted hover:text-white"><ArrowLeft className="w-4 h-4" /></button>
@@ -398,13 +397,12 @@ export function JobCardDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: header + stages */}
         <div className="lg:col-span-2 space-y-4">
           {/* Header */}
           <div className="glass-card p-4 space-y-3">
             <p className="section-title text-base">Job Description</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Brand *"><Txt value={h.brand} onChange={(v) => patchHeader({ brand: v })} placeholder="Brand name" /></Field>
+              <Field label="Brand Name *"><Txt value={h.brand} onChange={(v) => patchHeader({ brand: v })} placeholder="Brand name" /></Field>
               {card.cardType === 'Other' ? (<>
                 <Field label="Size"><Txt value={h.size} onChange={(v) => patchHeader({ size: v })} placeholder="18 x 28" /></Field>
                 <Field label="Qty"><Num value={h.qty || undefined} onChange={(v) => patchHeader({ qty: v ?? 0 })} /></Field>
@@ -442,6 +440,9 @@ export function JobCardDetailPage() {
                     onChange={(v) => patchHeader({ boppFilmSizes: v.split(',').map((s) => s.trim()).filter(Boolean) })}
                     placeholder="e.g. 520, 480" />
                 </Field>
+                <Field label="Metalize Size (mm)"><Txt value={h.metalizeSize} onChange={(v) => patchHeader({ metalizeSize: v })} /></Field>
+                <Field label="Liner Size (mm)"><Txt value={h.linerSize} onChange={(v) => patchHeader({ linerSize: v })} /></Field>
+                <Field label="Liner GRM"><Num value={h.linerGrm} onChange={(v) => patchHeader({ linerGrm: v })} /></Field>
               </>)}
               <datalist id="jc-bag-types">{bagTypeOptions.map((t) => <option key={t} value={t} />)}</datalist>
               <Field label="Status">
@@ -457,68 +458,107 @@ export function JobCardDetailPage() {
             </div>
           </div>
 
-          {/* Stock consumed — Roll/Film selectors + Finished/Balance (links to Inventory) */}
-          <StockConsumedPanel jobNo={card.jobNo} orderNo={card.orderNo} isBopp={card.cardType === 'BOPP'} />
-
-          {/* ════ BOPP card: full traveler (Printing → Metalize → Slitting → Lamination → Cutting) ════ */}
+          {/* ════ BOPP card ════ */}
           {card.cardType === 'BOPP' && (<>
-          {/* Printing */}
+          {/* C1 — Printing */}
           <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
+            <StageWho brand={brand} operator={card.printing.operator} onOperator={(v) => patchStage('printing', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.printing.operator} onChange={(v) => patchStage('printing', { operator: v })} /></Field>
-              <Field label="Meter (m)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
-              <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
-              <Field label="Output (kg)"><Num value={card.printing.outputKg} onChange={(v) => { patchStage('printing', { outputKg: v }); }} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
-              <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
+              <Field label="BOPP Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
+              <Field label="BOPP Size"><Txt value={card.printing.boppSize} onChange={(v) => patchStage('printing', { boppSize: v })} placeholder="520" /></Field>
+              <Field label="BOPP Roll No"><Txt value={card.printing.boppRollNo} onChange={(v) => patchStage('printing', { boppRollNo: v })} /></Field>
+              <Field label="BOPP Type"><Txt value={card.printing.boppType} onChange={(v) => patchStage('printing', { boppType: v })} placeholder="Glossy / Matte" /></Field>
+              <Field label="Balance BOPP (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
+              <Field label="Output (kg)"><Num value={card.printing.outputKg} onChange={(v) => patchStage('printing', { outputKg: v })} /></Field>
+              <Field label="Output (meter)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
+              <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('printing')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
-            <ConsumptionEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
+
+            {/* Per-roll BOPP consumption — one line per roll used */}
+            <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
+              title="BOPP roll / film consumed — one line per roll" />
+
+            {/* Auto-calculated ink + manual solvents, all from Raw Materials */}
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
+              </div>
+              <div className="p-3 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="text-muted">Ink auto-calc:</span>
+                  <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                    value={card.printing.inkPct ?? inkPct}
+                    onChange={(e) => patchStage('printing', { inkPct: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+                  <span className="text-muted">% of BOPP input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span></span>
+                  {card.printing.inkPct != null && (
+                    <button onClick={() => patchStage('printing', { inkPct: undefined })} className="text-accent hover:underline">reset to default</button>
+                  )}
+                </div>
+                {(() => {
+                  const row = namedRow('printing', PRINTING_INK);
+                  if (!row) return <p className="text-[11px] text-yellow-300/90">"{PRINTING_INK}" is not in Raw Materials — add it there to consume and cost it.</p>;
+                  // Keep the stored qty in step with the auto-calc unless overridden.
+                  const shown = row.qty || inkQty;
+                  const live = shown === row.qty ? row : previewAllocation(row.materialId, inkQty, row);
+                  return <MaterialLine row={live} label={`${PRINTING_INK} (auto)`} hint="Auto-filled from the % above — type over it to override."
+                    onQty={(q) => setMaterialQty('printing', row.materialId, q)} />;
+                })()}
+                {PRINTING_SOLVENTS.map((n) => renderNamed('printing', n, { hint: 'Manual entry' }))}
+                {extraRows('printing').filter((r) => ![PRINTING_INK, ...PRINTING_SOLVENTS].map((n) => materialIdByName(n)).includes(r.materialId)).map((r) => (
+                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('printing', r.materialId, q)} onRemove={() => removeMaterial('printing', r.materialId)} />
+                ))}
+                <AddMaterial exclude={batchRows('printing').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('printing', mid, 0)} />
+              </div>
+            </div>
+            <LabourEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
           </StageCard>
 
-          {/* Metalize */}
+          {/* C3 — Metalize */}
           <StageCard jobKey="metalize" card={card} expanded={expanded.has('metalize')} onToggle={() => toggleExpand('metalize')} onSetNA={(na) => setNA('metalize', na)}>
+            <StageWho brand={brand} operator={card.metalize.operator} onOperator={(v) => patchStage('metalize', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.metalize.date} onChange={(v) => patchStage('metalize', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.metalize.operator} onChange={(v) => patchStage('metalize', { operator: v })} /></Field>
-              <Field label="Metalize Input (kg)"><Num value={card.metalize.metalizeInputKg} onChange={(v) => patchStage('metalize', { metalizeInputKg: v })} /></Field>
+              <Field label="Roll No"><Txt value={card.metalize.rollNo} onChange={(v) => patchStage('metalize', { rollNo: v })} /></Field>
+              <Field label="Size"><Txt value={card.metalize.size} onChange={(v) => patchStage('metalize', { size: v })} /></Field>
+              <Field label="Balance (roll)"><Txt value={card.metalize.rollBalance} onChange={(v) => patchStage('metalize', { rollBalance: v })} placeholder="balance roll no" /></Field>
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
-              <Field label="Output (kg)"><Num value={card.metalize.outputKg} onChange={(v) => patchStage('metalize', { outputKg: v })} /></Field>
-              <Field label="Output (mtr)"><Num value={card.metalize.outputMtr} onChange={(v) => patchStage('metalize', { outputMtr: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             <button onClick={() => carryForward('metalize')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
-            <p className="text-muted text-xs">BOPP film cost is booked in Printing — Metalize only costs the metalizing consumable (no double counting).</p>
-            <ConsumptionEditor stage="Metalize" items={items} consumption={card.metalize.consumption} showCosts={showCosts} onChange={(rows) => patchStage('metalize', { consumption: rows })} />
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
+              </div>
+              <div className="p-3 space-y-2">
+                {METALIZE_MATERIALS.map((n) => renderNamed('metalize', n))}
+                {extraRows('metalize').map((r) => (
+                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('metalize', r.materialId, q)} onRemove={() => removeMaterial('metalize', r.materialId)} />
+                ))}
+                <AddMaterial exclude={batchRows('metalize').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('metalize', mid, 0)} />
+              </div>
+            </div>
+            <LabourEditor stage="Metalize" items={items} consumption={card.metalize.consumption} showCosts={showCosts} onChange={(rows) => patchStage('metalize', { consumption: rows })} />
           </StageCard>
 
-          {/* Slitting */}
+          {/* C2 — Slitting */}
           <StageCard jobKey="slitting" card={card} expanded={expanded.has('slitting')} onToggle={() => toggleExpand('slitting')} onSetNA={(na) => setNA('slitting', na)}>
+            <StageWho brand={brand} operator={card.slitting.operator} onOperator={(v) => patchStage('slitting', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.slitting.date} onChange={(v) => patchStage('slitting', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.slitting.operator} onChange={(v) => patchStage('slitting', { operator: v })} /></Field>
-              <Field label="Gross Input (kg)"><Num value={card.slitting.grossInputKg} onChange={(v) => patchStage('slitting', { grossInputKg: v })} /></Field>
-              <Field label="Input Core (kg)"><Num value={card.slitting.inputCoreKg} onChange={(v) => patchStage('slitting', { inputCoreKg: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
+              <Field label="Input (kg)"><Num value={card.slitting.inputKg} onChange={(v) => patchStage('slitting', { inputKg: v })} /></Field>
+              <Field label="Input (meter)"><Num value={card.slitting.inputMeter} onChange={(v) => patchStage('slitting', { inputMeter: v })} /></Field>
+              <Field label="Output (kg)"><Num value={card.slitting.outputKg} onChange={(v) => patchStage('slitting', { outputKg: v })} /></Field>
+              <Field label="Output (meter)"><Num value={card.slitting.outputMeter} onChange={(v) => patchStage('slitting', { outputMeter: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.slitting.balanceKg} onChange={(v) => patchStage('slitting', { balanceKg: v })} /></Field>
-              <Field label="Trim (kg)"><Num value={card.slitting.trimKg} onChange={(v) => patchStage('slitting', { trimKg: v })} /></Field>
+              <Field label="Balance (meter)"><Num value={card.slitting.balanceMeter} onChange={(v) => patchStage('slitting', { balanceMeter: v })} /></Field>
+              <Field label="Wastage (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
             </div>
-            <p className="label !mb-1">Output rolls (up to 3)</p>
-            {card.slitting.rolls.slice(0, 3).map((r, i) => (
-              <div key={i} className="grid grid-cols-3 gap-2">
-                <Num value={r.outputKg} onChange={(v) => { const rolls = [...card.slitting.rolls]; rolls[i] = { ...rolls[i], outputKg: v }; patchStage('slitting', { rolls }); }} placeholder="Output kg" />
-                <Txt value={r.core} onChange={(v) => { const rolls = [...card.slitting.rolls]; rolls[i] = { ...rolls[i], core: v }; patchStage('slitting', { rolls }); }} placeholder="Core" />
-                <Num value={r.meter} onChange={(v) => { const rolls = [...card.slitting.rolls]; rolls[i] = { ...rolls[i], meter: v }; patchStage('slitting', { rolls }); }} placeholder="Meter (m)" />
-              </div>
-            ))}
-            {card.slitting.rolls.length < 3 && <button onClick={() => patchStage('slitting', { rolls: [...card.slitting.rolls, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add roll</button>}
             <button onClick={() => carryForward('slitting')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
-            <ConsumptionEditor stage="Slitting" items={items} consumption={card.slitting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('slitting', { consumption: rows })} />
+            <LabourEditor stage="Slitting" items={items} consumption={card.slitting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('slitting', { consumption: rows })} />
           </StageCard>
 
-          {/* Roll dispatch point — roll-making jobs dispatch after the slitting/roll output */}
           {card.makingType === 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
@@ -532,75 +572,141 @@ export function JobCardDetailPage() {
             </div>
           )}
 
-          {/* Lamination */}
+          {/* C4 — Lamination */}
           <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
+            <StageWho brand={brand} operator={card.lamination.operator} onOperator={(v) => patchStage('lamination', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.lamination.date} onChange={(v) => patchStage('lamination', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.lamination.operator} onChange={(v) => patchStage('lamination', { operator: v })} /></Field>
-              <Field label="Fabric Size"><Txt value={card.lamination.fabricSize} onChange={(v) => patchStage('lamination', { fabricSize: v })} /></Field>
               <Field label="Fabric Type">
                 <select className="input-field" value={card.lamination.fabricType ?? ''} onChange={(e) => patchStage('lamination', { fabricType: (e.target.value || undefined) as FabricType | undefined })}>
                   <option value="">—</option>{FABRIC_TYPES.map((t) => <option key={t}>{t}</option>)}
                 </select>
               </Field>
+              <Field label="Roll No"><Txt value={card.lamination.rollNo} onChange={(v) => patchStage('lamination', { rollNo: v })} /></Field>
+              <Field label="Size"><Txt value={card.lamination.size} onChange={(v) => patchStage('lamination', { size: v })} /></Field>
               <Field label="GRM"><Num value={card.lamination.grm} onChange={(v) => patchStage('lamination', { grm: v })} /></Field>
-              <Field label="Avg"><Num value={card.lamination.avg} onChange={(v) => patchStage('lamination', { avg: v })} /></Field>
-              <Field label="Coating"><Txt value={card.lamination.coating} onChange={(v) => patchStage('lamination', { coating: v })} /></Field>
               <Field label="Coating side">
                 <select className="input-field" value={card.lamination.coatingSide ?? ''} onChange={(e) => patchStage('lamination', { coatingSide: (e.target.value || undefined) as CoatingSide | undefined })}>
                   <option value="">—</option>{COATING_SIDES.map((c) => <option key={c}>{c}</option>)}
                 </select>
               </Field>
             </div>
-            <p className="label !mb-1">Rows (up to 3): BOPP In · Fabric In · Meter · Out</p>
-            {card.lamination.rows.slice(0, 3).map((r, i) => (
-              <div key={i} className="grid grid-cols-4 gap-2">
-                <Num value={r.boppInKg} onChange={(v) => { const rows = [...card.lamination.rows]; rows[i] = { ...rows[i], boppInKg: v }; patchStage('lamination', { rows }); }} placeholder="BOPP" />
-                <Num value={r.fabricInKg} onChange={(v) => { const rows = [...card.lamination.rows]; rows[i] = { ...rows[i], fabricInKg: v }; patchStage('lamination', { rows }); }} placeholder="Fabric" />
-                <Num value={r.meter} onChange={(v) => { const rows = [...card.lamination.rows]; rows[i] = { ...rows[i], meter: v }; patchStage('lamination', { rows }); }} placeholder="Meter" />
-                <Num value={r.outKg} onChange={(v) => { const rows = [...card.lamination.rows]; rows[i] = { ...rows[i], outKg: v }; patchStage('lamination', { rows }); }} placeholder="Out" />
+
+            {/* Per-roll consumption, same as Printing */}
+            <RollUsesPanel value={card.lamination.rollUses ?? []} onChange={(u) => patchStage('lamination', { rollUses: u })}
+              kinds={['roll']} title="Rolls consumed — one line per roll" />
+
+            {/* P.P. / Filler / LD come from RAW MATERIALS, not P.P. Granule Stock */}
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
               </div>
-            ))}
-            {card.lamination.rows.length < 3 && <button onClick={() => patchStage('lamination', { rows: [...card.lamination.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Field label="Total Roll (count)"><Num value={card.lamination.totalRoll} onChange={(v) => patchStage('lamination', { totalRoll: v })} /></Field>
-              <Field label="Balance Roll (kg)"><Num value={card.lamination.balanceRoll} onChange={(v) => patchStage('lamination', { balanceRoll: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.lamination.rejectionKg} onChange={(v) => patchStage('lamination', { rejectionKg: v })} /></Field>
-              <Field label="Balance (kg)"><Num value={card.lamination.balanceKg} onChange={(v) => patchStage('lamination', { balanceKg: v })} /></Field>
+              <div className="p-3 space-y-2">
+                {LAMINATION_MATERIALS.map((n) => renderNamed('lamination', n))}
+                {extraRows('lamination').map((r) => (
+                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('lamination', r.materialId, q)} onRemove={() => removeMaterial('lamination', r.materialId)} />
+                ))}
+                <AddMaterial exclude={batchRows('lamination').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('lamination', mid, 0)} />
+                <p className="text-muted text-[11px]">P.P., Filler and LD are drawn from Raw Materials — this stage no longer touches P.P. Granule Stock.</p>
+              </div>
             </div>
-            <GranuleUsesEditor value={card.lamination.granuleUses ?? []} onChange={(u) => patchStage('lamination', { granuleUses: u })} origByItem={laminationOrig} />
             <button onClick={() => carryForward('lamination')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
-            <ConsumptionEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
+            <LabourEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
           </StageCard>
 
-          {/* Cutting */}
+          {/* C5 — Cutting: BCS or Back Seal */}
           <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.cutting.operator} onChange={(v) => patchStage('cutting', { operator: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.gusset} onChange={(e) => patchStage('cutting', { gusset: e.target.checked })} /> Gusset</label>
-              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.perforation} onChange={(e) => patchStage('cutting', { perforation: e.target.checked })} /> Perforation</label>
-            </div>
-            <p className="label !mb-1">Rows (up to 3): Input · No. of Bags · BCS</p>
-            {card.cutting.rows.slice(0, 3).map((r, i) => (
-              <div key={i} className="grid grid-cols-3 gap-2">
-                <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
-                <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
-                <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
-                  <option value="">BCS / machine</option>
-                  {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
-                  {r.machine && !cuttingMachines.some((mc) => mc.name === r.machine) && <option>{r.machine}</option>}
-                </select>
+            <StageWho brand={brand} operator={card.cutting.operator} onOperator={(v) => patchStage('cutting', { operator: v })} />
+            <Field label="Cutting Method">
+              <div className="flex gap-2">
+                {CUTTING_METHODS.map((mth) => (
+                  <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
+                    className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
+                      (card.cutting.method ?? 'BCS') === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
+                    {mth}
+                  </button>
+                ))}
               </div>
-            ))}
-            {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
-            <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
+            </Field>
+
+            {(card.cutting.method ?? 'BCS') === 'BCS' ? (<>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
+                <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
+                <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.gusset} onChange={(e) => patchStage('cutting', { gusset: e.target.checked })} /> Gusset</label>
+                <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.perforation} onChange={(e) => patchStage('cutting', { perforation: e.target.checked })} /> Perforation</label>
+              </div>
+              <p className="label !mb-1">Rows (up to 3): Input · No. of Bags · BCS machine</p>
+              {card.cutting.rows.slice(0, 3).map((r, i) => (
+                <div key={i} className="grid grid-cols-3 gap-2">
+                  <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
+                  <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
+                  <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
+                    <option value="">BCS / machine</option>
+                    {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
+                    {r.machine && !cuttingMachines.some((mc) => mc.name === r.machine) && <option>{r.machine}</option>}
+                  </select>
+                </div>
+              ))}
+              {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
+
+              {/* Thread — auto-calculated like ink */}
+              <div className="rounded-lg border border-accent/10 overflow-hidden">
+                <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                  <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
+                </div>
+                <div className="p-3 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="text-muted">Thread auto-calc:</span>
+                    <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                      value={card.cutting.threadPct ?? threadPct}
+                      onChange={(e) => patchStage('cutting', { threadPct: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+                    <span className="text-muted">% of cutting input ({stagePrimary(card, 'cutting').input} kg) = <span className="text-white/80 font-mono">{threadQty} kg</span></span>
+                    {card.cutting.threadPct != null && (
+                      <button onClick={() => patchStage('cutting', { threadPct: undefined })} className="text-accent hover:underline">reset to default</button>
+                    )}
+                  </div>
+                  {(() => {
+                    const row = namedRow('cutting', BCS_THREAD);
+                    if (!row) return <p className="text-[11px] text-yellow-300/90">"{BCS_THREAD}" is not in Raw Materials — add it there to consume and cost it.</p>;
+                    const live = row.qty ? row : previewAllocation(row.materialId, threadQty, row);
+                    return <MaterialLine row={live} label={`${BCS_THREAD} (auto)`} hint="Auto-filled from the % above — type over it to override."
+                      onQty={(q) => setMaterialQty('cutting', row.materialId, q)} />;
+                  })()}
+                  {extraRows('cutting').filter((r) => r.materialId !== materialIdByName(BCS_THREAD)).map((r) => (
+                    <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('cutting', r.materialId, q)} onRemove={() => removeMaterial('cutting', r.materialId)} />
+                  ))}
+                  <AddMaterial exclude={batchRows('cutting').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('cutting', mid, 0)} />
+                </div>
+              </div>
+            </>) : (<>
+              {/* Back Seal */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
+                <Field label="Input (kg)"><Num value={card.cutting.bsInputKg} onChange={(v) => patchStage('cutting', { bsInputKg: v })} /></Field>
+                <Field label="Balance (kg)"><Num value={card.cutting.bsBalanceKg} onChange={(v) => patchStage('cutting', { bsBalanceKg: v })} /></Field>
+                <Field label="No. of Pieces"><Num value={card.cutting.bsPieces} onChange={(v) => patchStage('cutting', { bsPieces: v })} /></Field>
+                <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
+              </div>
+              <div className="rounded-lg border border-accent/10 overflow-hidden">
+                <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                  <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
+                </div>
+                <div className="p-3 space-y-2">
+                  {renderNamed('cutting', BACKSEAL_GLUE, { hint: 'Manual entry' })}
+                  {extraRows('cutting').filter((r) => r.materialId !== materialIdByName(BACKSEAL_GLUE)).map((r) => (
+                    <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('cutting', r.materialId, q)} onRemove={() => removeMaterial('cutting', r.materialId)} />
+                  ))}
+                  <AddMaterial exclude={batchRows('cutting').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('cutting', mid, 0)} />
+                </div>
+              </div>
+            </>)}
+            <LabourEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
           </StageCard>
 
-          {/* Bag dispatch point — BOPP bag jobs dispatch after cutting */}
           {card.makingType !== 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
@@ -615,93 +721,115 @@ export function JobCardDetailPage() {
           )}
           </>)}
 
-          {/* ════ Other/Flexo card: Lamination → Flexo → Cutting → Dispatch ════ */}
+          {/* ════ Other/Flexo card ════ */}
           {card.cardType === 'Other' && (<>
-          {/* Lamination (with granule consumption) */}
           <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
+            <StageWho brand={brand} operator={card.lamination.operator} onOperator={(v) => patchStage('lamination', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.lamination.date} onChange={(v) => patchStage('lamination', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.lamination.operator} onChange={(v) => patchStage('lamination', { operator: v })} /></Field>
-              <Field label="Input (kg)"><Num value={card.lamination.inputKg} onChange={(v) => patchStage('lamination', { inputKg: v })} /></Field>
-              <Field label="Output"><Num value={card.lamination.outputKg} onChange={(v) => patchStage('lamination', { outputKg: v })} /></Field>
+              <Field label="Fabric Type">
+                <select className="input-field" value={card.lamination.fabricType ?? ''} onChange={(e) => patchStage('lamination', { fabricType: (e.target.value || undefined) as FabricType | undefined })}>
+                  <option value="">—</option>{FABRIC_TYPES.map((t) => <option key={t}>{t}</option>)}
+                </select>
+              </Field>
               <Field label="Roll No"><Txt value={card.lamination.rollNo} onChange={(v) => patchStage('lamination', { rollNo: v })} /></Field>
+              <Field label="Size"><Txt value={card.lamination.size} onChange={(v) => patchStage('lamination', { size: v })} /></Field>
+              <Field label="Input (kg)"><Num value={card.lamination.inputKg} onChange={(v) => patchStage('lamination', { inputKg: v })} /></Field>
+              <Field label="Output (kg)"><Num value={card.lamination.outputKg} onChange={(v) => patchStage('lamination', { outputKg: v })} /></Field>
               <Field label="Balance Roll No"><Txt value={card.lamination.balanceRollNo} onChange={(v) => patchStage('lamination', { balanceRollNo: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.lamination.rejectionKg} onChange={(v) => patchStage('lamination', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.lamination.balanceKg} onChange={(v) => patchStage('lamination', { balanceKg: v })} /></Field>
             </div>
-            <GranuleUsesEditor value={card.lamination.granuleUses ?? []} onChange={(u) => patchStage('lamination', { granuleUses: u })} origByItem={laminationOrig} />
-            <ConsumptionEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
-          </StageCard>
-
-          {/* Cutting (same method as BOPP cutting) */}
-          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.cutting.operator} onChange={(v) => patchStage('cutting', { operator: v })} /></Field>
-              <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.gusset} onChange={(e) => patchStage('cutting', { gusset: e.target.checked })} /> Gusset</label>
-              <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer"><input type="checkbox" className="w-4 h-4 accent-primary" checked={card.cutting.perforation} onChange={(e) => patchStage('cutting', { perforation: e.target.checked })} /> Perforation</label>
-            </div>
-            <p className="label !mb-1">Rows (up to 3): Input · No. of Bags · BCS</p>
-            {card.cutting.rows.slice(0, 3).map((r, i) => (
-              <div key={i} className="grid grid-cols-3 gap-2">
-                <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
-                <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
-                <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
-                  <option value="">BCS / machine</option>
-                  {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
-                  {r.machine && !cuttingMachines.some((mc) => mc.name === r.machine) && <option>{r.machine}</option>}
-                </select>
+            <RollUsesPanel value={card.lamination.rollUses ?? []} onChange={(u) => patchStage('lamination', { rollUses: u })}
+              kinds={['roll']} title="Rolls consumed — one line per roll" />
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
               </div>
-            ))}
-            {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
-            <ConsumptionEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
+              <div className="p-3 space-y-2">
+                {LAMINATION_MATERIALS.map((n) => renderNamed('lamination', n))}
+                {extraRows('lamination').map((r) => (
+                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('lamination', r.materialId, q)} onRemove={() => removeMaterial('lamination', r.materialId)} />
+                ))}
+                <AddMaterial exclude={batchRows('lamination').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('lamination', mid, 0)} />
+              </div>
+            </div>
+            <LabourEditor stage="Lamination" items={items} consumption={card.lamination.consumption} showCosts={showCosts} onChange={(rows) => patchStage('lamination', { consumption: rows })} />
           </StageCard>
 
-          {/* Dispatch after Cutting — plain bags with no print can dispatch here */}
-          <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
-            <div>
-              <p className="text-white font-medium text-sm">Bags ready for dispatch (after cutting)</p>
-              <p className="text-muted text-xs">Plain bags with no printing can be dispatched straight after cutting.</p>
-            </div>
-            <button onClick={() => sendToDispatch('Bag')} disabled={!!card.bagDispatchedAt}
-              className={cn('btn-primary', card.bagDispatchedAt && 'opacity-50 cursor-not-allowed')}>
-              <Truck className="w-4 h-4" /> {card.bagDispatchedAt ? 'Bags Dispatched' : 'Send to Dispatch'}
-            </button>
-          </div>
+          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
+            <StageWho brand={brand} operator={card.cutting.operator} onOperator={(v) => patchStage('cutting', { operator: v })} />
+            <Field label="Cutting Method">
+              <div className="flex gap-2">
+                {CUTTING_METHODS.map((mth) => (
+                  <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
+                    className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
+                      (card.cutting.method ?? 'BCS') === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
+                    {mth}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            {(card.cutting.method ?? 'BCS') === 'BCS' ? (<>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
+                <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
+                <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
+              </div>
+              {card.cutting.rows.slice(0, 3).map((r, i) => (
+                <div key={i} className="grid grid-cols-3 gap-2">
+                  <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
+                  <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
+                  <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
+                    <option value="">BCS / machine</option>
+                    {cuttingMachines.map((mc) => <option key={mc.id} value={mc.name}>{mc.name}</option>)}
+                  </select>
+                </div>
+              ))}
+              {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
+              {renderNamed('cutting', BCS_THREAD, { label: `${BCS_THREAD} (auto ${threadPct}% = ${threadQty} kg)` })}
+            </>) : (<>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
+                <Field label="Input (kg)"><Num value={card.cutting.bsInputKg} onChange={(v) => patchStage('cutting', { bsInputKg: v })} /></Field>
+                <Field label="Balance (kg)"><Num value={card.cutting.bsBalanceKg} onChange={(v) => patchStage('cutting', { bsBalanceKg: v })} /></Field>
+                <Field label="No. of Pieces"><Num value={card.cutting.bsPieces} onChange={(v) => patchStage('cutting', { bsPieces: v })} /></Field>
+                <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
+              </div>
+              {renderNamed('cutting', BACKSEAL_GLUE)}
+            </>)}
+            <LabourEditor stage="Cutting" items={items} consumption={card.cutting.consumption} showCosts={showCosts} onChange={(rows) => patchStage('cutting', { consumption: rows })} />
+          </StageCard>
 
-          {/* Flexo (Other) */}
           <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} label="Flexo">
+            <StageWho brand={brand} operator={card.printing.operator} onOperator={(v) => patchStage('printing', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.printing.operator} onChange={(v) => patchStage('printing', { operator: v })} /></Field>
               <Field label="Input (kg)"><Num value={card.printing.inputKg} onChange={(v) => patchStage('printing', { inputKg: v })} /></Field>
               <Field label="No. of Bags"><Num value={card.printing.noOfBags} onChange={(v) => patchStage('printing', { noOfBags: v })} /></Field>
               <Field label="Colour of print"><Txt value={card.printing.colour} onChange={(v) => patchStage('printing', { colour: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
-              <Field label="Rejection (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
+              <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            {/* Ink & thinner consumption (Other bags) — shown if set, else "Add" reveals them */}
-            {(card.printing.ink != null || card.printing.thinner != null || showInkThinner) ? (
-              <div className="rounded-lg border border-accent/10 p-3 space-y-2">
-                <p className="label !mb-1">Material consumption</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Ink (kg)"><Num value={card.printing.ink} onChange={(v) => patchStage('printing', { ink: v })} /></Field>
-                  <Field label="Thinner (kg)"><Num value={card.printing.thinner} onChange={(v) => patchStage('printing', { thinner: v })} /></Field>
-                </div>
-                {(card.printing.ink != null || card.printing.thinner != null) && (
-                  <p className="text-muted text-xs">Logged: ink {card.printing.ink ?? 0} kg · thinner {card.printing.thinner ?? 0} kg</p>
-                )}
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
+                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
               </div>
-            ) : (
-              <button onClick={() => setShowInkThinner(true)} className="btn-secondary"><Plus className="w-4 h-4" /> Add Ink &amp; Thinner</button>
-            )}
+              <div className="p-3 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="text-muted">Ink auto-calc:</span>
+                  <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                    value={card.printing.inkPct ?? inkPct}
+                    onChange={(e) => patchStage('printing', { inkPct: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+                  <span className="text-muted">% of input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span></span>
+                </div>
+                {renderNamed('printing', PRINTING_INK, { label: `${PRINTING_INK} (auto)` })}
+                {PRINTING_SOLVENTS.map((n) => renderNamed('printing', n, { hint: 'Manual entry' }))}
+                <AddMaterial exclude={batchRows('printing').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('printing', mid, 0)} />
+              </div>
+            </div>
+            <LabourEditor stage="Printing" items={items} consumption={card.printing.consumption} showCosts={showCosts} onChange={(rows) => patchStage('printing', { consumption: rows })} />
           </StageCard>
 
-          {/* Dispatch after Printing */}
           <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
             <div>
               <p className="text-white font-medium text-sm">Printed bags ready for dispatch</p>
@@ -714,14 +842,15 @@ export function JobCardDetailPage() {
           </div>
           </>)}
 
-          {/* Dispatch */}
+          {/* C6 — Dispatch: fields first, dispatch button underneath */}
           <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <StageWho brand={brand} operator={card.dispatch.operator} onOperator={(v) => patchStage('dispatch', { operator: v })} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
-              <Field label="Operator"><Txt value={card.dispatch.operator} onChange={(v) => patchStage('dispatch', { operator: v })} /></Field>
+              <Field label="No. of Bales"><Num value={card.dispatch.noOfBales} onChange={(v) => patchStage('dispatch', { noOfBales: v })} /></Field>
+              <Field label="Balance (kg)"><Num value={card.dispatch.balanceKg} onChange={(v) => patchStage('dispatch', { balanceKg: v })} /></Field>
               <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
             </div>
-            <p className="text-muted text-xs">Pending is computed automatically on the order (order total − all dispatched) — no longer entered here.</p>
             <p className="label !mb-1">Dispatch lines: Quantity (kg) · Pieces · Date</p>
             {card.dispatch.lines.map((l, i) => (
               <div key={i} className="grid grid-cols-3 gap-2">
@@ -734,7 +863,18 @@ export function JobCardDetailPage() {
               <button onClick={() => patchStage('dispatch', { lines: [...card.dispatch.lines, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add line</button>
               {card.dispatch.lines.length > 1 && <button onClick={() => patchStage('dispatch', { lines: card.dispatch.lines.slice(0, -1) })} className="text-xs text-red-300 hover:underline flex items-center gap-1"><Trash2 className="w-3 h-3" /> Remove last</button>}
             </div>
-            <ConsumptionEditor stage="Dispatch" items={items} consumption={card.dispatch.consumption} showCosts={showCosts} onChange={(rows) => patchStage('dispatch', { consumption: rows })} />
+            <LabourEditor stage="Dispatch" items={items} consumption={card.dispatch.consumption} showCosts={showCosts} onChange={(rows) => patchStage('dispatch', { consumption: rows })} />
+
+            {/* Dispatch button sits below the fields */}
+            <div className="pt-2 border-t border-white/5">
+              <button onClick={() => sendToDispatch(card.makingType === 'Roll' ? 'Roll' : 'Bag')}
+                disabled={card.makingType === 'Roll' ? !!card.rollDispatchedAt : !!card.bagDispatchedAt}
+                className={cn('btn-primary w-full justify-center',
+                  (card.makingType === 'Roll' ? card.rollDispatchedAt : card.bagDispatchedAt) && 'opacity-50 cursor-not-allowed')}>
+                <Truck className="w-4 h-4" />
+                {(card.makingType === 'Roll' ? card.rollDispatchedAt : card.bagDispatchedAt) ? 'Dispatched' : 'Send to Dispatch'}
+              </button>
+            </div>
           </StageCard>
         </div>
 
@@ -747,8 +887,8 @@ export function JobCardDetailPage() {
                 <IndianRupee className="w-4 h-4 text-accent" />
               </div>
               {cost.hasUnsetRates && (
-                <div className="flex items-center gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Some consumed materials have no rate set — excluded from total.
+                <div className="flex items-center gap-2 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Some consumed stock has no rate set — excluded from the total.
                 </div>
               )}
               <table className="w-full text-sm">

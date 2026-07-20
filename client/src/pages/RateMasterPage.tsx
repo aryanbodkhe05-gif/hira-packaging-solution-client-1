@@ -35,7 +35,7 @@ function RateForm({ initial, onSave, onClose }: {
   const [f, setF] = useState(initial);
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
   function submit() {
-    if (!f.name.trim()) { toast.error('Material name is required'); return; }
+    if (!f.name.trim()) { toast.error('Name is required'); return; }
     if (f.rate != null && f.rate < 0) { toast.error('Rate cannot be negative'); return; }
     onSave({ ...f, name: f.name.trim(), unit: f.unit.trim() || '₹/kg' });
   }
@@ -43,8 +43,8 @@ function RateForm({ initial, onSave, onClose }: {
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
-          <label className="label">Material name *</label>
-          <input className="input-field" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="BOPP film – Glossy" autoFocus />
+          <label className="label">Labour / overhead name *</label>
+          <input className="input-field" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Printing labour" autoFocus />
         </div>
         <div>
           <label className="label">Stage / category</label>
@@ -118,12 +118,18 @@ export function RateMasterPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="page-header flex items-center gap-2">Rate Master <Lock className="w-4 h-4 text-muted" /></h1>
-        <p className="text-muted text-sm mt-1">Owner-maintained raw-material rates that drive live Job Card costing</p>
+        <h1 className="page-header flex items-center gap-2">Rate Master — Labour &amp; Overheads <Lock className="w-4 h-4 text-muted" /></h1>
+        <p className="text-muted text-sm mt-1">Owner-maintained conversion costs per stage</p>
+      </div>
+
+      <div className="glass-card border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-white/75">
+        <span className="text-accent font-medium">Materials are not priced here.</span> Raw materials, rolls and BOPP film
+        are costed from the rate of the batch actually consumed — set those rates on the inventory item or its batch.
+        This list covers labour, machine time and overheads only.
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard label="Materials" value={items.length} icon={Tags} iconColor="text-accent" mono />
+        <StatCard label="Labour Lines" value={items.length} icon={Tags} iconColor="text-accent" mono />
         <StatCard label="Active" value={items.filter((m) => m.active).length} icon={IndianRupee} iconColor="text-green-400" mono />
         <StatCard label="Rate Not Set" value={unset} icon={IndianRupee} iconColor="text-red-400" mono />
       </div>
@@ -131,7 +137,7 @@ export function RateMasterPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-40">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search material…" className="input-field pl-9" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search labour line…" className="input-field pl-9" />
         </div>
         <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="input-field w-auto">
           <option value="">All Stages</option>
@@ -145,7 +151,7 @@ export function RateMasterPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Material', 'Stage', 'Unit', 'Rate', 'Active', 'Updated', ''].map((h) => (
+                {['Labour / Overhead', 'Stage', 'Unit', 'Rate', 'Active', 'Updated', ''].map((h) => (
                   <th key={h} className="table-header whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -153,7 +159,7 @@ export function RateMasterPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr><td colSpan={7}>
-                  <EmptyState icon={Tags} title="No rates" action={{ label: 'Add First Rate', onClick: () => setModal({ type: 'add' }) }} />
+                  <EmptyState icon={Tags} title="No labour rates" action={{ label: 'Add First Rate', onClick: () => setModal({ type: 'add' }) }} />
                 </td></tr>
               ) : filtered.map((m) => (
                 <tr key={m.id} className={cn('table-row', !m.active && 'opacity-50')}>
@@ -176,7 +182,7 @@ export function RateMasterPage() {
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-2 border-t border-accent/10 text-muted text-xs">{filtered.length} materials</div>
+        <div className="px-5 py-2 border-t border-accent/10 text-muted text-xs">{filtered.length} labour / overhead lines</div>
       </div>
 
       {modal && (

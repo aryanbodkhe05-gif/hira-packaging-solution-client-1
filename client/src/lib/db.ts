@@ -2,8 +2,9 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, Consumption, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
 import type { User } from '../types';
+import { allocateFifo, blendedRate, lotsCost } from './batches';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
 // prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
@@ -402,6 +403,48 @@ export function applyGranuleUses(uses: GranuleUse[], sign: 1 | -1): void {
   if (changed) setAll('inv_pp_granules', items);
 }
 
+// Commit one roll/film consumption line to inventory. A finished roll is archived
+// to the Finished list and dropped from stock; a partly-used roll stays in stock
+// with its remaining weight. Returns the roll's own rate for cost snapshotting.
+export function consumeRoll(
+  use: { rollId: string; kind: 'roll' | 'film'; qtyKg: number; finished: boolean },
+  ctx: { jobNo?: string; orderNo?: string } = {},
+): number | null {
+  const now = new Date().toISOString();
+  if (use.kind === 'roll') {
+    const roll = dbGetAll<InvRoll>('inv_rolls').find((r) => r.id === use.rollId);
+    if (!roll) return null;
+    if (use.finished) {
+      dbCreate<FinishedRoll>('inv_finished_rolls', {
+        rollNo: roll.rollNo, type: roll.type, size: roll.size, quality: roll.quality,
+        gWt: roll.gWt, nWt: roll.nWt, meter: roll.meter, dateAdded: roll.dateAdded,
+        consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
+      });
+      dbDelete('inv_rolls', roll.id);
+    } else {
+      dbUpdate<InvRoll>('inv_rolls', roll.id, {
+        nWt: +Math.max(0, roll.nWt - use.qtyKg).toFixed(3), balanceUsed: true,
+      });
+    }
+    return roll.rate ?? null;
+  }
+
+  const film = dbGetAll<BoppFilm>('inv_bopp_films').find((f) => f.id === use.rollId);
+  if (!film) return null;
+  if (use.finished) {
+    dbCreate<FinishedFilm>('inv_finished_films', {
+      filmNo: film.filmNo, kg: film.kg, meter: film.meter, finish: film.finish, micron: film.micron,
+      dateAdded: film.dateAdded, consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
+    });
+    dbDelete('inv_bopp_films', film.id);
+  } else {
+    dbUpdate<BoppFilm>('inv_bopp_films', film.id, {
+      kg: +Math.max(0, film.kg - use.qtyKg).toFixed(3), balanceUsed: true,
+    });
+  }
+  return film.rate ?? null;
+}
+
 export const usersDb = {
   getAll:  () => dbGetAll<User>('users'),
   create:  (r: Omit<User, 'id'>) => dbCreate<User>('users', r),
@@ -426,35 +469,100 @@ export const grnsDb = {
   delete:  (id: string) => dbDelete('grns', id),
 };
 
-// Recompute Raw Materials remaining = openingQty − total consumed across all job
-// card stage consumption rows (matched by material name). Edit-safe: always a
-// full recompute from openingQty, so editing a qty re-derives stock with no drift.
-// Call after any job-card save.
-export function syncRawMaterialStock(): void {
-  const cards = dbGetAll<JobCard>('job_cards');
+export const rawMaterialBatchesDb = {
+  getAll:  () => dbGetAll<RawMaterialBatch>('inv_raw_material_batches'),
+  forItem: (materialId: string) => dbGetAll<RawMaterialBatch>('inv_raw_material_batches').filter((b) => b.materialId === materialId),
+  create:  (r: Omit<RawMaterialBatch, 'id'>) => dbCreate<RawMaterialBatch>('inv_raw_material_batches', r),
+  update:  (id: string, p: Partial<RawMaterialBatch>) => dbUpdate<RawMaterialBatch>('inv_raw_material_batches', id, p),
+  delete:  (id: string) => dbDelete('inv_raw_material_batches', id),
+};
+
+// Recompute every batch's remaining qty and every job-card consumption row's
+// FIFO lots from scratch. Edit-safe by construction: nothing is patched
+// incrementally, so changing a quantity re-derives all downstream stock and
+// costs with no drift. Call after any job-card save or batch change.
+//
+// Rates stay sticky — a lot that already snapshotted a rate keeps it, so
+// correcting a batch rate later never rewrites historical job costs.
+export function syncBatchStock(): void {
+  const batches = dbGetAll<RawMaterialBatch>('inv_raw_material_batches');
   const mats = dbGetAll<RawMaterial>('inv_raw_materials');
-  const consumed: Record<string, number> = {};
+  const cards = dbGetAll<JobCard>('job_cards');
   const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
-  for (const c of cards) {
+
+  for (const b of batches) b.remaining = b.qty;
+
+  const byMaterial = new Map<string, RawMaterialBatch[]>();
+  for (const b of batches) {
+    const list = byMaterial.get(b.materialId) ?? [];
+    list.push(b);
+    byMaterial.set(b.materialId, list);
+  }
+  // Materials are matched by name so rows entered before an item existed still bind.
+  const matIdByName = new Map(mats.map((m) => [m.name.trim().toLowerCase(), m.id]));
+
+  // Replay consumption oldest-card-first so FIFO allocation is chronological.
+  const ordered = [...cards].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+  for (const c of ordered) {
     for (const sk of stageKeys) {
-      const stage = (c as unknown as Record<string, { consumption?: { materialName?: string; qty?: number }[] }>)[sk];
+      const stage = (c as unknown as Record<string, { consumption?: Consumption[] }>)[sk];
       for (const row of stage?.consumption ?? []) {
-        const name = (row.materialName ?? '').trim().toLowerCase();
-        if (name) consumed[name] = (consumed[name] ?? 0) + (row.qty ?? 0);
+        if (row.source === 'labour') continue;   // priced from the Rate Master, not stock
+        const matId = row.materialId && byMaterial.has(row.materialId)
+          ? row.materialId
+          : matIdByName.get((row.materialName ?? '').trim().toLowerCase());
+        const pool = matId ? byMaterial.get(matId) ?? [] : [];
+
+        const priorRates = new Map<string, number | null>();
+        for (const l of row.lots ?? []) priorRates.set(l.batchId, l.rate);
+
+        const { lots, shortfall } = allocateFifo(row.qty ?? 0, pool, priorRates);
+        row.lots = lots;
+        row.shortfall = shortfall || undefined;
+        row.rateSnapshot = blendedRate(lots);
+        row.lineCost = lotsCost(lots);
+        row.source = 'batch';
       }
     }
   }
-  let changed = false;
+
   for (const m of mats) {
-    const opening = m.openingQty ?? m.quantity;   // capture baseline on first sync
-    const remaining = opening - (consumed[m.name.trim().toLowerCase()] ?? 0);
-    if (m.openingQty == null || m.quantity !== remaining) {
-      m.openingQty = opening;
-      m.quantity = remaining;
-      changed = true;
-    }
+    const pool = byMaterial.get(m.id) ?? [];
+    m.quantity = +pool.reduce((s, b) => s + b.remaining, 0).toFixed(3);
   }
-  if (changed) setAll('inv_raw_materials', mats);
+
+  setAll('inv_raw_material_batches', batches);
+  setAll('inv_raw_materials', mats);
+  setAll('job_cards', cards);
+}
+
+// One-time migration: turn each existing RawMaterial's flat opening quantity into
+// a single opening batch so nothing is stranded when batch costing switches on.
+// The batch has no rate (rate not set) — the owner prices it when known.
+export function migrateRawMaterialBatchesOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}rm_batches_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const mats = getAll<RawMaterial & { openingQty?: number }>('inv_raw_materials');
+    const existing = getAll<RawMaterialBatch>('inv_raw_material_batches');
+    if (mats.length && !existing.length) {
+      const now = new Date().toISOString();
+      const seeded: RawMaterialBatch[] = mats.map((m) => {
+        const qty = m.openingQty ?? m.quantity ?? 0;
+        return {
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+          materialId: m.id, qty, remaining: qty, rate: null,
+          date: m.dateAdded || now.slice(0, 10),
+          note: 'Opening stock (migrated)', createdAt: now,
+        };
+      });
+      setAll('inv_raw_material_batches', seeded);
+    }
+    for (const m of mats) delete m.openingQty;
+    if (mats.length) setAll('inv_raw_materials', mats);
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
 }
 
 export const finishedRollsDb = {

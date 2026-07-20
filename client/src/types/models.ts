@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, DispatchType, GrnDestination } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, CuttingMethod, DispatchType, GrnDestination } from '../config';
 
 export interface Roll {
   id: string;
@@ -130,15 +130,44 @@ export interface RateMasterItem {
   updatedAt: string;
 }
 
-// One material consumed in a stage. The rate is snapshotted at entry time so
-// later Rate Master edits don't retroactively change historical job costs.
+// One slice of a consumption row drawn from a single raw-material batch. A row
+// spanning two batches (300 kg needed, oldest batch has 200) produces two lots,
+// each priced at its own batch rate.
+export interface ConsumptionLot {
+  batchId: string;
+  qty: number;
+  rate: number | null;          // ₹/unit snapshotted from the batch at entry time
+  batchDate: string;            // batch receipt date — shown in the cost breakdown
+  lineCost: number;             // qty × rate (0 when rate not set)
+}
+
+// One material consumed in a stage. Rates are snapshotted at entry time so later
+// batch/rate edits never retroactively change historical job costs.
 export interface Consumption {
   materialId: string;
   materialName: string;
   unit: string;
   qty: number;
-  rateSnapshot: number | null;  // null => rate was not set when entered
-  lineCost: number;             // qty × rateSnapshot (0 when rate not set)
+  rateSnapshot: number | null;  // effective (weighted-average) rate across lots; null => unpriced
+  lineCost: number;             // sum of lot line costs
+  lots?: ConsumptionLot[];      // FIFO breakdown — one entry per batch consumed
+  source?: 'batch' | 'labour';  // 'labour' rows are priced from the Rate Master
+  shortfall?: number;           // qty that no batch could cover (stock ran out)
+}
+
+// One roll / BOPP film consumed by a stage. Each roll gets its own line and is
+// costed at that specific roll's rate — never a pooled or averaged rate.
+export interface RollUse {
+  rollId: string;
+  rollNo: string;
+  kind: 'roll' | 'film';        // inv_rolls vs inv_bopp_films
+  type?: string;                // roll type (Milky / Natural / …)
+  size?: string;
+  qtyKg: number;                // weight consumed from this roll
+  rate: number | null;          // ₹/kg snapshotted from the roll; null => not set
+  lineCost: number;             // qtyKg × rate (0 when rate not set)
+  finished: boolean;            // true => roll fully used, archived to Finished
+  balanceKg?: number;           // weight left on the roll when not finished
 }
 
 interface StageBase {
@@ -146,14 +175,19 @@ interface StageBase {
   date?: string;
   operator?: string;
   consumption: Consumption[];
+  rollUses?: RollUse[];         // per-roll consumption lines (Printing, Lamination)
 }
 
 export interface PrintingStage extends StageBase {
-  inputKg?: number;
+  inputKg?: number;             // BOPP Input (kg)
+  boppSize?: string;            // BOPP Size
+  boppRollNo?: string;          // BOPP Roll No
+  boppType?: string;            // BOPP Type
+  balanceKg?: number;           // Balance BOPP
   outputKg?: number;
-  meter?: number;
-  rejectionKg?: number;
-  balanceKg?: number;           // BOPP cards record Balance here (not Rejection)
+  meter?: number;               // Output (meter)
+  rejectionKg?: number;         // Wastage
+  inkPct?: number;              // ink auto-calc %, overrides the Settings default
   noOfBags?: number;            // Other card printing
   colour?: string;             // Other card printing — colour of print
   ink?: number;                // Other card printing — ink consumption (kg)
@@ -161,6 +195,9 @@ export interface PrintingStage extends StageBase {
 }
 
 export interface MetalizeStage extends StageBase {
+  rollNo?: string;
+  size?: string;
+  rollBalance?: string;         // balance roll no / remaining roll after this run
   metalizeInputKg?: number;
   boppInputKg?: number;
   outputKg?: number;
@@ -171,18 +208,25 @@ export interface MetalizeStage extends StageBase {
 
 export interface SlittingRoll { outputKg?: number; desc?: string; core?: string; meter?: number; }
 export interface SlittingStage extends StageBase {
-  grossInputKg?: number;
-  inputCoreKg?: number;
-  rolls: SlittingRoll[];        // up to 3
-  rejectionKg?: number;
-  trimKg?: number;
+  inputKg?: number;
+  inputMeter?: number;
+  outputKg?: number;
+  outputMeter?: number;
   balanceKg?: number;
+  balanceMeter?: number;
+  rejectionKg?: number;         // Wastage
+  grossInputKg?: number;        // legacy — superseded by inputKg
+  inputCoreKg?: number;
+  rolls: SlittingRoll[];        // legacy per-roll outputs, kept for old cards
+  trimKg?: number;
 }
 
 export interface LaminationRow { boppInKg?: number; fabricInKg?: number; meter?: number; outKg?: number; }
 export interface LaminationStage extends StageBase {
   fabricSize?: string;
   fabricType?: FabricType;
+  rollNo?: string;              // Roll No + Size are captured per roll in rollUses
+  size?: string;
   grm?: number;
   coating?: string;
   coatingSide?: CoatingSide;
@@ -192,21 +236,25 @@ export interface LaminationStage extends StageBase {
   balanceRoll?: number;
   rejectionKg?: number;
   balanceKg?: number;
-  granuleUses?: GranuleUse[];   // granule consumption (auto-decrements P.P. Granule stock)
   // Other/Flexo card lamination extras
   inputKg?: number;
   outputKg?: number;
-  rollNo?: string;
   balanceRollNo?: string;
 }
 
 export interface CuttingRow { inputKg?: number; noOfBags?: number; bcs?: number; machine?: string; rollNo?: string }
 export interface CuttingStage extends StageBase {
+  method?: CuttingMethod;       // 'BCS' (default) | 'Back Seal'
   gusset: boolean;
   perforation: boolean;
-  rows: CuttingRow[];           // up to 3
+  rows: CuttingRow[];           // BCS rows — up to 3
   balance?: number;
-  rejectionKg?: number;
+  rejectionKg?: number;         // Wastage
+  threadPct?: number;           // BCS: thread auto-calc %, overrides the Settings default
+  // Back Seal
+  bsInputKg?: number;
+  bsBalanceKg?: number;
+  bsPieces?: number;
 }
 
 export interface DispatchLine { quantityKg?: number; pieces?: number; dispatchDate?: string; }
@@ -215,6 +263,8 @@ export interface DispatchStage extends StageBase {
   pendingPcs?: number;
   lines: DispatchLine[];
   bagsPerBale?: number;
+  noOfBales?: number;
+  balanceKg?: number;
 }
 
 export interface JobCardHeader {
@@ -288,20 +338,36 @@ export interface InvRoll {
   gWt: number;             // gross weight (kg)
   nWt: number;             // net weight (kg)
   meter: number;
+  rate?: number | null;    // ₹/kg for THIS roll, captured at receipt; null => not set
   dateAdded: string;       // auto-captured entry date (yyyy-mm-dd)
   balanceUsed?: boolean;   // flagged when partially consumed in production
   dispatched?: boolean;    // flagged when dispatched directly from stock
   dispatchedAt?: string;
 }
 
-// Consumables: ink, thread, thinner, solvents, etc.
+// Consumables: ink, thread, thinner, solvents, etc. Stock and cost live on the
+// item's batches (see RawMaterialBatch) — `quantity` is a cached roll-up of the
+// remaining qty across batches, recomputed by syncBatchStock().
 export interface RawMaterial {
   id: string;
-  name: string;            // from reusable item list
+  name: string;            // from reusable item list (type-ahead)
   unit: string;
-  quantity: number;        // live remaining (= openingQty − consumed by job cards)
-  openingQty?: number;     // received baseline; consumption is subtracted from this
+  quantity: number;        // derived: Σ batch.remaining
   dateAdded: string;
+}
+
+// One receipt of a raw material at one rate. An item has many batches with
+// different rates; consumption draws from the oldest batch with stock first.
+export interface RawMaterialBatch {
+  id: string;
+  materialId: string;
+  qty: number;             // qty received in this batch
+  remaining: number;       // derived: qty − consumed by job cards (FIFO)
+  rate: number | null;     // ₹/unit at receipt; null => "rate not set"
+  date: string;            // receipt date (yyyy-mm-dd) — drives FIFO order
+  grnRef?: string;         // GRN no. when received via a GRN
+  note?: string;
+  createdAt: string;
 }
 
 // Machines master (purpose-built) — the actual machines the factory has. Feeds
@@ -373,6 +439,7 @@ export interface BoppFilm {
   meter: number;
   finish?: Finish;         // glossy / matte / metalized (optional)
   micron?: number;         // optional
+  rate?: number | null;    // ₹/kg for THIS film, captured at receipt; null => not set
   dateAdded: string;
   balanceUsed?: boolean;
 }

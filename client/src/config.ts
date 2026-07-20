@@ -114,7 +114,10 @@ export type DispatchType = typeof DISPATCH_TYPES[number];
 
 // ── Module 14 — Inventory defaults (reusable, extensible lists) ─────────────────
 export const DEFAULT_ROLL_TYPES = ['Milky', 'Natural', 'Lamination', 'Milky Multi Colour'];
-export const DEFAULT_RAW_MATERIALS = ['Gravure ink', 'Ethyl acetate', 'Toluene', 'IPA', 'Sewing thread', 'Thinner'];
+export const DEFAULT_RAW_MATERIALS = [
+  'Gravure ink', 'Ethyl acetate', 'Toluene', 'MIBK', 'IPA', 'Thinner',
+  'Adhesive', 'Hardener', 'P.P.', 'Filler', 'LD', 'Thread', 'Hot melt glue',
+];
 export const ROLL_TYPES_KEY = 'list_roll_types';
 export const RAW_MATERIALS_KEY = 'list_raw_materials';
 
@@ -164,33 +167,45 @@ export const BCS_OPTIONS = [1, 2, 3, 4] as const;
 export const DEFAULT_MACHINE_TYPES = ['Cutting/BCS', 'Loom', 'Printing', 'Flexo', 'Lamination', 'Slitting', 'Metalize'];
 export const MACHINE_TYPES_KEY = 'list_machine_types';
 
+// ── Auto-calculated consumption percentages ────────────────────────────────────
+// Ink is auto-filled as a % of BOPP input kg, thread as a % of cutting input kg.
+// Both defaults are set in Settings and can be overridden per job card.
+export const INK_PCT_KEY = 'auto_ink_pct';
+export const THREAD_PCT_KEY = 'auto_thread_pct';
+export const DEFAULT_INK_PCT = 10;      // dry gravure ink is well under 15% of substrate weight
+export const DEFAULT_THREAD_PCT = 2;
+
+// Materials the job card draws straight from Raw Materials, by stage. Names are
+// matched case-insensitively against the raw-material item list.
+export const PRINTING_SOLVENTS = ['Ethyl acetate', 'Toluene', 'MIBK', 'IPA'];
+export const PRINTING_INK = 'Gravure ink';
+export const METALIZE_MATERIALS = ['Adhesive', 'Hardener'];
+export const LAMINATION_MATERIALS = ['P.P.', 'Filler', 'LD'];
+export const BCS_THREAD = 'Thread';
+export const BACKSEAL_GLUE = 'Hot melt glue';
+
+// Cutting methods — the two ways bags are cut on the floor.
+export const CUTTING_METHODS = ['BCS', 'Back Seal'] as const;
+export type CuttingMethod = typeof CUTTING_METHODS[number];
+
 // Bag Type — reusable type-ahead list (order + job-card header). Extensible.
 export const DEFAULT_BAG_TYPES = ['Handle', 'Laminated', 'Non-laminated'];
 export const BAG_TYPES_KEY = 'list_bag_types';
 
-// Rate Master categories — a material belongs to one stage (or 'Any')
+// Rate Master categories — a labour/overhead line belongs to one stage (or 'Any')
 export const RATE_CATEGORIES = ['Printing', 'Metalize', 'Slitting', 'Lamination', 'Cutting', 'Dispatch', 'Any'] as const;
 export type RateCategory = typeof RATE_CATEGORIES[number];
 
-// Seed list for the Rate Master (owner can add/edit/delete more). Rates are
-// indicative INR demo values — the owner maintains the real numbers.
+// The Rate Master no longer prices materials — raw materials, rolls and BOPP film
+// are costed from the rate of the batch actually consumed (see lib/batches.ts).
+// What remains here is labour and machine/overhead conversion cost per stage.
 export const RATE_MASTER_SEED: { name: string; unit: string; rate: number | null; category: RateCategory }[] = [
-  { name: 'BOPP film – Glossy',          unit: '₹/kg',   rate: 165,  category: 'Printing' },
-  { name: 'BOPP film – Matte',           unit: '₹/kg',   rate: 172,  category: 'Printing' },
-  { name: 'BOPP film – Metalized',       unit: '₹/kg',   rate: 188,  category: 'Printing' },
-  { name: 'BOPP film – Pearl',           unit: '₹/kg',   rate: 178,  category: 'Printing' },
-  { name: 'Gravure ink',                 unit: '₹/kg',   rate: 240,  category: 'Printing' },
-  { name: 'Ethyl acetate',               unit: '₹/kg',   rate: 95,   category: 'Printing' },
-  { name: 'Toluene',                     unit: '₹/kg',   rate: 88,   category: 'Printing' },
-  { name: 'IPA',                         unit: '₹/kg',   rate: 110,  category: 'Printing' },
-  { name: 'Metalizing (aluminium)',      unit: '₹/kg',   rate: 320,  category: 'Metalize' },
-  { name: 'Slitting core',               unit: '₹/pc',   rate: 18,   category: 'Slitting' },
-  { name: 'LDPE granules',               unit: '₹/kg',   rate: 105,  category: 'Lamination' },
-  { name: 'Woven fabric',                unit: '₹/kg',   rate: 142,  category: 'Lamination' },
-  { name: 'PU adhesive',                 unit: '₹/kg',   rate: 215,  category: 'Lamination' },
-  { name: 'Hardener',                    unit: '₹/kg',   rate: 260,  category: 'Lamination' },
-  { name: 'Sewing thread',               unit: '₹/kg',   rate: 180,  category: 'Cutting' },
-  { name: 'Crepe paper tape',            unit: '₹/roll', rate: 35,   category: 'Cutting' },
-  { name: 'Packing (bale wrap + strap)', unit: '₹/bale', rate: 28,   category: 'Dispatch' },
-  { name: 'Labour/machine (optional)',   unit: '₹/kg',   rate: null, category: 'Any' },
+  { name: 'Printing labour',        unit: '₹/kg',   rate: 6,    category: 'Printing' },
+  { name: 'Printing machine hour',  unit: '₹/kg',   rate: 4,    category: 'Printing' },
+  { name: 'Metalize conversion',    unit: '₹/kg',   rate: 12,   category: 'Metalize' },
+  { name: 'Slitting labour',        unit: '₹/kg',   rate: 3,    category: 'Slitting' },
+  { name: 'Lamination labour',      unit: '₹/kg',   rate: 5,    category: 'Lamination' },
+  { name: 'Cutting labour',         unit: '₹/kg',   rate: 4,    category: 'Cutting' },
+  { name: 'Packing labour',         unit: '₹/bale', rate: 10,   category: 'Dispatch' },
+  { name: 'Factory overhead',       unit: '₹/kg',   rate: null, category: 'Any' },
 ];

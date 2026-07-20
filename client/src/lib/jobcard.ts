@@ -4,6 +4,7 @@ import type {
   PrintingStage, MetalizeStage, SlittingStage, LaminationStage, CuttingStage, DispatchStage,
 } from '../types/models';
 import { JOB_STAGES } from '../config';
+import { getSettings } from './db';
 import type { JobStage, Finish, CardType, MakingType } from '../config';
 
 export const STAGE_KEYS = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
@@ -21,7 +22,7 @@ const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 function emptyConsumption(): Consumption[] { return []; }
 
 export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glossy', makingType?: MakingType): Omit<JobCard, 'id'> {
-  const base = { na: false, consumption: emptyConsumption() };
+  const base = { na: false, consumption: emptyConsumption(), rollUses: [] };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
   const isOther = cardType === 'Other';
   const isRoll = cardType === 'BOPP' && makingType === 'Roll'; // roll jobs hide Cutting only
@@ -33,7 +34,7 @@ export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glos
     printing:   { ...base } as PrintingStage,
     metalize:   { ...base, na: isOther || finish !== 'Metalized' } as MetalizeStage,
     slitting:   { ...base, na: isOther, rolls: [] } as SlittingStage,
-    lamination: { ...base, na: false, rows: [{}], granuleUses: [] } as LaminationStage,
+    lamination: { ...base, na: false, rows: [{}] } as LaminationStage,
     cutting:    { ...base, na: isRoll, gusset: false, perforation: false, rows: [{}] } as CuttingStage,
     dispatch:   { ...base, lines: [{}], bagsPerBale: 100 } as DispatchStage,
     status: 'In Progress',
@@ -76,13 +77,13 @@ export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
 export function normalizeJobCard(j: JobCard): JobCard {
   j.cardType ??= 'BOPP';
   if ((j.cardType as string) === 'Normal') j.cardType = 'Other'; // migrate legacy label
+  for (const k of STAGE_KEYS) (j[k] as { rollUses?: unknown[] }).rollUses ??= [];
   j.printing.consumption ??= [];
   j.metalize.consumption ??= [];
   j.slitting.consumption ??= [];
   (j.slitting as SlittingStage).rolls ??= [];
   j.lamination.consumption ??= [];
   (j.lamination as LaminationStage).rows ??= [{}];
-  (j.lamination as LaminationStage).granuleUses ??= [];
   j.cutting.consumption ??= [];
   (j.cutting as CuttingStage).rows ??= [{}];
   j.dispatch.consumption ??= [];
@@ -107,9 +108,21 @@ export function stagePrimary(j: JobCard, key: StageKey): { input: number; output
   switch (key) {
     case 'printing': { const s = j.printing; return { input: num(s.inputKg), output: num(s.outputKg), rejection: num(s.rejectionKg) }; }
     case 'metalize': { const s = j.metalize; return { input: num(s.metalizeInputKg), output: num(s.outputKg), rejection: num(s.rejectionKg) }; }
-    case 'slitting': { const s = j.slitting; return { input: num(s.grossInputKg), output: sum(s.rolls.map((r) => num(r.outputKg))), rejection: num(s.rejectionKg) }; }
-    case 'lamination': { const s = j.lamination; return { input: sum(s.rows.map((r) => num(r.boppInKg))), output: sum(s.rows.map((r) => num(r.outKg))), rejection: 0 }; }
-    case 'cutting': { const s = j.cutting; return { input: sum(s.rows.map((r) => num(r.inputKg))), output: 0, rejection: num(s.rejectionKg) }; }
+    case 'slitting': {
+      const s = j.slitting;
+      return {
+        input: num(s.inputKg) || num(s.grossInputKg),
+        output: num(s.outputKg) || sum(s.rolls.map((r) => num(r.outputKg))),
+        rejection: num(s.rejectionKg),
+      };
+    }
+    case 'lamination': { const s = j.lamination; return { input: sum(s.rows.map((r) => num(r.boppInKg))) || num(s.inputKg), output: sum(s.rows.map((r) => num(r.outKg))) || num(s.outputKg), rejection: 0 }; }
+    case 'cutting': {
+      const s = j.cutting;
+      // Back Seal uses its own single input; BCS sums its rows.
+      const input = s.method === 'Back Seal' ? num(s.bsInputKg) : sum(s.rows.map((r) => num(r.inputKg)));
+      return { input, output: 0, rejection: num(s.rejectionKg) };
+    }
     case 'dispatch': { const s = j.dispatch; return { input: 0, output: sum(s.lines.map((l) => num(l.quantityKg))), rejection: 0 }; }
   }
 }
@@ -165,11 +178,13 @@ export interface CostingResult {
 
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
-  return sum(j[key].consumption.map((c) => num(c.lineCost)));
+  return sum(j[key].consumption.map((c) => num(c.lineCost)))
+    + sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
 }
 
 export function totalBags(j: JobCard): number {
   if (!isStageActive(j, 'cutting')) return 0;
+  if (j.cutting.method === 'Back Seal') return num(j.cutting.bsPieces);
   return sum(j.cutting.rows.map((r) => num(r.noOfBags)));
 }
 
@@ -181,7 +196,11 @@ export function computeCosting(j: JobCard): CostingResult {
     const c = stageCost(j, k);
     stageCosts[k] = c;
     total += c;
-    if (isStageActive(j, k) && j[k].consumption.some((x) => x.rateSnapshot == null && num(x.qty) > 0)) hasUnset = true;
+    if (!isStageActive(j, k)) continue;
+    // A line is "unpriced" when it consumed something no rate could cover — an
+    // unpriced batch/roll, or stock that ran short. Those are flagged, never ₹0'd.
+    if (j[k].consumption.some((x) => num(x.qty) > 0 && (x.rateSnapshot == null || (x.shortfall ?? 0) > 0))) hasUnset = true;
+    if ((j[k].rollUses ?? []).some((r) => num(r.qtyKg) > 0 && r.rate == null)) hasUnset = true;
   }
 
   const bags = totalBags(j);
@@ -220,19 +239,22 @@ export function computeCosting(j: JobCard): CostingResult {
 }
 
 // ── Consumption helpers ────────────────────────────────────────────────────────
-// Materials relevant to a stage = active rate items of that category (+ 'Any').
+// Labour/overhead lines relevant to a stage = active rate items of that category
+// (+ 'Any'). Materials are NOT sourced here — they come from inventory batches.
 export function materialsForStage(items: RateMasterItem[], stage: JobStage): RateMasterItem[] {
   return items.filter((m) => m.active && (m.category === stage || m.category === 'Any'));
 }
 
-// Build the consumption rows for a stage, preserving any quantity already
+// Build the labour consumption rows for a stage, preserving any quantity already
 // entered and snapshotting the current rate for each line.
-export function buildConsumption(items: RateMasterItem[], stage: JobStage, existing: Consumption[]): Consumption[] {
+export function buildLabourConsumption(items: RateMasterItem[], stage: JobStage, existing: Consumption[]): Consumption[] {
   const byId = new Map(existing.map((c) => [c.materialId, c]));
   return materialsForStage(items, stage).map((m) => {
     const prev = byId.get(m.id);
     const qty = prev ? num(prev.qty) : 0;
-    const rate = m.rate;
+    // Rate stays snapshotted once entered, so later Rate Master edits don't
+    // rewrite historical job costs.
+    const rate = prev && prev.qty > 0 && prev.rateSnapshot != null ? prev.rateSnapshot : m.rate;
     return {
       materialId: m.id,
       materialName: m.name,
@@ -240,8 +262,28 @@ export function buildConsumption(items: RateMasterItem[], stage: JobStage, exist
       qty,
       rateSnapshot: rate,
       lineCost: rate != null ? qty * rate : 0,
+      source: 'labour' as const,
     };
   });
+}
+
+// Total value of a stage's per-roll consumption lines (each at its own rate).
+export function rollUsesCost(j: JobCard, key: StageKey): number {
+  return sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
+}
+
+// ── Auto-calculated consumption (ink, thread) ──────────────────────────────────
+// Ink is a percentage of BOPP input kg; thread a percentage of cutting input kg.
+// The default lives in Settings; each job card may override it.
+export function autoPct(override: number | undefined, settingKey: string, fallback: number): number {
+  if (override != null && isFinite(override) && override >= 0) return override;
+  const raw = getSettings()[settingKey];
+  const n = raw == null ? NaN : parseFloat(raw);
+  return isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function autoQty(baseKg: number | undefined, pct: number): number {
+  return +(num(baseKg) * (pct / 100)).toFixed(3);
 }
 
 export function formatINR(n: number): string {

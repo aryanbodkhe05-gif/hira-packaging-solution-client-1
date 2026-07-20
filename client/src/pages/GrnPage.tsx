@@ -2,7 +2,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Search, FileText, PackageCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  grnsDb, suppliersDb, rawMaterialsDb, boppFilmsDb, invRollsDb, ppGranulesDb,
+  grnsDb, suppliersDb, rawMaterialsDb, rawMaterialBatchesDb, boppFilmsDb, invRollsDb, ppGranulesDb,
+  syncBatchStock, addToList,
 } from '../lib/db';
 import {
   GRN_DESTINATIONS, DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY,
@@ -14,6 +15,7 @@ import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pagination } from '../components/ui/Pagination';
 import { ListSelect } from '../components/ui/ListSelect';
+import { TypeAhead } from '../components/ui/TypeAhead';
 import { formatDate, genDailyId } from '../lib/utils';
 
 const PAGE_SIZE = 20;
@@ -23,10 +25,11 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 interface Draft {
   supplier: string; invoiceNo: string; date: string; destination: GrnDestination;
   itemName: string; rollType: string; granuleItemId: string; qty: number; unit: string; bags: number; meter: number;
+  rate: string;   // kept as text so "blank" stays distinct from 0 (rate not set)
 }
 const emptyDraft: Draft = {
   supplier: '', invoiceNo: '', date: today(), destination: 'Raw Materials',
-  itemName: '', rollType: '', granuleItemId: '', qty: 0, unit: 'kg', bags: 0, meter: 0,
+  itemName: '', rollType: '', granuleItemId: '', qty: 0, unit: 'kg', bags: 0, meter: 0, rate: '',
 };
 
 function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
@@ -63,20 +66,25 @@ function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
       {/* Destination-specific item fields */}
       <div className="rounded-lg border border-accent/10 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
         {dest === 'Raw Materials' && (<>
-          <div><label className="label">Material *</label><ListSelect value={f.itemName} onChange={(v) => set('itemName', v)} listKey={RAW_MATERIALS_KEY} defaults={DEFAULT_RAW_MATERIALS} placeholder="Select material…" /></div>
+          <div><label className="label">Material *</label>
+            <TypeAhead value={f.itemName} onChange={(v) => set('itemName', v)} listKey={RAW_MATERIALS_KEY} defaults={DEFAULT_RAW_MATERIALS} placeholder="Type a few letters…" />
+          </div>
           <div><label className="label">Unit</label><input className="input-field" value={f.unit} onChange={(e) => set('unit', e.target.value)} placeholder="kg / litre" /></div>
           <div><label className="label">Quantity *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
+          <div><label className="label">Rate (₹/{f.unit || 'unit'})</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="optional" /></div>
         </>)}
         {dest === 'BOPP Film' && (<>
           <div><label className="label">Film No *</label><input className="input-field font-mono" value={f.itemName} onChange={(e) => set('itemName', e.target.value)} placeholder="F-010" /></div>
           <div><label className="label">KG *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
           <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
+          <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="optional" /></div>
         </>)}
         {dest === 'Rolls' && (<>
           <div><label className="label">Roll No *</label><input className="input-field font-mono" value={f.itemName} onChange={(e) => set('itemName', e.target.value)} placeholder="R-010" /></div>
           <div><label className="label">Type</label><ListSelect value={f.rollType} onChange={(v) => set('rollType', v)} listKey={ROLL_TYPES_KEY} defaults={DEFAULT_ROLL_TYPES} placeholder="Select type…" /></div>
           <div><label className="label">N.WT (kg) *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
           <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
+          <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="optional" /></div>
         </>)}
         {dest === 'P.P. Granule' && (<>
           <div className="sm:col-span-2"><label className="label">Granule item *</label>
@@ -90,7 +98,12 @@ function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
           <div><label className="label">KG received *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
         </>)}
       </div>
-      <p className="text-muted text-xs">On receive, this increments <span className="text-accent">{dest}</span> stock and logs the GRN.</p>
+      <p className="text-muted text-xs">
+        On receive, this increments <span className="text-accent">{dest}</span> stock and logs the GRN.
+        {dest === 'Raw Materials' && ' The quantity is added as a new batch at the rate above, consumed FIFO.'}
+        {(dest === 'BOPP Film' || dest === 'Rolls') && ' The rate is stored on this specific item and used whenever it is consumed.'}
+        {f.rate.trim() === '' && dest !== 'P.P. Granule' && ' Leaving the rate blank is fine — it shows as "rate not set" and can be priced later.'}
+      </p>
 
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
@@ -111,25 +124,38 @@ export function GrnPage() {
 
   function receive(d: Draft) {
     const grnNo = genDailyId('GRN', grnsDb.getAll().map((g) => g.grnNo), d.date);
-    // Increment the correct inventory
+    // Blank rate stays null ("rate not set") rather than collapsing to ₹0.
+    const rate = d.rate.trim() === '' ? null : num(d.rate);
+    const now = new Date().toISOString();
+
     if (d.destination === 'Raw Materials') {
+      // Every receipt is its own batch at its own rate — that is what makes the
+      // next consumption cost at this price once older batches run out.
       const items = rawMaterialsDb.getAll();
       const ex = items.find((i) => i.name.toLowerCase() === d.itemName.toLowerCase());
-      if (ex) rawMaterialsDb.update(ex.id, { quantity: ex.quantity + d.qty, openingQty: (ex.openingQty ?? ex.quantity) + d.qty });
-      else rawMaterialsDb.create({ name: d.itemName, unit: d.unit || 'kg', quantity: d.qty, openingQty: d.qty, dateAdded: d.date });
+      const materialId = ex
+        ? ex.id
+        : rawMaterialsDb.create({ name: d.itemName.trim(), unit: d.unit || 'kg', quantity: 0, dateAdded: d.date }).id;
+      rawMaterialBatchesDb.create({
+        materialId, qty: d.qty, remaining: d.qty, rate, date: d.date, grnRef: grnNo, createdAt: now,
+      });
+      addToList(RAW_MATERIALS_KEY, d.itemName.trim(), DEFAULT_RAW_MATERIALS);
+      syncBatchStock();
     } else if (d.destination === 'BOPP Film') {
-      boppFilmsDb.create({ filmNo: d.itemName, kg: d.qty, meter: d.meter || 0, dateAdded: d.date });
+      boppFilmsDb.create({ filmNo: d.itemName, kg: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'Rolls') {
-      invRollsDb.create({ rollNo: d.itemName, type: d.rollType || 'Milky', size: '', quality: 0, gWt: d.qty, nWt: d.qty, meter: d.meter || 0, dateAdded: d.date });
+      invRollsDb.create({ rollNo: d.itemName, type: d.rollType || 'Milky', size: '', quality: 0, gWt: d.qty, nWt: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'P.P. Granule') {
       const it = ppGranulesDb.get(d.granuleItemId);
       if (it) ppGranulesDb.update(it.id, { currentStockKg: it.currentStockKg + d.qty, grnRef: grnNo });
     }
     grnsDb.create({
       grnNo, supplier: d.supplier, invoiceNo: d.invoiceNo, date: d.date, destination: d.destination,
-      itemName: d.itemName, qty: d.qty, unit: d.unit, bags: d.bags, meter: d.meter, createdAt: new Date().toISOString(),
+      itemName: d.itemName, qty: d.qty, unit: d.unit, bags: d.bags, meter: d.meter, createdAt: now,
     });
-    toast.success(`${grnNo} received — ${d.destination} stock updated`);
+    toast.success(rate == null
+      ? `${grnNo} received — stock updated (rate not set)`
+      : `${grnNo} received — ${d.destination} stock updated at ₹${rate}`);
     setOpen(false);
     reload();
   }
