@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AlertProvider } from './context/AlertContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { LoomUnitLayout } from './components/layout/LoomUnitLayout';
 import { LoginPage }        from './pages/LoginPage';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
@@ -62,15 +63,22 @@ function AppRoutes() {
         <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
         <Route path="job-card/:id"    element={<JobCardDetailPage />} />
         <Route path="other"           element={<JobCardListPage cardType="Other" />} />
-        <Route path="loom"            element={<LoomProductionPage />} />
-        <Route path="pp-fabric"       element={<PPFabricPage />} />
         <Route path="materials"       element={<MaterialsPage />} />
         {/* Inventory — everyone */}
         <Route path="inventory/rolls"          element={<InventoryRollsPage />} />
         <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
         <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
         <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
-        <Route path="inventory/pp-granule"     element={<PPGranuleStockPage />} />
+
+        {/* Loom / P.P. Unit — a separate company, independent of the BOPP flow */}
+        <Route path="loom-unit"            element={<Navigate to="/loom-unit/loom" replace />} />
+        <Route path="loom-unit/loom"       element={<LoomUnitLayout><LoomProductionPage /></LoomUnitLayout>} />
+        <Route path="loom-unit/pp-fabric"  element={<LoomUnitLayout><PPFabricPage /></LoomUnitLayout>} />
+        <Route path="loom-unit/pp-granule" element={<LoomUnitLayout><PPGranuleStockPage /></LoomUnitLayout>} />
+        {/* Old paths kept as redirects so existing links/bookmarks still work */}
+        <Route path="loom"                 element={<Navigate to="/loom-unit/loom" replace />} />
+        <Route path="pp-fabric"            element={<Navigate to="/loom-unit/pp-fabric" replace />} />
+        <Route path="inventory/pp-granule" element={<Navigate to="/loom-unit/pp-granule" replace />} />
 
         {/* Sales — not Staff */}
         <Route path="orders"        element={<Guard allow={canAccessSales(role)}><OrdersPage /></Guard>} />

@@ -32,15 +32,18 @@ const NAV: NavSection[] = [
   { section: 'Production', icon: Factory, items: [
     { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card' },
     { label: 'Other Job Card', icon: ClipboardList, to: '/other' },
-    { label: 'Loom Log',      icon: Gauge,         to: '/loom' },
-    { label: 'PP Fabric',     icon: Layers,        to: '/pp-fabric' },
   ]},
   { section: 'Inventory', icon: Package, items: [
     { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls' },
     { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials' },
     { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film' },
-    { label: 'P.P. Granule',   icon: Boxes,    to: '/inventory/pp-granule' },
     { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls' },
+  ]},
+  // Separate unit — a different company, not correlated with the BOPP/bag flow.
+  { section: 'Loom / P.P. Unit', icon: Gauge, items: [
+    { label: 'Loom Log',          icon: Gauge,  to: '/loom-unit/loom' },
+    { label: 'P.P. Fabric',       icon: Layers, to: '/loom-unit/pp-fabric' },
+    { label: 'P.P. Granule Stock', icon: Boxes, to: '/loom-unit/pp-granule' },
   ]},
   { section: 'Supplier', icon: Building2, items: [
     { label: 'Suppliers',       icon: Building2,     to: '/suppliers', access: canAccessSupplier },

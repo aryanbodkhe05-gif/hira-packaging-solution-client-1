@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, Fragment } from 'react';
 import { Plus, Pencil, Trash2, Search, FlaskConical, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { rawMaterialsDb, rawMaterialBatchesDb, syncBatchStock } from '../lib/db';
@@ -186,8 +186,8 @@ export function RawMaterialsPage() {
                 const open = !!expanded[m.id];
                 const anyUnpriced = bs.some((b) => b.rate == null && b.remaining > 0);
                 return (
-                  <>
-                    <tr key={m.id} className="table-row">
+                  <Fragment key={m.id}>
+                    <tr className="table-row">
                       <td className="table-cell w-8">
                         <button onClick={() => setExpanded((p) => ({ ...p, [m.id]: !p[m.id] }))}
                           className="p-1 rounded hover:bg-white/10 text-muted hover:text-white" title="Show batches">
@@ -210,7 +210,7 @@ export function RawMaterialsPage() {
                       </div></td>
                     </tr>
                     {open && (
-                      <tr key={m.id + '-batches'}>
+                      <tr>
                         <td colSpan={7} className="px-5 py-3 bg-navy/40">
                           {bs.length === 0 ? (
                             <p className="text-muted text-xs">No batches yet — receive one to give this item stock and a rate.</p>
@@ -253,7 +253,7 @@ export function RawMaterialsPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
