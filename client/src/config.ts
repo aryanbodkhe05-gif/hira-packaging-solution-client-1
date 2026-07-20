@@ -9,8 +9,9 @@ export const COMPANY = {
   email:       'info@hirapackaging.com',
 } as const;
 
-// "Milky" is the company's name for the fabric formerly labelled "UL".
-export const PRODUCT_TYPES = ['BOPP', 'Milky', 'Natural', 'Laminated'] as const;
+// Order product types. Milky/Natural were removed here but remain valid roll
+// types in inventory (see DEFAULT_ROLL_TYPES) — they describe stock, not orders.
+export const PRODUCT_TYPES = ['BOPP', 'Laminated', 'Flexo', 'Plain'] as const;
 export type ProductType = typeof PRODUCT_TYPES[number];
 
 export const CONSUMABLE_CATEGORIES = ['Ink', 'Thread', 'Filler', 'Custom'] as const;

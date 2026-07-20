@@ -6,7 +6,7 @@ import { cn } from '../lib/utils';
 import { EmptyState } from '../components/ui/EmptyState';
 
 const TYPE_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Laminated: '#f59e0b', Flexo: '#5E5EE8', Plain: '#12B76A',
 };
 
 export function DispatchPage() {
@@ -22,7 +22,7 @@ export function DispatchPage() {
   }, [dispatched]);
 
   const filtered = dispatched.filter((o) => {
-    const ms = !search || o.clientName.toLowerCase().includes(search.toLowerCase()) ||
+    const ms = !search || (o.brandName ?? '').toLowerCase().includes(search.toLowerCase()) ||
       o.orderId.toLowerCase().includes(search.toLowerCase()) ||
       (o.billNo ?? '').toLowerCase().includes(search.toLowerCase());
     const mm = !selectedMonth || o.createdAt.startsWith(selectedMonth);
@@ -115,7 +115,7 @@ export function DispatchPage() {
                   <tr key={o.id} className="table-row">
                     <td className="table-cell font-mono text-accent text-xs">{o.orderId}</td>
                     <td className="table-cell font-mono font-medium text-success">{o.billNo ?? '—'}</td>
-                    <td className="table-cell font-medium">{o.clientName}</td>
+                    <td className="table-cell font-medium">{o.brandName}</td>
                     <td className="table-cell">
                       <span className="badge text-xs" style={{ background: TYPE_COLORS[o.productType] + '22', color: TYPE_COLORS[o.productType], border: `1px solid ${TYPE_COLORS[o.productType]}44` }}>
                         {o.productType}

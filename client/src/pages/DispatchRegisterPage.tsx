@@ -41,7 +41,7 @@ function AddDispatchForm({ type, onDone, onClose }: { type: DispatchType; onDone
     const jc = order.jobCardId ? jobCardsDb.get(order.jobCardId) : null;
     dispatchesDb.create({
       type, jobCardId: order.jobCardId, orderRef: order.id, orderNo: order.orderId,
-      jobNo: jc?.jobNo ?? order.orderId, party: order.clientName, brand: order.productType,
+      jobNo: jc?.jobNo ?? order.orderId, party: order.brandName, brand: order.productType,
       qtyKg: order.quantityKg,
       ...(isRoll ? { rolls: order.quantityNos ?? 1 } : { qtyPieces: order.quantityNos }),
       vehicle: vehicle.trim() || undefined, date, createdAt: now,
@@ -85,7 +85,7 @@ function AddDispatchForm({ type, onDone, onClose }: { type: DispatchType; onDone
             <select className="input-field" value={orderId} onChange={(e) => setOrderId(e.target.value)} autoFocus>
               <option value="">Choose an order…</option>
               {orders.map((o) => (
-                <option key={o.id} value={o.id}>{o.orderId} · {o.clientName} · {o.sizeDisplay}{o.quantityKg ? ` · ${o.quantityKg}kg` : ''}{o.quantityNos ? ` · ${o.quantityNos} nos` : ''}</option>
+                <option key={o.id} value={o.id}>{o.orderId} · {o.brandName} · {o.sizeDisplay}{o.quantityKg ? ` · ${o.quantityKg}kg` : ''}{o.quantityNos ? ` · ${o.quantityNos} nos` : ''}</option>
               ))}
             </select>
             {orders.length === 0 && <p className="text-muted text-xs mt-1">No pending {isRoll ? 'roll' : 'bag'} orders to dispatch.</p>}

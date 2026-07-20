@@ -46,7 +46,7 @@ function scanAndCreateAlerts(): number {
       .forEach((o) => {
         const ch: AppAlert['channel'] = settings.alert_overdue === 'true' ? 'BOTH' : 'IN_APP';
         push('OVERDUE_ORDER', `Overdue: ${o.orderId}`,
-          `⏰ OVERDUE ORDER ${o.orderId} — ${o.clientName}. Status: ${o.status}`, ch);
+          `⏰ OVERDUE ORDER ${o.orderId} — ${o.brandName}. Status: ${o.status}`, ch);
       });
   }
 

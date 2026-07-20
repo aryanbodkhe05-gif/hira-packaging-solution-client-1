@@ -26,7 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Short-Closed':  'bg-orange-500/20 text-orange-300 border-orange-500/30',
 };
 const TYPE_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Laminated: '#f59e0b', Flexo: '#5E5EE8', Plain: '#12B76A',
 };
 
 function genOrderId(): string {
@@ -37,10 +37,11 @@ function genOrderId(): string {
 
 // ── Order Form ─────────────────────────────────────────────────────────────────
 const emptyOrder: Omit<Order, 'id'> = {
-  orderId: '', clientName: '', productType: 'BOPP',
+  orderId: '', brandName: '', productType: 'BOPP',
   makingType: 'Bag',
-  length: 0, width: 0, gsm: 0, sizeDisplay: '',
-  bagType: '', boppFilmSize: '',
+  length: 0, width: 0, grm: 0, sizeDisplay: '',
+  bagType: '', boppFilmSizes: [],
+  metalizeSize: '', linerSize: '', linerGrm: undefined,
   quantityKg: undefined, quantityNos: undefined, quantityUnit: 'Both',
   status: 'Pending', notes: '', createdAt: new Date().toISOString(),
 };
@@ -53,29 +54,38 @@ function OrderForm({ initial, onSave, onClose }: {
   const [f, setF] = useState({ ...initial, orderId: initial.orderId || genOrderId() });
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({
     ...p, [k]: v,
-    ...(k === 'length' || k === 'width' || k === 'gsm' ? {
-      sizeDisplay: `${k === 'length' ? v : p.length} × ${k === 'width' ? v : p.width} + ${k === 'gsm' ? v : p.gsm} gm`
+    ...(k === 'length' || k === 'width' || k === 'grm' ? {
+      sizeDisplay: `${k === 'length' ? v : p.length} × ${k === 'width' ? v : p.width} + ${k === 'grm' ? v : p.grm} gm`
     } : {})
   }));
 
-  // ── F4: auto-populate from this client's previous orders ──
+  // Multiple BOPP film sizes — repeatable rows, every one optional.
+  const boppSizes = f.boppFilmSizes ?? [];
+  const setBoppSize = (i: number, v: string) =>
+    setF((p) => ({ ...p, boppFilmSizes: (p.boppFilmSizes ?? []).map((s, j) => (j === i ? v : s)) }));
+  const addBoppSize = () => setF((p) => ({ ...p, boppFilmSizes: [...(p.boppFilmSizes ?? []), ''] }));
+  const removeBoppSize = (i: number) =>
+    setF((p) => ({ ...p, boppFilmSizes: (p.boppFilmSizes ?? []).filter((_, j) => j !== i) }));
+
+  // ── F4: auto-populate from this brand's previous orders ──
   const [loadedFrom, setLoadedFrom] = useState<{ orderId: string; date: string } | null>(null);
   const [showSuggest, setShowSuggest] = useState(false);
   const matches = useMemo(() => {
-    const q = f.clientName.trim().toLowerCase();
+    const q = f.brandName.trim().toLowerCase();
     if (q.length < 2 || loadedFrom) return [];
     return ordersDb.getAll()
-      .filter((o) => o.clientName.toLowerCase().includes(q))
+      .filter((o) => (o.brandName ?? '').toLowerCase().includes(q))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, 8);
-  }, [f.clientName, loadedFrom]);
+  }, [f.brandName, loadedFrom]);
 
   function applyOrder(o: Order) {
     setF((p) => ({
       ...p,
-      clientName: o.clientName, productType: o.productType, makingType: o.makingType,
-      bagType: o.bagType ?? '', boppFilmSize: o.boppFilmSize ?? '',
-      length: o.length, width: o.width, gsm: o.gsm, sizeDisplay: o.sizeDisplay,
+      brandName: o.brandName, productType: o.productType, makingType: o.makingType,
+      bagType: o.bagType ?? '', boppFilmSizes: [...(o.boppFilmSizes ?? [])],
+      metalizeSize: o.metalizeSize ?? '', linerSize: o.linerSize ?? '', linerGrm: o.linerGrm,
+      length: o.length, width: o.width, grm: o.grm, sizeDisplay: o.sizeDisplay,
       quantityKg: o.quantityKg, quantityNos: o.quantityNos, quantityUnit: o.quantityUnit,
       notes: o.notes ?? '',
       orderId: genOrderId(), status: 'Pending', createdAt: new Date().toISOString(),
@@ -90,10 +100,18 @@ function OrderForm({ initial, onSave, onClose }: {
   }
 
   function submit() {
-    if (!f.clientName.trim()) { toast.error('Client name required'); return; }
-    if (!f.length || !f.width) { toast.error('Length and width required'); return; }
+    // Brand Name is the only required field — every size/GRM/liner field is
+    // optional so an order can be raised before the specs are finalised.
+    if (!f.brandName.trim()) { toast.error('Brand name required'); return; }
     if (f.bagType?.trim()) addToList(BAG_TYPES_KEY, f.bagType.trim(), DEFAULT_BAG_TYPES); // remember for type-ahead
-    onSave({ ...f, bagType: f.bagType?.trim(), sizeDisplay: `${f.length} × ${f.width} + ${f.gsm} gm` });
+    onSave({
+      ...f,
+      bagType: f.bagType?.trim(),
+      boppFilmSizes: (f.boppFilmSizes ?? []).map((s) => s.trim()).filter(Boolean),
+      metalizeSize: f.metalizeSize?.trim() || undefined,
+      linerSize: f.linerSize?.trim() || undefined,
+      sizeDisplay: `${f.length} × ${f.width} + ${f.grm} gm`,
+    });
   }
 
   return (
@@ -132,12 +150,12 @@ function OrderForm({ initial, onSave, onClose }: {
       )}
 
       <div className="relative">
-        <label className="label">Client Name *</label>
-        <input className="input-field" value={f.clientName}
-          onChange={(e) => { set('clientName', e.target.value); setLoadedFrom(null); setShowSuggest(true); }}
+        <label className="label">Brand Name *</label>
+        <input className="input-field" value={f.brandName}
+          onChange={(e) => { set('brandName', e.target.value); setLoadedFrom(null); setShowSuggest(true); }}
           onFocus={() => setShowSuggest(true)}
           onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-          placeholder="Type a client to reuse a previous order…" autoFocus />
+          placeholder="Type a brand to reuse a previous order…" autoFocus />
         {showSuggest && matches.length > 0 && (
           <div className="absolute z-20 left-0 right-0 mt-1 glass-card border border-accent/30 max-h-56 overflow-y-auto shadow-2xl">
             <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted border-b border-white/5">Previous orders — click to reuse</p>
@@ -145,7 +163,7 @@ function OrderForm({ initial, onSave, onClose }: {
               <button key={o.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyOrder(o)}
                 className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-0">
                 <div className="flex justify-between gap-2">
-                  <span className="text-white/90 text-sm font-medium">{o.clientName}</span>
+                  <span className="text-white/90 text-sm font-medium">{o.brandName}</span>
                   <span className="text-muted text-[10px] font-mono">{format(parseISO(o.createdAt), 'dd MMM yy')}</span>
                 </div>
                 <p className="text-muted text-xs font-mono">{o.orderId} · {o.productType} · {o.sizeDisplay}{o.quantityKg ? ` · ${o.quantityKg}kg` : ''}{o.quantityNos ? ` · ${o.quantityNos} nos` : ''}</p>
@@ -161,24 +179,55 @@ function OrderForm({ initial, onSave, onClose }: {
         )}
       </div>
 
-      {/* Bag Type (type-ahead) + BOPP film size (mm) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="label">Bag Type</label>
-          <input className="input-field" list="order-bag-types" value={f.bagType ?? ''} onChange={(e) => set('bagType', e.target.value)} placeholder="handle / laminated / non-laminated" />
-          <datalist id="order-bag-types">{getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES).map((t) => <option key={t} value={t} />)}</datalist>
+      {/* Bag Type (type-ahead) */}
+      <div>
+        <label className="label">Bag Type</label>
+        <input className="input-field" list="order-bag-types" value={f.bagType ?? ''} onChange={(e) => set('bagType', e.target.value)} placeholder="handle / laminated / non-laminated" />
+        <datalist id="order-bag-types">{getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES).map((t) => <option key={t} value={t} />)}</datalist>
+      </div>
+
+      {/* BOPP film sizes — one or more, all optional */}
+      <div>
+        <label className="label">BOPP Film Size (mm)</label>
+        <div className="space-y-2">
+          {boppSizes.map((s, i) => (
+            <div key={i} className="flex gap-2">
+              <input className="input-field font-mono flex-1" value={s}
+                onChange={(e) => setBoppSize(i, e.target.value)} placeholder="e.g. 520" />
+              <button type="button" onClick={() => removeBoppSize(i)}
+                className="p-2 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors" title="Remove this size">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={addBoppSize} className="btn-secondary text-xs">
+            <Plus className="w-3.5 h-3.5" /> {boppSizes.length ? 'Add another size' : 'Add BOPP film size'}
+          </button>
         </div>
-        {f.productType === 'BOPP' && (
-          <div>
-            <label className="label">BOPP Film Size (mm)</label>
-            <input className="input-field font-mono" value={f.boppFilmSize ?? ''} onChange={(e) => set('boppFilmSize', e.target.value)} placeholder="e.g. 520" />
-          </div>
-        )}
+      </div>
+
+      {/* Metalize + Liner — all optional */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="label">Metalize Size (mm)</label>
+          <input className="input-field font-mono" value={f.metalizeSize ?? ''}
+            onChange={(e) => set('metalizeSize', e.target.value)} placeholder="e.g. 480" />
+        </div>
+        <div>
+          <label className="label">Liner Size (mm)</label>
+          <input className="input-field font-mono" value={f.linerSize ?? ''}
+            onChange={(e) => set('linerSize', e.target.value)} placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label className="label">Liner GRM</label>
+          <input className="input-field font-mono" type="number" min="0" step="0.01" value={f.linerGrm ?? ''}
+            onChange={(e) => set('linerGrm', parseFloat(e.target.value) || undefined)} placeholder="e.g. 1.2" />
+        </div>
       </div>
 
       {/* Size inputs */}
       <div>
-        <label className="label">Size (Length × Width + GSM)</label>
+        <label className="label">Size (Length × Width + GRM)</label>
         <div className="grid grid-cols-3 gap-2">
           <div>
             <input className="input-field font-mono" type="number" min="0" step="0.01"
@@ -194,14 +243,14 @@ function OrderForm({ initial, onSave, onClose }: {
           </div>
           <div>
             <input className="input-field font-mono" type="number" min="0" step="0.01"
-              value={f.gsm || ''} onChange={(e) => set('gsm', parseFloat(e.target.value) || 0)}
+              value={f.grm || ''} onChange={(e) => set('grm', parseFloat(e.target.value) || 0)}
               placeholder="0.96" />
-            <p className="text-muted text-[10px] mt-0.5 ml-1">GSM</p>
+            <p className="text-muted text-[10px] mt-0.5 ml-1">GRM</p>
           </div>
         </div>
         {f.length > 0 && f.width > 0 && (
           <p className="text-accent text-xs font-mono mt-1.5 bg-accent/10 px-3 py-1 rounded-lg inline-block">
-            Preview: {f.length} × {f.width} + {f.gsm} gm
+            Preview: {f.length} × {f.width} + {f.grm} gm
           </p>
         )}
       </div>
@@ -325,7 +374,7 @@ export function OrdersPage() {
   }, [orders]);
 
   const filtered = useMemo(() => orders.filter((o) => {
-    const ms = !search || o.clientName.toLowerCase().includes(search.toLowerCase()) || o.orderId.toLowerCase().includes(search.toLowerCase());
+    const ms = !search || (o.brandName ?? '').toLowerCase().includes(search.toLowerCase()) || o.orderId.toLowerCase().includes(search.toLowerCase());
     const mt = !typeFilter || o.productType === typeFilter;
     const mst = !statusFilter || o.status === statusFilter;
     const mm = !selectedMonth || o.createdAt.startsWith(selectedMonth);
@@ -378,7 +427,7 @@ export function OrdersPage() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
           <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search client or order ID…" className="input-field pl-9 w-52" />
+            placeholder="Search brand or order ID…" className="input-field pl-9 w-52" />
         </div>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-field w-36">
           <option value="">All Types</option>
@@ -426,7 +475,7 @@ export function OrdersPage() {
                 <thead>
                   <tr className="border-b border-white/5">
                     <th className="table-header">Order ID</th>
-                    <th className="table-header">Client</th>
+                    <th className="table-header">Brand</th>
                     <th className="table-header">Type</th>
                     <th className="table-header">Size</th>
                     <th className="table-header">KG</th>
@@ -441,7 +490,7 @@ export function OrdersPage() {
                   {monthOrders.map((o) => (
                     <tr key={o.id} className="table-row">
                       <td className="table-cell font-mono text-accent text-xs">{o.orderId}</td>
-                      <td className="table-cell font-medium">{o.clientName}</td>
+                      <td className="table-cell font-medium">{o.brandName}</td>
                       <td className="table-cell">
                         <span className="badge text-xs" style={{ background: TYPE_COLORS[o.productType] + '22', color: TYPE_COLORS[o.productType], border: `1px solid ${TYPE_COLORS[o.productType]}44` }}>
                           {o.productType}

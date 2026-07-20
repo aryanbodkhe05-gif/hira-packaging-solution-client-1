@@ -14,7 +14,7 @@ import { StatCard } from '../components/ui/StatCard';
 import { format, parseISO } from 'date-fns';
 
 const PRODUCT_COLORS: Record<string, string> = {
-  BOPP: '#3131B5', Milky: '#5E5EE8', Natural: '#12B76A', Laminated: '#f59e0b',
+  BOPP: '#3131B5', Laminated: '#f59e0b', Flexo: '#5E5EE8', Plain: '#12B76A',
 };
 
 function ChartTip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) {
@@ -252,7 +252,7 @@ export function DashboardPage() {
               {orders.slice(0, 8).map((o) => (
                 <tr key={o.id} className="table-row">
                   <td className="table-cell font-mono text-accent text-xs">{o.orderId}</td>
-                  <td className="table-cell font-medium">{o.clientName}</td>
+                  <td className="table-cell font-medium">{o.brandName}</td>
                   <td className="table-cell">
                     <span className="badge" style={{ background: PRODUCT_COLORS[o.productType] + '22', color: PRODUCT_COLORS[o.productType], border: `1px solid ${PRODUCT_COLORS[o.productType]}44` }}>
                       {o.productType}

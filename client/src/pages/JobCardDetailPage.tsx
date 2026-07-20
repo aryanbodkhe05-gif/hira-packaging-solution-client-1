@@ -437,7 +437,11 @@ export function JobCardDetailPage() {
                 <Field label="Bag Type">
                   <input className="input-field" list="jc-bag-types" value={h.bagType ?? ''} onChange={(e) => patchHeader({ bagType: e.target.value })} placeholder="handle / laminated" />
                 </Field>
-                <Field label="BOPP Film Size (mm)"><Txt value={h.boppFilmSize} onChange={(v) => patchHeader({ boppFilmSize: v })} placeholder="e.g. 520" /></Field>
+                <Field label="BOPP Film Size (mm)">
+                  <Txt value={(h.boppFilmSizes ?? []).join(', ')}
+                    onChange={(v) => patchHeader({ boppFilmSizes: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+                    placeholder="e.g. 520, 480" />
+                </Field>
               </>)}
               <datalist id="jc-bag-types">{bagTypeOptions.map((t) => <option key={t} value={t} />)}</datalist>
               <Field label="Status">
@@ -539,7 +543,7 @@ export function JobCardDetailPage() {
                   <option value="">—</option>{FABRIC_TYPES.map((t) => <option key={t}>{t}</option>)}
                 </select>
               </Field>
-              <Field label="GSM"><Num value={card.lamination.gsm} onChange={(v) => patchStage('lamination', { gsm: v })} /></Field>
+              <Field label="GRM"><Num value={card.lamination.grm} onChange={(v) => patchStage('lamination', { grm: v })} /></Field>
               <Field label="Avg"><Num value={card.lamination.avg} onChange={(v) => patchStage('lamination', { avg: v })} /></Field>
               <Field label="Coating"><Txt value={card.lamination.coating} onChange={(v) => patchStage('lamination', { coating: v })} /></Field>
               <Field label="Coating side">

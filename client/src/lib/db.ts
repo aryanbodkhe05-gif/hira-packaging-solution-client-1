@@ -147,6 +147,50 @@ export function migrateRenamesOnce(): void {
   } catch { /* ignore */ }
 }
 
+// One-time field rename for Part A: Order.clientName → brandName, Order.gsm → grm,
+// Order.boppFilmSize (single) → boppFilmSizes (array), and the same on job-card
+// headers + LaminationStage.gsm → grm. Also remaps order product types that were
+// dropped from the list (Milky/Natural remain valid roll types, not order types).
+export function migrateOrderFieldsOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}order_fields_v2`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+
+    const orders = getAll<Record<string, unknown>>('orders');
+    if (orders.length) {
+      for (const o of orders) {
+        if (o.brandName === undefined && typeof o.clientName === 'string') o.brandName = o.clientName;
+        delete o.clientName;
+        if (o.grm === undefined && typeof o.gsm === 'number') o.grm = o.gsm;
+        delete o.gsm;
+        if (!Array.isArray(o.boppFilmSizes)) {
+          o.boppFilmSizes = typeof o.boppFilmSize === 'string' && o.boppFilmSize ? [o.boppFilmSize] : [];
+        }
+        delete o.boppFilmSize;
+        // Milky/Natural are no longer order product types — nearest surviving type.
+        if (o.productType === 'Milky' || o.productType === 'Natural') o.productType = 'Plain';
+      }
+      setAll('orders', orders);
+    }
+
+    const cards = getAll<Record<string, unknown>>('job_cards');
+    if (cards.length) {
+      for (const c of cards) {
+        const h = c.header as Record<string, unknown> | undefined;
+        if (h && !Array.isArray(h.boppFilmSizes)) {
+          h.boppFilmSizes = typeof h.boppFilmSize === 'string' && h.boppFilmSize ? [h.boppFilmSize] : [];
+          delete h.boppFilmSize;
+        }
+        const lam = c.lamination as Record<string, unknown> | undefined;
+        if (lam && lam.grm === undefined && typeof lam.gsm === 'number') { lam.grm = lam.gsm; delete lam.gsm; }
+      }
+      setAll('job_cards', cards);
+    }
+
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
 function getAll<T>(table: string): T[] {
   try {
     const raw = localStorage.getItem(getKey(table));

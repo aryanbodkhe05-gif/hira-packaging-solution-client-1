@@ -183,7 +183,7 @@ export interface LaminationRow { boppInKg?: number; fabricInKg?: number; meter?:
 export interface LaminationStage extends StageBase {
   fabricSize?: string;
   fabricType?: FabricType;
-  gsm?: number;
+  grm?: number;
   coating?: string;
   coatingSide?: CoatingSide;
   avg?: number;
@@ -224,7 +224,10 @@ export interface JobCardHeader {
   finish: Finish;
   date: string;
   bagType?: string;         // reusable type-ahead (handle/laminated/…)
-  boppFilmSize?: string;    // BOPP film size in mm
+  boppFilmSizes?: string[]; // BOPP film sizes in mm, carried from the order
+  metalizeSize?: string;    // mm, carried from the order
+  linerSize?: string;       // mm, carried from the order
+  linerGrm?: number;        // carried from the order
   qtyUnit?: 'Nos' | 'Kg';   // Other card — Nos/Kg indicator
   printed?: boolean;        // Other card — Plain (false) / Printed (true)
 }
@@ -461,18 +464,21 @@ export interface AppAlert {
 export interface Order {
   id: string;
   orderId: string;          // NF-YYYYMMDD-XXXX
-  clientName: string;
+  brandName: string;
   productType: ProductType;
   length: number;
   width: number;
-  gsm: number;
+  grm: number;
   sizeDisplay: string;      // "25 × 30 + 0.96 gm"
   quantityKg?: number;
   quantityNos?: number;
   quantityUnit: 'KG' | 'Nos' | 'Both';
   status: OrderStatus;
   bagType?: string;                    // reusable type-ahead (handle/laminated/…)
-  boppFilmSize?: string;               // BOPP film size in mm (coexists with bag/roll size)
+  boppFilmSizes?: string[];            // one or more BOPP film sizes in mm — all optional
+  metalizeSize?: string;               // mm, optional
+  linerSize?: string;                  // mm, optional
+  linerGrm?: number;                   // optional
   // Production routing (Sales → Production). Making Type applies only to BOPP.
   makingType?: MakingType;             // when BOPP: 'Roll' | 'Bag'
   jobCardId?: string;                  // linked Job Card once sent to production
