@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Save, Building2, MessageCircle, Plus, Trash2 } from 'lucide-react';
+import { Save, Building2, MessageCircle, Plus, Trash2, Percent } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getSettings, saveSettings } from '../lib/db';
 import { getBranding, saveBranding } from '../lib/branding';
+import { INK_PCT_KEY, THREAD_PCT_KEY, DEFAULT_INK_PCT, DEFAULT_THREAD_PCT } from '../config';
 
 // ── WhatsApp contacts (multiple numbers, each tagged with a role) ───────────────
 const WA_ROLES = ['Owner', 'Manager', 'Staff'] as const;
@@ -29,6 +30,8 @@ export function SettingsPage() {
   const [s] = useState(() => ({ ...getSettings() }));
   const [b, setB] = useState(() => getBranding());
   const [contacts, setContacts] = useState<WaContact[]>(() => loadContacts(getSettings()));
+  const [inkPct, setInkPct] = useState(() => getSettings()[INK_PCT_KEY] ?? String(DEFAULT_INK_PCT));
+  const [threadPct, setThreadPct] = useState(() => getSettings()[THREAD_PCT_KEY] ?? String(DEFAULT_THREAD_PCT));
   const [saved, setSaved] = useState(false);
 
   const setContact = (id: string, patch: Partial<WaContact>) =>
@@ -43,7 +46,12 @@ export function SettingsPage() {
     const kept = cleaned.filter((c) => c.number); // drop empty rows
     setContacts(kept.length ? kept : cleaned);
 
-    saveSettings({ ...s, [WA_KEY]: JSON.stringify(kept) });
+    saveSettings({
+      ...s,
+      [WA_KEY]: JSON.stringify(kept),
+      [INK_PCT_KEY]: inkPct.trim() || String(DEFAULT_INK_PCT),
+      [THREAD_PCT_KEY]: threadPct.trim() || String(DEFAULT_THREAD_PCT),
+    });
     saveBranding(b);
     setSaved(true);
     toast.success('Settings saved');
@@ -81,6 +89,28 @@ export function SettingsPage() {
           <div>
             <label className="label">Logo URL (optional)</label>
             <input className="input-field" value={b.companyLogo} onChange={(e) => setB((p) => ({ ...p, companyLogo: e.target.value }))} placeholder="https://… or data:image/…" />
+          </div>
+        </div>
+      </div>
+
+      {/* Auto-calculated consumption percentages */}
+      <div className="glass-card p-5 space-y-4">
+        <p className="section-title flex items-center gap-2"><Percent className="w-4 h-4 text-accent" /> Auto-calculated Consumption</p>
+        <p className="text-muted text-xs">
+          Default percentages used to auto-fill consumption on job cards. Each job card can override its own value.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Ink — % of BOPP input (kg)</label>
+            <input className="input-field font-mono" type="number" min="0" step="any"
+              value={inkPct} onChange={(e) => setInkPct(e.target.value)} placeholder={String(DEFAULT_INK_PCT)} />
+            <p className="text-muted text-[11px] mt-1">Printing stage. Default {DEFAULT_INK_PCT}%.</p>
+          </div>
+          <div>
+            <label className="label">Thread — % of cutting input (kg)</label>
+            <input className="input-field font-mono" type="number" min="0" step="any"
+              value={threadPct} onChange={(e) => setThreadPct(e.target.value)} placeholder={String(DEFAULT_THREAD_PCT)} />
+            <p className="text-muted text-[11px] mt-1">BCS cutting. Default {DEFAULT_THREAD_PCT}%.</p>
           </div>
         </div>
       </div>
