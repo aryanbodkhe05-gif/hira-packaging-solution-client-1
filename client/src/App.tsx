@@ -28,13 +28,17 @@ import { DispatchPage }     from './pages/DispatchPage';
 import { VendorsPage }      from './pages/VendorsPage';
 import { AlertEnginePage }  from './pages/AlertEnginePage';
 import { SettingsPage }     from './pages/SettingsPage';
-import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings } from './lib/roles';
+import {
+  canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings,
+  canAccessJobCards, canAccessLoom, canAccessPPUnit, canAccessGeneral, staffHome,
+} from './lib/roles';
 import type { UserRole } from './types';
 
-// Client-side route guard. This is convenience UX layered on top of backend
-// RBAC — the server independently returns 403 for protected APIs.
-function Guard({ allow, children }: { allow: boolean; children: ReactElement }) {
-  return allow ? children : <Navigate to="/" replace />;
+// Client-side route guard. NOTE: this app has no authenticated backend (the
+// server is a generic JSON key-value store), so this is the ONLY enforcement
+// layer. Blocked routes send the user to their allowed home.
+function Guard({ allow, home, children }: { allow: boolean; home: string; children: ReactElement }) {
+  return allow ? children : <Navigate to={home} replace />;
 }
 
 function AppRoutes() {
@@ -52,52 +56,54 @@ function AppRoutes() {
   if (!user) return <LoginPage />;
 
   const role: UserRole = user.role;
+  // Process-scoped Staff land on (and are bounced back to) their allowed area.
+  const home = staffHome(role) ?? '/';
 
   return (
     <Routes>
       <Route path="/" element={<AppLayout />}>
-        {/* Everyone */}
-        <Route index             element={<DashboardPage />} />
-        <Route path="alerts"     element={<AlertEnginePage />} />
-        {/* Production — everyone */}
-        <Route path="job-card"        element={<JobCardListPage cardType="BOPP" />} />
-        <Route path="job-card/:id"    element={<JobCardDetailPage />} />
-        <Route path="other"           element={<JobCardListPage cardType="Other" />} />
-        <Route path="materials"       element={<MaterialsPage />} />
-        {/* Inventory — everyone */}
-        <Route path="inventory/rolls"          element={<InventoryRollsPage />} />
-        <Route path="inventory/raw-materials"  element={<RawMaterialsPage />} />
-        <Route path="inventory/bopp-film"      element={<BoppFilmPage />} />
-        <Route path="inventory/finished-rolls" element={<FinishedRollsPage />} />
+        {/* Dashboard/Alerts — hidden from process-scoped Staff */}
+        <Route index         element={home !== '/' ? <Navigate to={home} replace /> : <DashboardPage />} />
+        <Route path="alerts" element={<Guard allow={canAccessGeneral(role)} home={home}><AlertEnginePage /></Guard>} />
+        {/* Production — Staff scoped to a job-card process */}
+        <Route path="job-card"        element={<Guard allow={canAccessJobCards(role)} home={home}><JobCardListPage cardType="BOPP" /></Guard>} />
+        <Route path="job-card/:id"    element={<Guard allow={canAccessJobCards(role)} home={home}><JobCardDetailPage /></Guard>} />
+        <Route path="other"           element={<Guard allow={canAccessJobCards(role)} home={home}><JobCardListPage cardType="Other" /></Guard>} />
+        <Route path="materials"       element={<Guard allow={canAccessGeneral(role)} home={home}><MaterialsPage /></Guard>} />
+        {/* Inventory — hidden from process-scoped Staff */}
+        <Route path="inventory/rolls"          element={<Guard allow={canAccessGeneral(role)} home={home}><InventoryRollsPage /></Guard>} />
+        <Route path="inventory/raw-materials"  element={<Guard allow={canAccessGeneral(role)} home={home}><RawMaterialsPage /></Guard>} />
+        <Route path="inventory/bopp-film"      element={<Guard allow={canAccessGeneral(role)} home={home}><BoppFilmPage /></Guard>} />
+        <Route path="inventory/finished-rolls" element={<Guard allow={canAccessGeneral(role)} home={home}><FinishedRollsPage /></Guard>} />
 
         {/* Loom / P.P. Unit — a separate company, independent of the BOPP flow */}
         <Route path="loom-unit"            element={<Navigate to="/loom-unit/loom" replace />} />
-        <Route path="loom-unit/loom"       element={<LoomUnitLayout><LoomProductionPage /></LoomUnitLayout>} />
-        <Route path="loom-unit/pp-fabric"  element={<LoomUnitLayout><PPFabricPage /></LoomUnitLayout>} />
-        <Route path="loom-unit/pp-granule" element={<LoomUnitLayout><PPGranuleStockPage /></LoomUnitLayout>} />
+        <Route path="loom-unit/loom"       element={<Guard allow={canAccessLoom(role)} home={home}><LoomUnitLayout><LoomProductionPage /></LoomUnitLayout></Guard>} />
+        <Route path="loom-unit/pp-fabric"  element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPFabricPage /></LoomUnitLayout></Guard>} />
+        <Route path="loom-unit/pp-granule" element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPGranuleStockPage /></LoomUnitLayout></Guard>} />
         {/* Old paths kept as redirects so existing links/bookmarks still work */}
         <Route path="loom"                 element={<Navigate to="/loom-unit/loom" replace />} />
         <Route path="pp-fabric"            element={<Navigate to="/loom-unit/pp-fabric" replace />} />
         <Route path="inventory/pp-granule" element={<Navigate to="/loom-unit/pp-granule" replace />} />
 
         {/* Sales — not Staff */}
-        <Route path="orders"        element={<Guard allow={canAccessSales(role)}><OrdersPage /></Guard>} />
-        <Route path="dispatch"      element={<Guard allow={canAccessSales(role)}><DispatchPage /></Guard>} />
-        <Route path="dispatch/bags"  element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Bag" /></Guard>} />
-        <Route path="dispatch/rolls" element={<Guard allow={canAccessSales(role)}><DispatchRegisterPage type="Roll" /></Guard>} />
-        <Route path="vendors"       element={<Guard allow={canAccessSales(role)}><VendorsPage /></Guard>} />
+        <Route path="orders"        element={<Guard allow={canAccessSales(role)} home={home}><OrdersPage /></Guard>} />
+        <Route path="dispatch"      element={<Guard allow={canAccessSales(role)} home={home}><DispatchPage /></Guard>} />
+        <Route path="dispatch/bags"  element={<Guard allow={canAccessSales(role)} home={home}><DispatchRegisterPage type="Bag" /></Guard>} />
+        <Route path="dispatch/rolls" element={<Guard allow={canAccessSales(role)} home={home}><DispatchRegisterPage type="Roll" /></Guard>} />
+        <Route path="vendors"       element={<Guard allow={canAccessSales(role)} home={home}><VendorsPage /></Guard>} />
 
         {/* Supplier — not Staff */}
-        <Route path="suppliers"     element={<Guard allow={canAccessSupplier(role)}><SuppliersPage /></Guard>} />
-        <Route path="grn"           element={<Guard allow={canAccessSupplier(role)}><GrnPage /></Guard>} />
+        <Route path="suppliers"     element={<Guard allow={canAccessSupplier(role)} home={home}><SuppliersPage /></Guard>} />
+        <Route path="grn"           element={<Guard allow={canAccessSupplier(role)} home={home}><GrnPage /></Guard>} />
 
         {/* Master */}
-        <Route path="rate-master"   element={<Guard allow={canEditRates(role)}><RateMasterPage /></Guard>} />
-        <Route path="machines"      element={<Guard allow={canEditRates(role)}><MachinesPage /></Guard>} />
-        <Route path="users"         element={<Guard allow={canManageUsers(role)}><UsersPage /></Guard>} />
-        <Route path="settings"      element={<Guard allow={canAccessSettings(role)}><SettingsPage /></Guard>} />
+        <Route path="rate-master"   element={<Guard allow={canEditRates(role)} home={home}><RateMasterPage /></Guard>} />
+        <Route path="machines"      element={<Guard allow={canEditRates(role)} home={home}><MachinesPage /></Guard>} />
+        <Route path="users"         element={<Guard allow={canManageUsers(role)} home={home}><UsersPage /></Guard>} />
+        <Route path="settings"      element={<Guard allow={canAccessSettings(role)} home={home}><SettingsPage /></Guard>} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );
 }

@@ -36,13 +36,21 @@ export function seedSampleData(): void {
   }
 
   if (boppFilmsDb.getAll().length === 0) {
-    boppFilmsDb.create({ filmNo: 'F-001', kg: 240, meter: 6000, finish: 'Glossy', micron: 20, rate: 165, dateAdded: today() });
-    boppFilmsDb.create({ filmNo: 'F-002', kg: 180, meter: 4500, finish: 'Matte', micron: 18, rate: 172, dateAdded: today() });
+    // BOPP films inward like rolls — grouped by size, each film its own rate.
+    // F-520-3 is left unpriced to show the "rate not set" flag on consumption.
+    const film = (filmNo: string, size: string, finish: 'Glossy' | 'Matte' | 'Metalized', nWt: number, meter: number, rate: number | null) =>
+      boppFilmsDb.create({ filmNo, size, finish, gWt: nWt + 3, nWt, kg: nWt, meter, rate, dateAdded: today() });
+    film('F-520-1', '520mm', 'Glossy', 240, 6000, 165);
+    film('F-520-2', '520mm', 'Glossy', 220, 5600, 168);
+    film('F-520-3', '520mm', 'Matte',  180, 4500, null);
+    film('F-480-1', '480mm', 'Matte',  200, 5200, 172);
+    film('F-480-2', '480mm', 'Metalized', 160, 4000, 188);
+    film('F-620-1', '620mm', 'Glossy', 300, 7400, 162);
   }
 
   // Raw materials, each stocked as batches. Gravure ink deliberately has TWO
-  // batches at different rates so FIFO costing is visible: consumption is priced
-  // at ₹300/kg until the first 200 kg runs out, then at ₹320/kg.
+  // batches at different rates so the FIFO split is visible: a 300 kg draw is
+  // priced 100 kg @ ₹120 + 200 kg @ ₹140 = ₹40,000 (matches the spec example).
   if (rawMaterialsDb.getAll().length === 0) {
     const mat = (name: string, unit: string, batches: { qty: number; rate: number | null; date: string; note?: string }[]) => {
       const m = rawMaterialsDb.create({ name, unit, quantity: 0, dateAdded: daysAgo(30) });
@@ -51,8 +59,8 @@ export function seedSampleData(): void {
       }
     };
     mat('Gravure ink', 'kg', [
-      { qty: 200, rate: 300, date: daysAgo(20), note: 'Older batch — consumed first' },
-      { qty: 250, rate: 320, date: daysAgo(4),  note: 'Newer batch — higher rate' },
+      { qty: 100, rate: 120, date: daysAgo(20), note: 'Older batch — consumed first' },
+      { qty: 200, rate: 140, date: daysAgo(4),  note: 'Newer batch — used after the first empties' },
     ]);
     mat('Ethyl acetate', 'kg', [
       { qty: 300, rate: 95,  date: daysAgo(18) },

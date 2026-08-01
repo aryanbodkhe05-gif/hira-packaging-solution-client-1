@@ -5,7 +5,11 @@ import * as auth from '../lib/auth';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { formatDate, cn } from '../lib/utils';
+import { ListSelect } from '../components/ui/ListSelect';
+import { DEFAULT_PROCESSES, PROCESSES_KEY } from '../config';
 import type { AuthUser, UserRole } from '../types';
+
+const procWord = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 // Developer is intentionally absent — it is never creatable from the UI.
 const CREATABLE_ROLES: UserRole[] = ['OWNER', 'MANAGER', 'STAFF'];
@@ -25,20 +29,23 @@ function UserForm({ initial, onSaved, onClose }: {
   const editing = !!initial;
   const [name, setName] = useState(initial?.name ?? '');
   const [role, setRole] = useState<UserRole>(initial?.role ?? 'STAFF');
+  const [process, setProcess] = useState(initial?.process ?? DEFAULT_PROCESSES[0]);
   const [active, setActive] = useState(initial?.active ?? true);
   const [useCustomPw, setUseCustomPw] = useState(false);
   const [password, setPassword] = useState('');
 
   function submit() {
     if (!name.trim()) { toast.error('Name is required'); return; }
+    if (role === 'STAFF' && !process.trim()) { toast.error('Pick a process for Staff'); return; }
     if (useCustomPw && password.trim().length < 6) { toast.error('Password must be at least 6 characters'); return; }
     try {
+      const proc = role === 'STAFF' ? process : undefined;
       if (editing) {
-        const res = auth.updateUser(initial!.id, { name: name.trim(), role, active, password: useCustomPw ? password : undefined });
+        const res = auth.updateUser(initial!.id, { name: name.trim(), role, process: proc, active, password: useCustomPw ? password : undefined });
         toast.success('User updated');
         onSaved(res.credentials);
       } else {
-        const res = auth.createUser(name.trim(), role, useCustomPw ? password : undefined);
+        const res = auth.createUser(name.trim(), role, useCustomPw ? password : undefined, proc);
         toast.success('User created');
         onSaved(res.credentials);
       }
@@ -58,6 +65,14 @@ function UserForm({ initial, onSaved, onClose }: {
         </div>
       </div>
 
+      {role === 'STAFF' && (
+        <div>
+          <label className="label">Process (Staff sees only this) *</label>
+          <ListSelect value={process} onChange={setProcess} listKey={PROCESSES_KEY} defaults={DEFAULT_PROCESSES} placeholder="Select process…" />
+          <p className="text-muted text-[11px] mt-1">This Staff login sees only <span className="text-white/70">{process || '…'}</span> — that stage across every job card, or only the Loom / P.P. Unit pages.</p>
+        </div>
+      )}
+
       {editing && (
         <label className="flex items-center gap-2 text-sm text-white/80">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
@@ -73,7 +88,7 @@ function UserForm({ initial, onSaved, onClose }: {
         {useCustomPw ? (
           <input className="input-field font-mono" type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min 6 characters" />
         ) : !editing ? (
-          <p className="text-muted text-xs">Auto-generated: username (from name) + role, e.g. <span className="font-mono text-white/70">amitsharma{role.toLowerCase()}</span>. Shown once after creation.</p>
+          <p className="text-muted text-xs">Auto-generated: username (from name) + {role === 'STAFF' ? 'process' : 'role'}, e.g. <span className="font-mono text-white/70">amitsharma{role === 'STAFF' ? procWord(process || 'process') : role.toLowerCase()}</span>. Shown once after creation.</p>
         ) : (
           <p className="text-muted text-xs">Leave unchecked to keep the current password.</p>
         )}
@@ -141,16 +156,17 @@ export function UsersPage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
-              {['Name', 'Username', 'Role', 'Status', 'Created', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Name', 'Username', 'Role', 'Process', 'Status', 'Created', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {users.length === 0 ? (
-                <tr><td colSpan={6}><EmptyState icon={UserCog} title="No users yet" description="Add Owner, Manager or Staff logins." action={{ label: 'Add First User', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
+                <tr><td colSpan={7}><EmptyState icon={UserCog} title="No users yet" description="Add Owner, Manager or Staff logins." action={{ label: 'Add First User', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
               ) : users.map((u) => (
                 <tr key={u.id} className="table-row">
                   <td className="table-cell text-white/90 font-medium">{u.name}</td>
                   <td className="table-cell font-mono text-white/70 text-sm">{u.username}</td>
                   <td className="table-cell"><span className={cn('badge border text-xs', ROLE_COLORS[u.role])}>{u.role}</span></td>
+                  <td className="table-cell text-white/70 text-xs">{u.role === 'STAFF' ? (u.process ?? <span className="text-yellow-300">unassigned</span>) : '—'}</td>
                   <td className="table-cell">
                     {u.active
                       ? <span className="text-green-300 text-xs flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5" /> Active</span>

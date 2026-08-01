@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import * as auth from '../lib/auth';
-import { setCurrentRole } from '../lib/roles';
+import { setCurrentRole, setCurrentProcess } from '../lib/roles';
 import type { AuthUser } from '../types';
 
 interface AuthContextValue {
@@ -22,12 +22,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
     const u = auth.currentUser();
     setCurrentRole(u?.role ?? null);
+    setCurrentProcess(u?.process ?? null);
     return u;
   });
 
   const apply = useCallback((u: AuthUser | null) => {
     setUser(u);
     setCurrentRole(u?.role ?? null);
+    setCurrentProcess(u?.process ?? null);
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {

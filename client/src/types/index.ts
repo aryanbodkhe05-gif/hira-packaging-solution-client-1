@@ -6,6 +6,7 @@ export interface AuthUser {
   name: string;
   username: string;
   role: UserRole;
+  process?: string;   // Staff only — the one process/stage they are scoped to
   active?: boolean;
   createdAt?: string;
 }

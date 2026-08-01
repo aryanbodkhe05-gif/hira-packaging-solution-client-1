@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
-import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings } from '../../lib/roles';
+import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings, canAccessJobCards, canAccessLoom, canAccessPPUnit, canAccessGeneral } from '../../lib/roles';
 import { useAuth } from '../../context/AuthContext';
 import { useBranding } from '../../lib/branding';
 import type { UserRole } from '../../types';
@@ -21,8 +21,8 @@ interface NavSection { section: string; icon: LucideIcon; items: NavItem[] }
 // gated by the same role helpers the backend enforces.
 const NAV: NavSection[] = [
   { section: 'Dashboard', icon: LayoutDashboard, items: [
-    { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
-    { label: 'Alerts',    icon: Bell,            to: '/alerts' },
+    { label: 'Dashboard', icon: LayoutDashboard, to: '/',       access: canAccessGeneral },
+    { label: 'Alerts',    icon: Bell,            to: '/alerts', access: canAccessGeneral },
   ]},
   { section: 'Sales', icon: ShoppingCart, items: [
     { label: 'Orders',           icon: ShoppingCart, to: '/orders',         access: canAccessSales },
@@ -30,20 +30,20 @@ const NAV: NavSection[] = [
     { label: 'Dispatch – Rolls', icon: Truck,        to: '/dispatch/rolls', access: canAccessSales },
   ]},
   { section: 'Production', icon: Factory, items: [
-    { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card' },
-    { label: 'Other Job Card', icon: ClipboardList, to: '/other' },
+    { label: 'BOPP Job Card', icon: ClipboardList, to: '/job-card', access: canAccessJobCards },
+    { label: 'Other Job Card', icon: ClipboardList, to: '/other',   access: canAccessJobCards },
   ]},
   { section: 'Inventory', icon: Package, items: [
-    { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls' },
-    { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials' },
-    { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film' },
-    { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls' },
+    { label: 'Rolls',          icon: Boxes,   to: '/inventory/rolls',         access: canAccessGeneral },
+    { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials', access: canAccessGeneral },
+    { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film',     access: canAccessGeneral },
+    { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls', access: canAccessGeneral },
   ]},
   // Separate unit — a different company, not correlated with the BOPP/bag flow.
   { section: 'Loom / P.P. Unit', icon: Gauge, items: [
-    { label: 'Loom Log',          icon: Gauge,  to: '/loom-unit/loom' },
-    { label: 'P.P. Fabric',       icon: Layers, to: '/loom-unit/pp-fabric' },
-    { label: 'P.P. Granule Stock', icon: Boxes, to: '/loom-unit/pp-granule' },
+    { label: 'Loom Log',          icon: Gauge,  to: '/loom-unit/loom',       access: canAccessLoom },
+    { label: 'P.P. Fabric',       icon: Layers, to: '/loom-unit/pp-fabric',  access: canAccessPPUnit },
+    { label: 'P.P. Granule Stock', icon: Boxes, to: '/loom-unit/pp-granule', access: canAccessPPUnit },
   ]},
   { section: 'Supplier', icon: Building2, items: [
     { label: 'Suppliers',       icon: Building2,     to: '/suppliers', access: canAccessSupplier },

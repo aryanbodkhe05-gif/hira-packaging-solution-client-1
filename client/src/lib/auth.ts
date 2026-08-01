@@ -17,9 +17,17 @@ export interface StoredUser {
   name: string;
   username: string;
   role: UserRole;
+  process?: string;        // Staff only — the process/stage this login is scoped to
   passwordHash: string;
   active: boolean;
   createdAt: string;
+}
+
+// The "job word" used to build a login's default password: the process for Staff,
+// otherwise the role. e.g. STAFF Printing → "…printing"; OWNER → "…owner".
+function jobWord(role: UserRole, process?: string): string {
+  const w = role === 'STAFF' && process ? process : role;
+  return w.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function readUsers(): StoredUser[] {
@@ -34,7 +42,7 @@ function writeUsers(u: StoredUser[]): void {
 }
 function genId(): string { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function toAuthUser(u: StoredUser): AuthUser {
-  return { id: u.id, name: u.name, username: u.username, role: u.role, active: u.active, createdAt: u.createdAt };
+  return { id: u.id, name: u.name, username: u.username, role: u.role, process: u.process, active: u.active, createdAt: u.createdAt };
 }
 
 // Seed the hidden developer + a few demo logins on first load (idempotent).
@@ -42,15 +50,18 @@ function toAuthUser(u: StoredUser): AuthUser {
 // Users & Roles for any real use.
 function ensureSeed(): void {
   if (readUsers().length > 0) return;
-  const mk = (name: string, username: string, role: UserRole, password: string): StoredUser => ({
-    id: genId(), name, username, role, passwordHash: bcrypt.hashSync(password, ROUNDS),
+  const mk = (name: string, username: string, role: UserRole, password: string, process?: string): StoredUser => ({
+    id: genId(), name, username, role, process, passwordHash: bcrypt.hashSync(password, ROUNDS),
     active: true, createdAt: new Date().toISOString(),
   });
   writeUsers([
     mk('Aryan Bodkhe', 'aryanbodkhe', 'DEVELOPER', 'aryandeveloper'),
     mk('Rajesh Kumar', 'rajeshkumar', 'OWNER', 'rajeshkumarowner'),
     mk('Priya Sharma', 'priyasharma', 'MANAGER', 'priyasharmamanager'),
-    mk('Amit Singh', 'amitsingh', 'STAFF', 'amitsinghstaff'),
+    // Per-process Staff demo logins (password = username + process).
+    mk('Amit Singh', 'amitsingh', 'STAFF', 'amitsinghprinting', 'Printing'),
+    mk('Ravi Patel', 'ravipatel', 'STAFF', 'ravipatelcuttingbcs', 'Cutting-BCS'),
+    mk('Sunil Yadav', 'sunilyadav', 'STAFF', 'sunilyadavloom', 'Loom'),
   ]);
 }
 
@@ -96,26 +107,32 @@ function generateUsername(name: string): string {
 
 export interface Credentials { username: string; password: string; }
 
-export function createUser(name: string, role: UserRole, customPassword?: string): { user: AuthUser; credentials: Credentials } {
+export function createUser(name: string, role: UserRole, customPassword?: string, process?: string): { user: AuthUser; credentials: Credentials } {
   if (role === 'DEVELOPER') throw new Error('Developer is not an assignable role');
+  const proc = role === 'STAFF' ? process : undefined;
   const username = generateUsername(name.trim());
-  const password = customPassword && customPassword.length > 0 ? customPassword : `${username}${role.toLowerCase()}`;
+  // Staff password uses the process as the job word (e.g. amitsingh + printing);
+  // Owner/Manager keep name + role.
+  const password = customPassword && customPassword.length > 0 ? customPassword : `${username}${jobWord(role, proc)}`;
   const u: StoredUser = {
-    id: genId(), name: name.trim(), username, role,
+    id: genId(), name: name.trim(), username, role, process: proc,
     passwordHash: bcrypt.hashSync(password, ROUNDS), active: true, createdAt: new Date().toISOString(),
   };
   writeUsers([u, ...readUsers()]);
   return { user: toAuthUser(u), credentials: { username, password } };
 }
 
-export function updateUser(id: string, patch: { name?: string; role?: UserRole; active?: boolean; password?: string }): { user: AuthUser; credentials?: Credentials } {
+export function updateUser(id: string, patch: { name?: string; role?: UserRole; active?: boolean; password?: string; process?: string }): { user: AuthUser; credentials?: Credentials } {
   const users = readUsers();
   const u = users.find((x) => x.id === id);
   if (!u || u.role === 'DEVELOPER') throw new Error('User not found');
   if (patch.role === 'DEVELOPER') throw new Error('Developer is not an assignable role');
   if (patch.name !== undefined) u.name = patch.name.trim();
   if (patch.role !== undefined) u.role = patch.role;
+  if (patch.process !== undefined) u.process = patch.process || undefined;
   if (patch.active !== undefined) u.active = patch.active;
+  // A user demoted away from Staff loses any process scoping.
+  if (u.role !== 'STAFF') u.process = undefined;
   let credentials: Credentials | undefined;
   if (patch.password) { u.passwordHash = bcrypt.hashSync(patch.password, ROUNDS); credentials = { username: u.username, password: patch.password }; }
   writeUsers(users);

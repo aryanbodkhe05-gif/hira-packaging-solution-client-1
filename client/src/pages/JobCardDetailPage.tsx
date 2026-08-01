@@ -27,7 +27,7 @@ import {
   autoPct, autoQty,
 } from '../lib/jobcard';
 import type { StageKey } from '../lib/jobcard';
-import { canViewCosts } from '../lib/roles';
+import { canViewCosts, staffScope } from '../lib/roles';
 import { useBranding } from '../lib/branding';
 import { cn } from '../lib/utils';
 
@@ -60,10 +60,12 @@ function StageWho({ brand, operator, onOperator }: { brand: string; operator?: s
 }
 
 // ── Stage shell (collapsible + N/A + metrics) ──────────────────────────────────
-function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label }: {
+function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label, stageFilter }: {
   jobKey: StageKey; card: JobCard; expanded: boolean;
   onToggle: () => void; onSetNA: (na: boolean) => void; children: ReactNode; label?: string;
+  stageFilter?: StageKey;   // when set (scoped Staff), only this stage renders
 }) {
+  if (stageFilter && jobKey !== stageFilter) return null;
   if (!visibleStageKeys(card).includes(jobKey)) return null;
   const stage = card[jobKey];
   const m = stageMetrics(card, jobKey);
@@ -111,6 +113,11 @@ export function JobCardDetailPage() {
   const isNew = id === 'new';
   const branding = useBranding();
   const showCosts = canViewCosts();
+  // Process-scoped Staff see only their assigned stage on every job card.
+  const scope = staffScope();
+  const isScoped = !!scope && scope.area === 'jobcard';
+  const staffStage = isScoped ? scope!.stageKey : undefined;   // undefined = see all (admin / legacy)
+  const lockedMethod = isScoped ? scope!.method : undefined;   // Cutting-BCS vs Back Seal
   const cuttingMachines = useMemo(() => factoryMachinesDb.getAll().filter((m) => m.active && m.type === 'Cutting/BCS'), []);
   const bagTypeOptions = useMemo(() => getList(BAG_TYPES_KEY, DEFAULT_BAG_TYPES), []);
   const [expanded, setExpanded] = useState<Set<StageKey>>(() => new Set(STAGE_KEYS));
@@ -132,6 +139,8 @@ export function JobCardDetailPage() {
     // Commit roll/film consumption to inventory, then re-snapshot each line's rate
     // from the roll it actually consumed.
     const committed: JobCard = { ...c };
+    // A Cutting-BCS / Back Seal scoped staffer's method is forced on save.
+    if (lockedMethod) committed.cutting = { ...committed.cutting, method: lockedMethod };
     for (const k of STAGE_KEYS) {
       const uses = (committed[k].rollUses ?? []).filter((u) => u.qtyKg > 0);
       if (!uses.length) continue;
@@ -343,6 +352,8 @@ export function JobCardDetailPage() {
   const inkQty = autoQty(card.printing.inputKg, inkPct);
   const threadPct = autoPct(card.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT);
   const threadQty = autoQty(stagePrimary(card, 'cutting').input, threadPct);
+  // Effective cutting method — forced for a Cutting-BCS / Back Seal scoped staffer.
+  const cutMethod = lockedMethod ?? card.cutting.method ?? 'BCS';
 
   // Fixed named material line for a stage (ink/solvents/adhesive/…).
   const renderNamed = (key: StageKey, name: string, opts?: { readOnlyQty?: boolean; hint?: string; label?: string }) => {
@@ -415,8 +426,16 @@ export function JobCardDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
-          {/* Header */}
-          <div className="glass-card p-4 space-y-3">
+          {/* Scoped-Staff banner + read-only job summary */}
+          {isScoped && (
+            <div className="glass-card p-4 space-y-1 border-accent/30">
+              <p className="text-accent text-xs font-semibold uppercase tracking-wide">Your process: {scope!.process}</p>
+              <p className="text-white font-medium">{card.header.brand || '—'} <span className="text-muted font-mono text-sm">· {card.jobNo}</span></p>
+              <p className="text-muted text-xs">{card.header.size}{card.orderNo ? ` · order ${card.orderNo}` : ''}. You see and fill only the {scope!.process} step of this job card.</p>
+            </div>
+          )}
+          {/* Header (editable — hidden for scoped Staff) */}
+          <div className={cn('glass-card p-4 space-y-3', isScoped && 'hidden')}>
             <p className="section-title text-base">Job Description</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Brand Name *"><Txt value={h.brand} onChange={(v) => patchHeader({ brand: v })} placeholder="Brand name" /></Field>
@@ -478,7 +497,7 @@ export function JobCardDetailPage() {
           {/* ════ BOPP card ════ */}
           {card.cardType === 'BOPP' && (<>
           {/* C1 — Printing */}
-          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)}>
+          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.printing.operator} onOperator={(v) => patchStage('printing', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
@@ -531,7 +550,7 @@ export function JobCardDetailPage() {
           </StageCard>
 
           {/* C3 — Metalize */}
-          <StageCard jobKey="metalize" card={card} expanded={expanded.has('metalize')} onToggle={() => toggleExpand('metalize')} onSetNA={(na) => setNA('metalize', na)}>
+          <StageCard jobKey="metalize" card={card} expanded={expanded.has('metalize')} onToggle={() => toggleExpand('metalize')} onSetNA={(na) => setNA('metalize', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.metalize.operator} onOperator={(v) => patchStage('metalize', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.metalize.date} onChange={(v) => patchStage('metalize', { date: v })} /></Field>
@@ -557,7 +576,7 @@ export function JobCardDetailPage() {
           </StageCard>
 
           {/* C2 — Slitting */}
-          <StageCard jobKey="slitting" card={card} expanded={expanded.has('slitting')} onToggle={() => toggleExpand('slitting')} onSetNA={(na) => setNA('slitting', na)}>
+          <StageCard jobKey="slitting" card={card} expanded={expanded.has('slitting')} onToggle={() => toggleExpand('slitting')} onSetNA={(na) => setNA('slitting', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.slitting.operator} onOperator={(v) => patchStage('slitting', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.slitting.date} onChange={(v) => patchStage('slitting', { date: v })} /></Field>
@@ -572,7 +591,7 @@ export function JobCardDetailPage() {
             <button onClick={() => carryForward('slitting')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
           </StageCard>
 
-          {card.makingType === 'Roll' && (
+          {!isScoped && card.makingType === 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
                 <p className="text-white font-medium text-sm">Roll ready for dispatch</p>
@@ -586,7 +605,7 @@ export function JobCardDetailPage() {
           )}
 
           {/* C4 — Lamination */}
-          <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
+          <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.lamination.operator} onOperator={(v) => patchStage('lamination', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.lamination.date} onChange={(v) => patchStage('lamination', { date: v })} /></Field>
@@ -627,21 +646,25 @@ export function JobCardDetailPage() {
           </StageCard>
 
           {/* C5 — Cutting: BCS or Back Seal */}
-          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
+          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.cutting.operator} onOperator={(v) => patchStage('cutting', { operator: v })} />
-            <Field label="Cutting Method">
-              <div className="flex gap-2">
-                {CUTTING_METHODS.map((mth) => (
-                  <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
-                    className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
-                      (card.cutting.method ?? 'BCS') === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
-                    {mth}
-                  </button>
-                ))}
-              </div>
-            </Field>
+            {lockedMethod ? (
+              <p className="text-xs text-muted">Cutting method: <span className="text-white/80 font-medium">{cutMethod}</span> <span className="text-muted/70">(your assigned process)</span></p>
+            ) : (
+              <Field label="Cutting Method">
+                <div className="flex gap-2">
+                  {CUTTING_METHODS.map((mth) => (
+                    <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
+                      className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
+                        cutMethod === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
+                      {mth}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
 
-            {(card.cutting.method ?? 'BCS') === 'BCS' ? (<>
+            {cutMethod === 'BCS' ? (<>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
                 <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
@@ -719,7 +742,7 @@ export function JobCardDetailPage() {
             </>)}
           </StageCard>
 
-          {card.makingType !== 'Roll' && (
+          {!isScoped && card.makingType !== 'Roll' && (
             <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
               <div>
                 <p className="text-white font-medium text-sm">Bags ready for dispatch</p>
@@ -735,7 +758,7 @@ export function JobCardDetailPage() {
 
           {/* ════ Other/Flexo card ════ */}
           {card.cardType === 'Other' && (<>
-          <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)}>
+          <StageCard jobKey="lamination" card={card} expanded={expanded.has('lamination')} onToggle={() => toggleExpand('lamination')} onSetNA={(na) => setNA('lamination', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.lamination.operator} onOperator={(v) => patchStage('lamination', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.lamination.date} onChange={(v) => patchStage('lamination', { date: v })} /></Field>
@@ -767,20 +790,24 @@ export function JobCardDetailPage() {
             </div>
           </StageCard>
 
-          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)}>
+          <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.cutting.operator} onOperator={(v) => patchStage('cutting', { operator: v })} />
-            <Field label="Cutting Method">
-              <div className="flex gap-2">
-                {CUTTING_METHODS.map((mth) => (
-                  <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
-                    className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
-                      (card.cutting.method ?? 'BCS') === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
-                    {mth}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            {(card.cutting.method ?? 'BCS') === 'BCS' ? (<>
+            {lockedMethod ? (
+              <p className="text-xs text-muted">Cutting method: <span className="text-white/80 font-medium">{cutMethod}</span> <span className="text-muted/70">(your assigned process)</span></p>
+            ) : (
+              <Field label="Cutting Method">
+                <div className="flex gap-2">
+                  {CUTTING_METHODS.map((mth) => (
+                    <button key={mth} type="button" onClick={() => patchStage('cutting', { method: mth as CuttingMethod })}
+                      className={cn('px-4 py-1.5 rounded text-sm font-medium transition-colors',
+                        cutMethod === mth ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white')}>
+                      {mth}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {cutMethod === 'BCS' ? (<>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
                 <Field label="Balance (kg)"><Num value={card.cutting.balance} onChange={(v) => patchStage('cutting', { balance: v })} /></Field>
@@ -810,7 +837,7 @@ export function JobCardDetailPage() {
             </>)}
           </StageCard>
 
-          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} label="Flexo">
+          <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} stageFilter={staffStage} label="Flexo">
             <StageWho brand={brand} operator={card.printing.operator} onOperator={(v) => patchStage('printing', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Date"><DateInput value={card.printing.date} onChange={(v) => patchStage('printing', { date: v })} /></Field>
@@ -839,6 +866,7 @@ export function JobCardDetailPage() {
             </div>
           </StageCard>
 
+          {!isScoped && (
           <div className="glass-card p-4 flex items-center justify-between gap-3 flex-wrap no-print border-accent/30">
             <div>
               <p className="text-white font-medium text-sm">Printed bags ready for dispatch</p>
@@ -849,10 +877,11 @@ export function JobCardDetailPage() {
               <Truck className="w-4 h-4" /> {card.bagDispatchedAt ? 'Bags Dispatched' : 'Send to Dispatch'}
             </button>
           </div>
+          )}
           </>)}
 
           {/* C6 — Dispatch: fields first, dispatch button underneath */}
-          <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)}>
+          <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.dispatch.operator} onOperator={(v) => patchStage('dispatch', { operator: v })} />
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
