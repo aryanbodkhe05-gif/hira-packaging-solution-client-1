@@ -433,14 +433,13 @@ export function consumeRoll(
   if (!film) return null;
   if (use.finished) {
     dbCreate<FinishedFilm>('inv_finished_films', {
-      filmNo: film.filmNo, kg: film.kg, meter: film.meter, finish: film.finish, micron: film.micron,
+      filmNo: film.filmNo, kg: film.nWt ?? film.kg, meter: film.meter, finish: film.finish, micron: film.micron,
       dateAdded: film.dateAdded, consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
     });
     dbDelete('inv_bopp_films', film.id);
   } else {
-    dbUpdate<BoppFilm>('inv_bopp_films', film.id, {
-      kg: +Math.max(0, film.kg - use.qtyKg).toFixed(3), balanceUsed: true,
-    });
+    const left = +Math.max(0, (film.nWt ?? film.kg) - use.qtyKg).toFixed(3);
+    dbUpdate<BoppFilm>('inv_bopp_films', film.id, { nWt: left, kg: left, balanceUsed: true });
   }
   return film.rate ?? null;
 }

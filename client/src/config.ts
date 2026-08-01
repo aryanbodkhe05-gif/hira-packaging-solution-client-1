@@ -188,6 +188,14 @@ export const BACKSEAL_GLUE = 'Hot melt glue';
 export const CUTTING_METHODS = ['BCS', 'Back Seal'] as const;
 export type CuttingMethod = typeof CUTTING_METHODS[number];
 
+// ── Staff process assignment (per-job Staff scoping) ────────────────────────────
+// A Staff user is tied to ONE process and, when logged in, sees only that
+// process across all job cards (or only the Loom / P.P. Unit pages). Extensible.
+export const DEFAULT_PROCESSES = [
+  'Printing', 'Slitting', 'Metalize', 'Lamination', 'Cutting-BCS', 'Back Seal', 'Dispatch', 'Loom', 'P.P. Unit',
+];
+export const PROCESSES_KEY = 'list_staff_processes';
+
 // Bag Type — reusable type-ahead list (order + job-card header). Extensible.
 export const DEFAULT_BAG_TYPES = ['Handle', 'Laminated', 'Non-laminated'];
 export const BAG_TYPES_KEY = 'list_bag_types';

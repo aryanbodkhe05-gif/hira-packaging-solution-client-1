@@ -4,7 +4,7 @@ import type {
   PrintingStage, MetalizeStage, SlittingStage, LaminationStage, CuttingStage, DispatchStage,
 } from '../types/models';
 import { JOB_STAGES } from '../config';
-import { getSettings } from './db';
+import { getSettings, rateMasterDb } from './db';
 import type { JobStage, Finish, CardType, MakingType } from '../config';
 
 export const STAGE_KEYS = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
@@ -164,8 +164,14 @@ export function nextActiveStage(j: JobCard, key: StageKey): StageKey | null {
 }
 
 // ── Costing ────────────────────────────────────────────────────────────────────
+// One auto-applied labour/overhead line: rate (₹/kg) × the job's final output kg.
+export interface LabourLine { name: string; unit: string; rate: number | null; kg: number; cost: number; }
+
 export interface CostingResult {
   stageCosts: Record<StageKey, number>;
+  materialCost: number;         // stage material + roll consumption only
+  labourLines: LabourLine[];    // auto labour/overhead (Rate Master × output kg)
+  labourCost: number;
   totalJobCost: number;
   totalBags: number;
   costPerBag: number;
@@ -176,10 +182,43 @@ export interface CostingResult {
   hasUnsetRates: boolean;       // some consumed material had no rate
 }
 
+// Stage cost = material consumption (batch-rate) + per-roll consumption. Manual
+// "labour" rows are excluded here — labour/overhead is auto-applied globally
+// against the job's final output kg (see computeCosting).
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
-  return sum(j[key].consumption.map((c) => num(c.lineCost)))
+  return sum(j[key].consumption.filter((c) => c.source !== 'labour').map((c) => num(c.lineCost)))
     + sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
+}
+
+// The job's final output kg used to cost labour/overhead: prefer the dispatched
+// quantity, else the last stage with a positive kg output.
+export function finalOutputKg(j: JobCard): number {
+  const dispatched = sum(j.dispatch.lines.map((l) => num(l.quantityKg)));
+  if (dispatched > 0) return dispatched;
+  for (let i = STAGE_KEYS.length - 1; i >= 0; i--) {
+    const k = STAGE_KEYS[i];
+    if (!isStageActive(j, k)) continue;
+    const out = stagePrimary(j, k).output;
+    if (out > 0) return out;
+  }
+  return 0;
+}
+
+// Auto labour/overhead lines: every active Rate Master rate (₹/kg) multiplied by
+// the job's final output kg. No one enters kg. Unpriced rates are shown but
+// excluded from the total.
+export function labourLines(j: JobCard): LabourLine[] {
+  const kg = finalOutputKg(j);
+  return rateMasterDb.getAll()
+    .filter((m) => m.active)
+    .map((m) => ({
+      name: m.name,
+      unit: m.unit,
+      rate: m.rate,
+      kg,
+      cost: m.rate != null ? +(m.rate * kg).toFixed(2) : 0,
+    }));
 }
 
 export function totalBags(j: JobCard): number {
@@ -190,29 +229,22 @@ export function totalBags(j: JobCard): number {
 
 export function computeCosting(j: JobCard): CostingResult {
   const stageCosts = {} as Record<StageKey, number>;
-  let total = 0;
+  let materialCost = 0;
   let hasUnset = false;
   for (const k of STAGE_KEYS) {
     const c = stageCost(j, k);
     stageCosts[k] = c;
-    total += c;
+    materialCost += c;
     if (!isStageActive(j, k)) continue;
     // A line is "unpriced" when it consumed something no rate could cover — an
     // unpriced batch/roll, or stock that ran short. Those are flagged, never ₹0'd.
-    if (j[k].consumption.some((x) => num(x.qty) > 0 && (x.rateSnapshot == null || (x.shortfall ?? 0) > 0))) hasUnset = true;
+    if (j[k].consumption.some((x) => x.source !== 'labour' && num(x.qty) > 0 && (x.rateSnapshot == null || (x.shortfall ?? 0) > 0))) hasUnset = true;
     if ((j[k].rollUses ?? []).some((r) => num(r.qtyKg) > 0 && r.rate == null)) hasUnset = true;
   }
 
   const bags = totalBags(j);
+  const outKg = finalOutputKg(j);
 
-  // final output kg = last active stage (in order) that has a positive kg output
-  let finalOutputKg = 0;
-  for (let i = STAGE_KEYS.length - 1; i >= 0; i--) {
-    const k = STAGE_KEYS[i];
-    if (!isStageActive(j, k)) continue;
-    const out = stagePrimary(j, k).output;
-    if (out > 0) { finalOutputKg = out; break; }
-  }
   // first input kg = first active stage with a positive input
   let firstInputKg = 0;
   for (const k of STAGE_KEYS) {
@@ -225,15 +257,24 @@ export function computeCosting(j: JobCard): CostingResult {
     sum(activeStageKeys(j).map((k) => stagePrimary(j, k).rejection)) +
     (isStageActive(j, 'slitting') ? num(j.slitting.trimKg) : 0);
 
+  // Auto labour/overhead — Rate Master (₹/kg) × final output kg.
+  const labour = labourLines(j);
+  const labourCost = sum(labour.map((l) => l.cost));
+  if (outKg > 0 && labour.some((l) => l.rate == null)) hasUnset = true;
+  const total = materialCost + labourCost;
+
   return {
     stageCosts,
+    materialCost,
+    labourLines: labour,
+    labourCost,
     totalJobCost: total,
     totalBags: bags,
     costPerBag: bags > 0 ? total / bags : 0,
-    finalOutputKg,
-    costPerKg: finalOutputKg > 0 ? total / finalOutputKg : 0,
+    finalOutputKg: outKg,
+    costPerKg: outKg > 0 ? total / outKg : 0,
     wastageKg,
-    overallYieldPct: firstInputKg > 0 ? (finalOutputKg / firstInputKg) * 100 : 0,
+    overallYieldPct: firstInputKg > 0 ? (outKg / firstInputKg) * 100 : 0,
     hasUnsetRates: hasUnset,
   };
 }

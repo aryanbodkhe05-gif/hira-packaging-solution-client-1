@@ -14,6 +14,16 @@ export function previewAllocation(materialId: string, qty: number, existing?: Co
   const mat = rawMaterialsDb.getAll().find((m) => m.id === materialId);
   // Work on copies so previewing never mutates stored remainders.
   const pool = rawMaterialBatchesDb.forItem(materialId).map((b) => ({ ...b }));
+  // Un-consume THIS row's own prior draw before re-allocating. The stored
+  // `remaining` on each batch already has this card's previous consumption
+  // subtracted, so without adding it back an edit would see the batches its own
+  // earlier save emptied — the FIFO draw would stop at the first batch and never
+  // roll into the next. Adding it back makes the preview match the authoritative
+  // recompute (syncBatchStock), which resets all remainders before replaying.
+  for (const l of existing?.lots ?? []) {
+    const b = pool.find((x) => x.id === l.batchId);
+    if (b) b.remaining = Math.round((b.remaining + (l.qty || 0)) * 1000) / 1000;
+  }
   const priorRates = new Map((existing?.lots ?? []).map((l) => [l.batchId, l.rate]));
   const { lots, shortfall } = allocateFifo(qty, pool, priorRates);
   return {

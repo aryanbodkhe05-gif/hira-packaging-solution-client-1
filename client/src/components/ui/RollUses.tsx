@@ -27,8 +27,8 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
       }
     }
     if (kinds.includes('film')) {
-      for (const f of boppFilmsDb.getAll()) {
-        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.kg, rate: f.rate ?? null, type: f.finish });
+      for (const f of boppFilmsDb.getAll().filter((x) => !x.balanceUsed || (x.nWt ?? x.kg) > 0)) {
+        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size });
       }
     }
     return out;

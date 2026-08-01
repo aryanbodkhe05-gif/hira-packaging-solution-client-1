@@ -188,6 +188,7 @@ export interface PrintingStage extends StageBase {
   meter?: number;               // Output (meter)
   rejectionKg?: number;         // Wastage
   inkPct?: number;              // ink auto-calc %, overrides the Settings default
+  inkManual?: boolean;          // true once the operator types over the auto ink qty
   noOfBags?: number;            // Other card printing
   colour?: string;             // Other card printing — colour of print
   ink?: number;                // Other card printing — ink consumption (kg)
@@ -251,6 +252,7 @@ export interface CuttingStage extends StageBase {
   balance?: number;
   rejectionKg?: number;         // Wastage
   threadPct?: number;           // BCS: thread auto-calc %, overrides the Settings default
+  threadManual?: boolean;       // true once the operator types over the auto thread qty
   // Back Seal
   bsInputKg?: number;
   bsBalanceKg?: number;
@@ -432,13 +434,17 @@ export interface GranuleUse {
 }
 
 // Incoming BOPP film raw stock (before printing).
+// Incoming BOPP film stock — inward like rolls: grouped by size, per-film rate.
 export interface BoppFilm {
   id: string;
   filmNo: string;
-  kg: number;
+  size?: string;           // film size (mm) — groups films like rolls group by size
+  gWt?: number;            // gross weight (kg)
+  nWt?: number;            // net weight (kg) — the consumable stock weight
+  kg: number;              // legacy alias for nWt, kept in sync for older consumers
   meter: number;
-  finish?: Finish;         // glossy / matte / metalized (optional)
-  micron?: number;         // optional
+  finish?: Finish;         // glossy / matte / metalized / pearl (optional)
+  micron?: number;         // optional legacy field
   rate?: number | null;    // ₹/kg for THIS film, captured at receipt; null => not set
   dateAdded: string;
   balanceUsed?: boolean;

@@ -53,8 +53,8 @@ function ItemForm({ initial, onSave, onClose }: {
 }
 
 // ── Batch form: qty + rate + date. Rate is optional and can be filled in later. ──
-function BatchForm({ initial, unit, onSave, onClose }: {
-  initial: Omit<RawMaterialBatch, 'id'>; unit: string;
+function BatchForm({ initial, unit, editing, onSave, onClose }: {
+  initial: Omit<RawMaterialBatch, 'id'>; unit: string; editing?: boolean;
   onSave: (d: Omit<RawMaterialBatch, 'id'>) => void; onClose: () => void;
 }) {
   const [f, setF] = useState(initial);
@@ -63,26 +63,35 @@ function BatchForm({ initial, unit, onSave, onClose }: {
   function submit() {
     if (!f.qty) { toast.error('Quantity is required'); return; }
     const rate = rateText.trim() === '' ? null : num(rateText);
-    onSave({ ...f, rate, remaining: f.qty });
+    // Editing an existing batch is a rate-only flow — the quantity never changes
+    // here, so `remaining` is left untouched (it is re-derived by syncBatchStock).
+    onSave(editing ? { ...f, rate } : { ...f, rate, remaining: f.qty });
   }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="label">Quantity Received * ({unit})</label>
-          <input className="input-field font-mono" type="number" min="0" step="any" autoFocus
-            value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} />
+          <label className="label">Quantity Received{editing ? '' : ' *'} ({unit})</label>
+          {editing ? (
+            <input className="input-field font-mono bg-white/5 text-white/60" value={f.qty} readOnly title="Quantity can't be changed when setting a rate" />
+          ) : (
+            <input className="input-field font-mono" type="number" min="0" step="any" autoFocus
+              value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} />
+          )}
         </div>
         <div>
           <label className="label">Rate (₹/{unit})</label>
-          <input className="input-field font-mono" type="number" min="0" step="any"
-            value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="leave blank if not known" />
+          <input className="input-field font-mono" type="number" min="0" step="any" autoFocus={editing}
+            value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="set the rate now or later" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="label">Receipt Date</label><input className="input-field" type="date" value={f.date} onChange={(e) => set('date', e.target.value)} /></div>
         <div><label className="label">Note</label><input className="input-field" value={f.note ?? ''} onChange={(e) => set('note', e.target.value)} placeholder="supplier / invoice" /></div>
       </div>
+      {editing && (
+        <p className="text-muted text-xs">Setting the rate for an existing batch. Quantity isn't editable here — to change stock, add or delete a batch.</p>
+      )}
       {rateText.trim() === '' && (
         <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 flex gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
@@ -270,8 +279,8 @@ export function RawMaterialsPage() {
 
       {batchModal && (
         <Modal open onClose={() => setBatchModal(null)} size="md"
-          title={batchModal.batch ? `Edit batch — ${batchModal.item.name}` : `Receive batch — ${batchModal.item.name}`}>
-          <BatchForm unit={batchModal.item.unit}
+          title={batchModal.batch ? `Set rate — ${batchModal.item.name}` : `Receive batch — ${batchModal.item.name}`}>
+          <BatchForm unit={batchModal.item.unit} editing={!!batchModal.batch}
             initial={batchModal.batch ?? {
               materialId: batchModal.item.id, qty: 0, remaining: 0, rate: null,
               date: today(), createdAt: new Date().toISOString(),

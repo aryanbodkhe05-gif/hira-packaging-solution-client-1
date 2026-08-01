@@ -142,7 +142,7 @@ export function GrnPage() {
       addToList(RAW_MATERIALS_KEY, d.itemName.trim(), DEFAULT_RAW_MATERIALS);
       syncBatchStock();
     } else if (d.destination === 'BOPP Film') {
-      boppFilmsDb.create({ filmNo: d.itemName, kg: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
+      boppFilmsDb.create({ filmNo: d.itemName, nWt: d.qty, kg: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'Rolls') {
       invRollsDb.create({ rollNo: d.itemName, type: d.rollType || 'Milky', size: '', quality: 0, gWt: d.qty, nWt: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'P.P. Granule') {
