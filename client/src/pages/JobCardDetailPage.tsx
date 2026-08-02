@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  jobCardsDb, dispatchesDb, ordersDb, rawMaterialsDb,
+  jobCardsDb, dispatchesDb, ordersDb,
   syncBatchStock, consumeRoll, factoryMachinesDb, getList, saveSettings,
 } from '../lib/db';
 import {
@@ -17,8 +17,8 @@ import {
   BCS_THREAD, BACKSEAL_GLUE,
 } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide, CuttingMethod } from '../config';
-import type { JobCard, Consumption, DispatchRecord, RollUse } from '../types/models';
-import { MaterialLine, AddMaterial, previewAllocation } from '../components/ui/MaterialConsumption';
+import type { JobCard, DispatchRecord, RollUse, BatchUse, DispatchLine } from '../types/models';
+import { BatchUsePanel, type Suggestion } from '../components/ui/BatchUsePanel';
 import { RollUsesPanel } from '../components/ui/RollUses';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
@@ -230,108 +230,24 @@ export function JobCardDetailPage() {
     setCard((p) => p && ({ ...p, [key]: { ...p[key], ...patch } } as JobCard));
   }
 
-  // Material consumption on a stage: set a quantity and preview its FIFO draw.
-  function setMaterialQty(key: StageKey, materialId: string, qty: number) {
-    setCard((p) => {
-      if (!p) return p;
-      const existing = p[key].consumption.find((c) => c.materialId === materialId);
-      const row = previewAllocation(materialId, qty, existing);
-      const rest = p[key].consumption.filter((c) => c.materialId !== materialId);
-      return { ...p, [key]: { ...p[key], consumption: [...rest, row] } } as JobCard;
-    });
+  // Manual batch-pick consumption — the worker adds/edits batch lines directly.
+  function setMaterialUses(key: StageKey, uses: BatchUse[]) {
+    setCard((p) => p && ({ ...p, [key]: { ...p[key], materialUses: uses } } as JobCard));
   }
-  function removeMaterial(key: StageKey, materialId: string) {
-    setCard((p) => p && ({ ...p, [key]: { ...p[key], consumption: p[key].consumption.filter((c) => c.materialId !== materialId) } } as JobCard));
-  }
-  // Look up a raw-material id by name (case-insensitive) for the fixed per-stage lists.
-  const materialIdByName = useCallback((name: string) => {
-    const m = rawMaterialsDb.getAll().find((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase());
-    return m?.id;
-  }, []);
+  function setPrintingInput(v: number | undefined) { patchStage('printing', { inputKg: v }); }
 
-  // Auto-fill an auto-calc material (ink/thread) into a stage's consumption from a
-  // % of a base kg, and PERSIST the drawn qty (not just preview it) so it is
-  // actually consumed on save. The FIFO lots come from previewAllocation.
-  const autoFill = useCallback((c: JobCard, stageKey: 'printing' | 'cutting', name: string, pct: number, baseKg: number): JobCard => {
-    const id = materialIdByName(name);
-    if (!id) return c;
-    const existing = c[stageKey].consumption.find((r) => r.materialId === id);
-    const row = previewAllocation(id, autoQty(baseKg, pct), existing);
-    const rest = c[stageKey].consumption.filter((r) => r.materialId !== id);
-    return { ...c, [stageKey]: { ...c[stageKey], consumption: [...rest, row] } } as JobCard;
-  }, [materialIdByName]);
-
-  // Set the BOPP printing input, re-deriving the auto ink qty in the same update
-  // (unless the operator has manually overridden ink).
-  function setPrintingInput(v: number | undefined) {
-    setCard((p) => {
-      if (!p) return p;
-      const next = { ...p, printing: { ...p.printing, inputKg: v } };
-      if (p.printing.inkManual) return next;
-      return autoFill(next, 'printing', PRINTING_INK, autoPct(p.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT), v ?? 0);
-    });
-  }
-
-  // Change the auto ink %. The new value becomes the GLOBAL sticky default for
-  // ink everywhere (saved to Settings) and re-derives this card's ink qty.
+  // Sticky % — the value becomes the global default (Settings) and drives only the
+  // "suggested qty" quick-add chip; it no longer auto-consumes (manual pick now).
   function setInkPct(v: number | undefined) {
-    if (v != null) saveSettings({ [INK_PCT_KEY]: String(v) });   // sticky global default
-    setCard((p) => {
-      if (!p) return p;
-      const pct = v ?? autoPct(undefined, INK_PCT_KEY, DEFAULT_INK_PCT);
-      const base = { ...p, printing: { ...p.printing, inkPct: v, inkManual: false } };
-      return autoFill(base, 'printing', PRINTING_INK, pct, p.printing.inputKg ?? 0);
-    });
+    if (v != null) saveSettings({ [INK_PCT_KEY]: String(v) });
+    patchStage('printing', { inkPct: v });
   }
-  function resetInk() {
-    setCard((p) => {
-      if (!p) return p;
-      const pct = autoPct(undefined, INK_PCT_KEY, DEFAULT_INK_PCT);
-      const base = { ...p, printing: { ...p.printing, inkPct: undefined, inkManual: false } };
-      return autoFill(base, 'printing', PRINTING_INK, pct, p.printing.inputKg ?? 0);
-    });
-  }
-
-  // Same sticky-% behaviour for thread in Cutting (BCS).
   function setThreadPct(v: number | undefined) {
     if (v != null) saveSettings({ [THREAD_PCT_KEY]: String(v) });
-    setCard((p) => {
-      if (!p) return p;
-      const pct = v ?? autoPct(undefined, THREAD_PCT_KEY, DEFAULT_THREAD_PCT);
-      const base = { ...p, cutting: { ...p.cutting, threadPct: v, threadManual: false } };
-      return autoFill(base, 'cutting', BCS_THREAD, pct, stagePrimary(p, 'cutting').input);
-    });
-  }
-  function resetThread() {
-    setCard((p) => {
-      if (!p) return p;
-      const pct = autoPct(undefined, THREAD_PCT_KEY, DEFAULT_THREAD_PCT);
-      const base = { ...p, cutting: { ...p.cutting, threadPct: undefined, threadManual: false } };
-      return autoFill(base, 'cutting', BCS_THREAD, pct, stagePrimary(p, 'cutting').input);
-    });
-  }
-  // Re-derive thread when a cutting BCS input row changes (unless manual).
-  function afterCuttingInputChange(c: JobCard): JobCard {
-    if (c.cutting.threadManual) return c;
-    return autoFill(c, 'cutting', BCS_THREAD, autoPct(c.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT), stagePrimary(c, 'cutting').input);
+    patchStage('cutting', { threadPct: v });
   }
 
-  function batchRows(key: StageKey): Consumption[] {
-    return card![key].consumption.filter((c) => c.source !== 'labour');
-  }
-  // Render a fixed named material line, creating an empty row if it has none yet.
-  function namedRow(key: StageKey, name: string): Consumption | null {
-    const id = materialIdByName(name);
-    if (!id) return null;
-    const found = card![key].consumption.find((c) => c.materialId === id);
-    return found ?? { materialId: id, materialName: name, unit: rawMaterialsDb.getAll().find((m) => m.id === id)?.unit ?? 'kg', qty: 0, rateSnapshot: null, lineCost: 0, lots: [], source: 'batch' };
-  }
-
-  // Carry the current stage's output (kg AND meter) into the next active stage's
-  // input. Root cause of the old break: it only carried kg and read
-  // stagePrimary().output, which is 0 for the reworked stages that have no
-  // explicit output field (metalize, cutting) — so the button silently no-oped.
-  // This maps to the ACTUAL current fields of every stage and carries meter too.
+  // Carry the current stage's output (kg AND meter) into the next active stage's input.
   function carryForward(fromKey: StageKey) {
     setCard((p) => {
       if (!p) return p;
@@ -339,15 +255,7 @@ export function JobCardDetailPage() {
       if (!next) return p;
       const val = stageForward(p, fromKey);
       if (val.kg <= 0 && val.meter <= 0) return p;
-      let clone = applyStageInput(p, next, val);
-      // Feeding a stage input re-derives its auto material (unless overridden).
-      if (next === 'printing' && !clone.printing.inkManual) {
-        clone = autoFill(clone, 'printing', PRINTING_INK, autoPct(clone.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT), clone.printing.inputKg ?? 0);
-      }
-      if (next === 'cutting' && !clone.cutting.threadManual) {
-        clone = autoFill(clone, 'cutting', BCS_THREAD, autoPct(clone.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT), stagePrimary(clone, 'cutting').input);
-      }
-      return clone;
+      return applyStageInput(p, next, val);
     });
   }
 
@@ -398,22 +306,6 @@ export function JobCardDetailPage() {
   // Effective cutting method — forced for a Cutting-BCS / Back Seal scoped staffer.
   const cutMethod = lockedMethod ?? card.cutting.method ?? 'BCS';
 
-  // Fixed named material line for a stage (ink/solvents/adhesive/…).
-  const renderNamed = (key: StageKey, name: string, opts?: { readOnlyQty?: boolean; hint?: string; label?: string }) => {
-    const row = namedRow(key, name);
-    if (!row) {
-      return (
-        <p key={name} className="text-[11px] text-yellow-300/90">
-          "{name}" is not in Raw Materials — add it there to consume and cost it.
-        </p>
-      );
-    }
-    return (
-      <MaterialLine key={name} row={row} label={opts?.label} hint={opts?.hint} readOnlyQty={opts?.readOnlyQty}
-        onQty={(q) => setMaterialQty(key, row.materialId, q)} />
-    );
-  };
-
   // Prominent carry-forward button — carries the stage's output (kg + meter) into
   // the next active stage's input.
   const CarryBtn = ({ from }: { from: StageKey }) => {
@@ -427,33 +319,21 @@ export function JobCardDetailPage() {
     );
   };
 
-  const fixedNames = (key: StageKey): string[] =>
-    key === 'printing' ? [PRINTING_INK, ...PRINTING_SOLVENTS]
-    : key === 'metalize' ? METALIZE_MATERIALS
-    : key === 'lamination' ? LAMINATION_MATERIALS
-    : key === 'cutting' ? [BCS_THREAD, BACKSEAL_GLUE]
-    : [];
-
-  // Extra ad-hoc materials the operator added beyond the fixed per-stage list.
-  const extraRows = (key: StageKey) => {
-    const fixedIds = fixedNames(key).map(materialIdByName).filter(Boolean) as string[];
-    return batchRows(key).filter((r) => !fixedIds.includes(r.materialId));
+  // Quick-add suggestions per stage. Ink (Printing) and thread (BCS Cutting) carry
+  // an auto qty (% of input); the rest are plain one-click adds. The worker still
+  // picks the batch on each line.
+  const stageSuggestions = (key: StageKey): Suggestion[] => {
+    if (key === 'printing') return [{ materialName: PRINTING_INK, autoQty: inkQty || undefined, label: `${PRINTING_INK} (auto ${inkPct}%)` }, ...PRINTING_SOLVENTS.map((n) => ({ materialName: n }))];
+    if (key === 'metalize') return METALIZE_MATERIALS.map((n) => ({ materialName: n }));
+    if (key === 'lamination') return LAMINATION_MATERIALS.map((n) => ({ materialName: n }));
+    if (key === 'cutting') return cutMethod === 'Back Seal'
+      ? [{ materialName: BACKSEAL_GLUE }]
+      : [{ materialName: BCS_THREAD, autoQty: threadQty || undefined, label: `${BCS_THREAD} (auto ${threadPct}%)` }];
+    return [];
   };
 
-  const MaterialsBlock = ({ stageKey }: { stageKey: StageKey }) => (
-    <div className="rounded-lg border border-accent/10 overflow-hidden">
-      <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-        <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-      </div>
-      <div className="p-3 space-y-2">
-        {extraRows(stageKey).map((r) => (
-          <MaterialLine key={r.materialId} row={r}
-            onQty={(q) => setMaterialQty(stageKey, r.materialId, q)}
-            onRemove={() => removeMaterial(stageKey, r.materialId)} />
-        ))}
-        <AddMaterial exclude={batchRows(stageKey).map((r) => r.materialId)} onAdd={(mid) => setMaterialQty(stageKey, mid, 0)} />
-      </div>
-    </div>
+  const StageMaterials = ({ stageKey }: { stageKey: StageKey }) => (
+    <BatchUsePanel value={card![stageKey].materialUses ?? []} onChange={(u) => setMaterialUses(stageKey, u)} suggestions={stageSuggestions(stageKey)} />
   );
 
   return (
@@ -482,7 +362,7 @@ export function JobCardDetailPage() {
 
       {/* Made vs dispatched — produced vs shipped, with ready-to-dispatch balance */}
       {card.id && (!isScoped || staffStage === 'dispatch') && (() => {
-        const p = cardReadyToDispatch(card, dispatchesDb.getAll());
+        const p = cardReadyToDispatch(card, jobCardsDb.getAll());
         if (p.madePcs <= 0 && p.dispatchedPcs <= 0) return null;
         return (
           <div className="grid grid-cols-3 gap-3 no-print">
@@ -585,37 +465,16 @@ export function JobCardDetailPage() {
             <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
               kinds={['film']} title="BOPP film consumed — one line per film" />
 
-            {/* Auto-calculated ink + manual solvents, all from Raw Materials */}
-            <div className="rounded-lg border border-accent/10 overflow-hidden">
-              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-              </div>
-              <div className="p-3 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap text-xs">
-                  <span className="text-muted">Ink auto-calc:</span>
-                  <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
-                    value={card.printing.inkPct ?? inkPct}
-                    onChange={(e) => setInkPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
-                  <span className="text-muted">% of BOPP input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span></span>
-                  <span className="text-muted/70">· new % becomes the global default</span>
-                  {(card.printing.inkPct != null || card.printing.inkManual) && (
-                    <button onClick={resetInk} className="text-accent hover:underline">reset to default</button>
-                  )}
-                </div>
-                {(() => {
-                  const row = namedRow('printing', PRINTING_INK);
-                  if (!row) return <p className="text-[11px] text-yellow-300/90">"{PRINTING_INK}" is not in Raw Materials — add it there to consume and cost it.</p>;
-                  return <MaterialLine row={row} label={`${PRINTING_INK} (auto ${inkPct}%)`}
-                    hint={card.printing.inkManual ? 'Manually overridden — use reset to return to auto.' : 'Auto-filled from the % above — type over it to override.'}
-                    onQty={(q) => setCard((p) => p && ({ ...p, printing: { ...p.printing, inkManual: true, consumption: [...p.printing.consumption.filter((c) => c.materialId !== row.materialId), previewAllocation(row.materialId, q, row)] } }))} />;
-                })()}
-                {PRINTING_SOLVENTS.map((n) => renderNamed('printing', n, { hint: 'Manual entry' }))}
-                {extraRows('printing').filter((r) => ![PRINTING_INK, ...PRINTING_SOLVENTS].map((n) => materialIdByName(n)).includes(r.materialId)).map((r) => (
-                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('printing', r.materialId, q)} onRemove={() => removeMaterial('printing', r.materialId)} />
-                ))}
-                <AddMaterial exclude={batchRows('printing').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('printing', mid, 0)} />
-              </div>
+            {/* Ink suggestion % (sticky global default) → drives the ink quick-add chip */}
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-muted">Ink auto %:</span>
+              <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                value={card.printing.inkPct ?? inkPct}
+                onChange={(e) => setInkPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
+              <span className="text-muted">% of BOPP input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span> · new % becomes the global default</span>
             </div>
+            {/* Manual batch-pick material consumption */}
+            <StageMaterials stageKey="printing" />
           </StageCard>
 
           {/* C3 — Metalize */}
@@ -630,18 +489,7 @@ export function JobCardDetailPage() {
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             <CarryBtn from="metalize" />
-            <div className="rounded-lg border border-accent/10 overflow-hidden">
-              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-              </div>
-              <div className="p-3 space-y-2">
-                {METALIZE_MATERIALS.map((n) => renderNamed('metalize', n))}
-                {extraRows('metalize').map((r) => (
-                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('metalize', r.materialId, q)} onRemove={() => removeMaterial('metalize', r.materialId)} />
-                ))}
-                <AddMaterial exclude={batchRows('metalize').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('metalize', mid, 0)} />
-              </div>
-            </div>
+            <StageMaterials stageKey="metalize" />
           </StageCard>
 
           {/* C2 — Slitting */}
@@ -697,20 +545,9 @@ export function JobCardDetailPage() {
             <RollUsesPanel value={card.lamination.rollUses ?? []} onChange={(u) => patchStage('lamination', { rollUses: u })}
               kinds={['roll']} title="Rolls consumed — one line per roll" />
 
-            {/* P.P. / Filler / LD come from RAW MATERIALS, not P.P. Granule Stock */}
-            <div className="rounded-lg border border-accent/10 overflow-hidden">
-              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-              </div>
-              <div className="p-3 space-y-2">
-                {LAMINATION_MATERIALS.map((n) => renderNamed('lamination', n))}
-                {extraRows('lamination').map((r) => (
-                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('lamination', r.materialId, q)} onRemove={() => removeMaterial('lamination', r.materialId)} />
-                ))}
-                <AddMaterial exclude={batchRows('lamination').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('lamination', mid, 0)} />
-                <p className="text-muted text-[11px]">P.P., Filler and LD are drawn from Raw Materials — this stage no longer touches P.P. Granule Stock.</p>
-              </div>
-            </div>
+            {/* P.P. / Filler / LD come from RAW MATERIALS (manual batch-pick), not P.P. Granule Stock */}
+            <StageMaterials stageKey="lamination" />
+            <p className="text-muted text-[11px]">P.P., Filler and LD are drawn from Raw Materials — this stage no longer touches P.P. Granule Stock.</p>
             <CarryBtn from="lamination" />
           </StageCard>
 
@@ -746,7 +583,7 @@ export function JobCardDetailPage() {
               <p className="label !mb-1">Rows (up to 3): Input · No. of Bags · BCS machine</p>
               {card.cutting.rows.slice(0, 3).map((r, i) => (
                 <div key={i} className="grid grid-cols-3 gap-2">
-                  <Num value={r.inputKg} onChange={(v) => setCard((p) => { if (!p) return p; const rows = [...p.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; return afterCuttingInputChange({ ...p, cutting: { ...p.cutting, rows } }); })} placeholder="Input kg" />
+                  <Num value={r.inputKg} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], inputKg: v }; patchStage('cutting', { rows }); }} placeholder="Input kg" />
                   <Num value={r.noOfBags} onChange={(v) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], noOfBags: v }; patchStage('cutting', { rows }); }} placeholder="No. of Bags" />
                   <select className="input-field" value={r.machine ?? ''} onChange={(e) => { const rows = [...card.cutting.rows]; rows[i] = { ...rows[i], machine: e.target.value || undefined }; patchStage('cutting', { rows }); }}>
                     <option value="">BCS / machine</option>
@@ -757,36 +594,15 @@ export function JobCardDetailPage() {
               ))}
               {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
 
-              {/* Thread — auto-calculated like ink (sticky global %) */}
-              <div className="rounded-lg border border-accent/10 overflow-hidden">
-                <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                  <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-                </div>
-                <div className="p-3 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    <span className="text-muted">Thread auto-calc:</span>
-                    <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
-                      value={card.cutting.threadPct ?? threadPct}
-                      onChange={(e) => setThreadPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
-                    <span className="text-muted">% of cutting input ({stagePrimary(card, 'cutting').input} kg) = <span className="text-white/80 font-mono">{threadQty} kg</span></span>
-                    <span className="text-muted/70">· new % becomes the global default</span>
-                    {(card.cutting.threadPct != null || card.cutting.threadManual) && (
-                      <button onClick={resetThread} className="text-accent hover:underline">reset to default</button>
-                    )}
-                  </div>
-                  {(() => {
-                    const row = namedRow('cutting', BCS_THREAD);
-                    if (!row) return <p className="text-[11px] text-yellow-300/90">"{BCS_THREAD}" is not in Raw Materials — add it there to consume and cost it.</p>;
-                    return <MaterialLine row={row} label={`${BCS_THREAD} (auto ${threadPct}%)`}
-                      hint={card.cutting.threadManual ? 'Manually overridden — use reset to return to auto.' : 'Auto-filled from the % above — type over it to override.'}
-                      onQty={(q) => setCard((p) => p && ({ ...p, cutting: { ...p.cutting, threadManual: true, consumption: [...p.cutting.consumption.filter((c) => c.materialId !== row.materialId), previewAllocation(row.materialId, q, row)] } }))} />;
-                  })()}
-                  {extraRows('cutting').filter((r) => r.materialId !== materialIdByName(BCS_THREAD)).map((r) => (
-                    <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('cutting', r.materialId, q)} onRemove={() => removeMaterial('cutting', r.materialId)} />
-                  ))}
-                  <AddMaterial exclude={batchRows('cutting').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('cutting', mid, 0)} />
-                </div>
+              {/* Thread suggestion % (sticky global default) → drives the thread quick-add chip */}
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-muted">Thread auto %:</span>
+                <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                  value={card.cutting.threadPct ?? threadPct}
+                  onChange={(e) => setThreadPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
+                <span className="text-muted">% of cutting input ({stagePrimary(card, 'cutting').input} kg) = <span className="text-white/80 font-mono">{threadQty} kg</span> · new % becomes the global default</span>
               </div>
+              <StageMaterials stageKey="cutting" />
             </>) : (<>
               {/* Back Seal */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -796,18 +612,7 @@ export function JobCardDetailPage() {
                 <Field label="No. of Pieces"><Num value={card.cutting.bsPieces} onChange={(v) => patchStage('cutting', { bsPieces: v })} /></Field>
                 <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
               </div>
-              <div className="rounded-lg border border-accent/10 overflow-hidden">
-                <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                  <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-                </div>
-                <div className="p-3 space-y-2">
-                  {renderNamed('cutting', BACKSEAL_GLUE, { hint: 'Manual entry' })}
-                  {extraRows('cutting').filter((r) => r.materialId !== materialIdByName(BACKSEAL_GLUE)).map((r) => (
-                    <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('cutting', r.materialId, q)} onRemove={() => removeMaterial('cutting', r.materialId)} />
-                  ))}
-                  <AddMaterial exclude={batchRows('cutting').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('cutting', mid, 0)} />
-                </div>
-              </div>
+              <StageMaterials stageKey="cutting" />
             </>)}
             <CarryBtn from="cutting" />
           </StageCard>
@@ -846,18 +651,7 @@ export function JobCardDetailPage() {
             </div>
             <RollUsesPanel value={card.lamination.rollUses ?? []} onChange={(u) => patchStage('lamination', { rollUses: u })}
               kinds={['roll']} title="Rolls consumed — one line per roll" />
-            <div className="rounded-lg border border-accent/10 overflow-hidden">
-              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-              </div>
-              <div className="p-3 space-y-2">
-                {LAMINATION_MATERIALS.map((n) => renderNamed('lamination', n))}
-                {extraRows('lamination').map((r) => (
-                  <MaterialLine key={r.materialId} row={r} onQty={(q) => setMaterialQty('lamination', r.materialId, q)} onRemove={() => removeMaterial('lamination', r.materialId)} />
-                ))}
-                <AddMaterial exclude={batchRows('lamination').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('lamination', mid, 0)} />
-              </div>
-            </div>
+            <StageMaterials stageKey="lamination" />
             <CarryBtn from="lamination" />
           </StageCard>
 
@@ -895,7 +689,7 @@ export function JobCardDetailPage() {
                 </div>
               ))}
               {card.cutting.rows.length < 3 && <button onClick={() => patchStage('cutting', { rows: [...card.cutting.rows, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add row</button>}
-              {renderNamed('cutting', BCS_THREAD, { label: `${BCS_THREAD} (auto ${threadPct}% = ${threadQty} kg)` })}
+              <StageMaterials stageKey="cutting" />
             </>) : (<>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <Field label="Date"><DateInput value={card.cutting.date} onChange={(v) => patchStage('cutting', { date: v })} /></Field>
@@ -904,7 +698,7 @@ export function JobCardDetailPage() {
                 <Field label="No. of Pieces"><Num value={card.cutting.bsPieces} onChange={(v) => patchStage('cutting', { bsPieces: v })} /></Field>
                 <Field label="Wastage (kg)"><Num value={card.cutting.rejectionKg} onChange={(v) => patchStage('cutting', { rejectionKg: v })} /></Field>
               </div>
-              {renderNamed('cutting', BACKSEAL_GLUE)}
+              <StageMaterials stageKey="cutting" />
             </>)}
             <CarryBtn from="cutting" />
           </StageCard>
@@ -919,23 +713,14 @@ export function JobCardDetailPage() {
               <Field label="Balance (kg)"><Num value={card.printing.balanceKg} onChange={(v) => patchStage('printing', { balanceKg: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            <div className="rounded-lg border border-accent/10 overflow-hidden">
-              <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
-                <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
-              </div>
-              <div className="p-3 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap text-xs">
-                  <span className="text-muted">Ink auto-calc:</span>
-                  <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
-                    value={card.printing.inkPct ?? inkPct}
-                    onChange={(e) => patchStage('printing', { inkPct: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
-                  <span className="text-muted">% of input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span></span>
-                </div>
-                {renderNamed('printing', PRINTING_INK, { label: `${PRINTING_INK} (auto)` })}
-                {PRINTING_SOLVENTS.map((n) => renderNamed('printing', n, { hint: 'Manual entry' }))}
-                <AddMaterial exclude={batchRows('printing').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('printing', mid, 0)} />
-              </div>
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-muted">Ink auto %:</span>
+              <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
+                value={card.printing.inkPct ?? inkPct}
+                onChange={(e) => setInkPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
+              <span className="text-muted">% of input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span></span>
             </div>
+            <StageMaterials stageKey="printing" />
           </StageCard>
 
           {!isScoped && (
@@ -952,27 +737,44 @@ export function JobCardDetailPage() {
           )}
           </>)}
 
-          {/* C6 — Dispatch: fields first, dispatch button underneath */}
+          {/* C6 — Dispatch: summary, carried-over balance, lines (kg + bags), button below */}
           <StageCard jobKey="dispatch" card={card} expanded={expanded.has('dispatch')} onToggle={() => toggleExpand('dispatch')} onSetNA={(na) => setNA('dispatch', na)} stageFilter={staffStage}>
             <StageWho brand={brand} operator={card.dispatch.operator} onOperator={(v) => patchStage('dispatch', { operator: v })} />
+
+            {/* Summary — Made / Dispatched / Ready, all from real entries */}
+            {(() => { const b = cardReadyToDispatch(card, jobCardsDb.getAll()); return (
+              <div className="rounded-lg bg-navy/40 border border-white/10 px-3 py-2 text-sm flex flex-wrap gap-x-5 gap-y-1">
+                <span className="text-muted">Made: <span className="font-mono text-white">{b.madePcs.toLocaleString('en-IN')}</span>{b.isEstimate && <span className="text-yellow-300 text-[10px] ml-1">est.</span>}</span>
+                <span className="text-muted">Dispatched: <span className="font-mono text-white">{b.dispatchedPcs.toLocaleString('en-IN')}</span></span>
+                <span className="text-muted">Ready to dispatch: <span className={cn('font-mono', b.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{b.readyPcs.toLocaleString('en-IN')}</span></span>
+              </div>
+            ); })()}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
               <Field label="No. of Bales"><Num value={card.dispatch.noOfBales} onChange={(v) => patchStage('dispatch', { noOfBales: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.dispatch.balanceKg} onChange={(v) => patchStage('dispatch', { balanceKg: v })} /></Field>
               <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
             </div>
-            <p className="label !mb-1">Dispatch lines: Quantity (kg) · Pieces · Date</p>
+
+            <p className="label !mb-1">Dispatch lines: Qty (kg) · Qty (bags) · Date — either qty may be blank</p>
             {card.dispatch.lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-3 gap-2">
-                <Num value={l.quantityKg} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], quantityKg: v }; patchStage('dispatch', { lines }); }} placeholder="Qty kg" />
-                <Num value={l.pieces} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], pieces: v }; patchStage('dispatch', { lines }); }} placeholder="Pieces" />
-                <DateInput value={l.dispatchDate} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], dispatchDate: v }; patchStage('dispatch', { lines }); }} />
+              <div key={i} className="space-y-1">
+                {l.fromCardId && (
+                  <span className="inline-block badge bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px]">
+                    Carried from {l.fromLabel}: {(l.pieces || 0).toLocaleString('en-IN')} bags
+                  </span>
+                )}
+                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <Num value={l.quantityKg} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], quantityKg: v }; patchStage('dispatch', { lines }); }} placeholder="Qty kg" />
+                  <Num value={l.pieces} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], pieces: v }; patchStage('dispatch', { lines }); }} placeholder="Qty bags" />
+                  <DateInput value={l.dispatchDate} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], dispatchDate: v }; patchStage('dispatch', { lines }); }} />
+                  <button type="button" onClick={() => patchStage('dispatch', { lines: card.dispatch.lines.filter((_, j) => j !== i) })}
+                    className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Remove line"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
               </div>
             ))}
-            <div className="flex items-center gap-3">
-              <button onClick={() => patchStage('dispatch', { lines: [...card.dispatch.lines, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add line</button>
-              {card.dispatch.lines.length > 1 && <button onClick={() => patchStage('dispatch', { lines: card.dispatch.lines.slice(0, -1) })} className="text-xs text-red-300 hover:underline flex items-center gap-1"><Trash2 className="w-3 h-3" /> Remove last</button>}
-            </div>
+            <button onClick={() => patchStage('dispatch', { lines: [...card.dispatch.lines, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add dispatch line</button>
 
             {/* Dispatch button sits below the fields */}
             <div className="pt-2 border-t border-white/5">

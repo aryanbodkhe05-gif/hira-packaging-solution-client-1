@@ -4,12 +4,12 @@ import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink, XCircle } f
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 import { ordersDb, jobCardsDb, dispatchesDb, getList, addToList } from '../lib/db';
-import { orderDispatchProgress, progressBarClass, orderProduction } from '../lib/dispatch';
+import { orderDispatchProgress, progressBarClass, orderProduction, cardReadyToDispatch } from '../lib/dispatch';
 import { canEditRates } from '../lib/roles';
 import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
 import type { Order, JobCard } from '../types/models';
 import type { ProductType, OrderStatus, MakingType } from '../config';
-import { createJobCardFromOrder, genJobNo, nextOrderJobSeq, jobCardLabel, jobCardMade } from '../lib/jobcard';
+import { createJobCardFromOrder, genJobNo, nextOrderJobSeq, jobCardLabel } from '../lib/jobcard';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -358,7 +358,20 @@ export function OrdersPage() {
     const now = new Date().toISOString();
     const draft = createJobCardFromOrder(order);
     const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
-    const seq = nextOrderJobSeq(cardsForOrder(order.id));
+    const siblings = cardsForOrder(order.id);
+    const seq = nextOrderJobSeq(siblings);
+    // Carry each sibling card's ready-to-dispatch balance onto this new card as a
+    // removable, tagged dispatch line — it dispatches the source card's balance,
+    // so the same bags are never counted twice across cards (Part 3).
+    const allCards = jobCardsDb.getAll();
+    const carried = siblings
+      .map((s) => ({ s, bal: cardReadyToDispatch(s, allCards) }))
+      .filter(({ bal }) => bal.readyPcs > 0 || bal.readyKg > 0)
+      .map(({ s, bal }) => ({
+        fromCardId: s.id, fromLabel: jobCardLabel(s).split(' / ').pop() || `JC-${s.orderJobSeq ?? ''}`,
+        pieces: bal.readyPcs || undefined, quantityKg: bal.readyKg || undefined,
+      }));
+    draft.dispatch = { ...draft.dispatch, lines: [...carried, ...(draft.dispatch.lines ?? [{}])] };
     const created = jobCardsDb.create({ ...draft, jobNo, orderJobSeq: seq, ratesAsOf: now, createdAt: now, updatedAt: now });
     // Keep the first card linked for backward compatibility; all cards are found via orderRef.
     ordersDb.update(order.id, { status: 'In Production', jobCardId: order.jobCardId ?? created.id });
@@ -509,17 +522,29 @@ export function OrdersPage() {
                       <td className="table-cell font-mono">{o.quantityKg?.toLocaleString('en-IN') ?? '—'}</td>
                       <td className="table-cell font-mono">{o.quantityNos?.toLocaleString('en-IN') ?? '—'}</td>
                       <td className="table-cell">
-                        {(() => { const st = orderDispatchProgress(o, dispatches).status; return (
-                          <span className={cn('badge border text-xs', STATUS_COLORS[st] ?? STATUS_COLORS[o.status] ?? 'bg-white/10 text-muted')}>{st}</span>
-                        ); })()}
+                        {(() => {
+                          // Status/progress derived from the job-card dispatch lines (not the register).
+                          const pr = orderProduction(o, allCards);
+                          const total = pr.orderPcs || pr.orderKg || 0;
+                          const done = pr.orderPcs ? pr.dispatchedPcs : pr.dispatchedKg;
+                          const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+                          const st = o.closedAt ? 'Short-Closed' : pct >= 100 ? 'Dispatched' : (done > 0 || pr.madePcs > 0) ? 'In Production' : 'Pending';
+                          return <span className={cn('badge border text-xs', STATUS_COLORS[st] ?? 'bg-white/10 text-muted')}>{st}</span>;
+                        })()}
                       </td>
                       <td className="table-cell">
-                        {(() => { const p = orderDispatchProgress(o, dispatches); return (
-                          <div className="min-w-[76px]">
-                            <p className="text-[10px] text-muted mb-0.5">{p.closed ? 'closed' : `${Math.round(p.pct)}%`}</p>
-                            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className={cn('h-full', progressBarClass(p.pct))} style={{ width: `${p.pct}%` }} /></div>
-                          </div>
-                        ); })()}
+                        {(() => {
+                          const pr = orderProduction(o, allCards);
+                          const total = pr.orderPcs || pr.orderKg || 0;
+                          const done = pr.orderPcs ? pr.dispatchedPcs : pr.dispatchedKg;
+                          const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+                          return (
+                            <div className="min-w-[76px]">
+                              <p className="text-[10px] text-muted mb-0.5">{o.closedAt ? 'closed' : `${Math.round(pct)}%`}</p>
+                              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className={cn('h-full', progressBarClass(pct))} style={{ width: `${pct}%` }} /></div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="table-cell">
                         {(() => {
@@ -592,7 +617,7 @@ export function OrdersPage() {
       {cardsModal && (
         <Modal open onClose={() => setCardsModal(null)} size="lg"
           title={`${cardsModal.orderId} — Job Cards`}>
-          <OrderJobCards order={cardsModal} dispatches={dispatches}
+          <OrderJobCards order={cardsModal}
             onOpen={(id) => nav(`/job-card/${id}`)}
             onCreateNext={() => createNextJobCard(cardsModal)} />
         </Modal>
@@ -602,14 +627,14 @@ export function OrdersPage() {
 }
 
 // ── Order → job cards list + made/dispatched/ready per card ─────────────────────
-function OrderJobCards({ order, dispatches, onOpen, onCreateNext }: {
-  order: Order; dispatches: ReturnType<typeof dispatchesDb.getAll>;
-  onOpen: (id: string) => void; onCreateNext: () => void;
+function OrderJobCards({ order, onOpen, onCreateNext }: {
+  order: Order; onOpen: (id: string) => void; onCreateNext: () => void;
 }) {
-  const cards: JobCard[] = jobCardsDb.getAll()
+  const allCards = jobCardsDb.getAll();
+  const cards: JobCard[] = allCards
     .filter((c) => c.orderRef === order.id)
     .sort((a, b) => (a.orderJobSeq ?? 0) - (b.orderJobSeq ?? 0));
-  const pr = orderProduction(order, jobCardsDb.getAll(), dispatches);
+  const pr = orderProduction(order, allCards);
 
   return (
     <div className="space-y-4">
@@ -629,9 +654,10 @@ function OrderJobCards({ order, dispatches, onOpen, onCreateNext }: {
 
       <div className="space-y-2">
         {cards.map((c) => {
-          const made = jobCardMade(c);
-          const disp = dispatches.filter((d) => d.jobCardId === c.id).reduce((s, d) => s + (d.qtyPieces || 0), 0);
-          const ready = Math.max(0, made.pieces - disp);
+          const b = cardReadyToDispatch(c, allCards);
+          const made = { pieces: b.madePcs };
+          const disp = b.dispatchedPcs;
+          const ready = b.readyPcs;
           return (
             <button key={c.id} onClick={() => onOpen(c.id)}
               className="w-full text-left glass-card px-4 py-3 hover:border-accent/40 border border-white/10 transition-colors flex items-center justify-between gap-3">

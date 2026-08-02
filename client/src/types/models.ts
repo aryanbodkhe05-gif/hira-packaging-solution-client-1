@@ -170,11 +170,27 @@ export interface RollUse {
   balanceKg?: number;           // weight left on the roll when not finished
 }
 
+// One batch of a raw material consumed by a stage — MANUALLY picked, exactly like
+// roll consumption. No auto-FIFO: the worker chooses the batch and the qty, each
+// line costs at that batch's own rate, and a second batch is simply another line.
+export interface BatchUse {
+  id: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  batchId: string;              // the chosen RawMaterialBatch
+  batchDate?: string;           // for display
+  qty: number;                  // qty drawn from this batch
+  rate: number | null;          // ₹/unit snapshotted from the batch at pick time
+  lineCost: number;             // qty × rate (0 when rate not set)
+}
+
 interface StageBase {
   na: boolean;                  // stage marked Not Applicable
   date?: string;
   operator?: string;
-  consumption: Consumption[];
+  consumption: Consumption[];   // legacy (auto-FIFO) — migrated into materialUses
+  materialUses?: BatchUse[];    // manual batch-pick consumption lines
   rollUses?: RollUse[];         // per-roll consumption lines (Printing, Lamination)
 }
 
@@ -259,7 +275,13 @@ export interface CuttingStage extends StageBase {
   bsPieces?: number;
 }
 
-export interface DispatchLine { quantityKg?: number; pieces?: number; dispatchDate?: string; }
+export interface DispatchLine {
+  quantityKg?: number;          // Qty (kg) — may be blank
+  pieces?: number;              // Qty (bags/pcs) — may be blank
+  dispatchDate?: string;
+  fromCardId?: string;          // carried-over: this line dispatches another card's ready balance
+  fromLabel?: string;           // e.g. "JC-1" — shown on the carried line
+}
 export interface DispatchStage extends StageBase {
   pendingKg?: number;
   pendingPcs?: number;

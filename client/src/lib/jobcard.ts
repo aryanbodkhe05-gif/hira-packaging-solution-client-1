@@ -22,7 +22,7 @@ const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 function emptyConsumption(): Consumption[] { return []; }
 
 export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glossy', makingType?: MakingType): Omit<JobCard, 'id'> {
-  const base = { na: false, consumption: emptyConsumption(), rollUses: [] };
+  const base = { na: false, consumption: emptyConsumption(), materialUses: [], rollUses: [] };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
   const isOther = cardType === 'Other';
   const isRoll = cardType === 'BOPP' && makingType === 'Roll'; // roll jobs hide Cutting only
@@ -77,7 +77,11 @@ export function createJobCardFromOrder(order: Order): Omit<JobCard, 'id'> {
 export function normalizeJobCard(j: JobCard): JobCard {
   j.cardType ??= 'BOPP';
   if ((j.cardType as string) === 'Normal') j.cardType = 'Other'; // migrate legacy label
-  for (const k of STAGE_KEYS) (j[k] as { rollUses?: unknown[] }).rollUses ??= [];
+  for (const k of STAGE_KEYS) {
+    const st = j[k] as { rollUses?: unknown[]; materialUses?: unknown[] };
+    st.rollUses ??= [];
+    st.materialUses ??= [];
+  }
   j.printing.consumption ??= [];
   j.metalize.consumption ??= [];
   j.slitting.consumption ??= [];
@@ -182,12 +186,12 @@ export interface CostingResult {
   hasUnsetRates: boolean;       // some consumed material had no rate
 }
 
-// Stage cost = material consumption (batch-rate) + per-roll consumption. Manual
-// "labour" rows are excluded here — labour/overhead is auto-applied globally
-// against the job's final output kg (see computeCosting).
+// Stage cost = manual batch-pick material lines + per-roll consumption. Labour /
+// overhead is auto-applied globally against the job's final output kg (see
+// computeCosting), not per stage.
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
-  return sum(j[key].consumption.filter((c) => c.source !== 'labour').map((c) => num(c.lineCost)))
+  return sum((j[key].materialUses ?? []).map((u) => num(u.lineCost)))
     + sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
 }
 
@@ -236,9 +240,9 @@ export function computeCosting(j: JobCard): CostingResult {
     stageCosts[k] = c;
     materialCost += c;
     if (!isStageActive(j, k)) continue;
-    // A line is "unpriced" when it consumed something no rate could cover — an
-    // unpriced batch/roll, or stock that ran short. Those are flagged, never ₹0'd.
-    if (j[k].consumption.some((x) => x.source !== 'labour' && num(x.qty) > 0 && (x.rateSnapshot == null || (x.shortfall ?? 0) > 0))) hasUnset = true;
+    // A line is "unpriced" when its picked batch/roll has no rate — flagged,
+    // never silently costed at ₹0.
+    if ((j[k].materialUses ?? []).some((u) => num(u.qty) > 0 && u.rate == null)) hasUnset = true;
     if ((j[k].rollUses ?? []).some((r) => num(r.qtyKg) > 0 && r.rate == null)) hasUnset = true;
   }
 
@@ -345,8 +349,9 @@ export function nextOrderJobSeq(existing: Pick<JobCard, 'orderJobSeq'>[]): numbe
   return (seqs.length ? Math.max(...seqs) : 0) + 1;
 }
 
-// What this job card has PRODUCED (physically made), in pieces (bags) and kg.
-// Pieces come from the cutting/back-seal output; kg from the final stage output.
+// What this job card has ACTUALLY PRODUCED — the No. of bags entered at Cutting
+// (0 until entered). Never invented. The planned qty is only a display estimate
+// (see cardReadyToDispatch), and it is never used for ready/rollup maths.
 export function jobCardMade(card: JobCard): { pieces: number; kg: number } {
   return { pieces: totalBags(card), kg: finalOutputKg(card) };
 }

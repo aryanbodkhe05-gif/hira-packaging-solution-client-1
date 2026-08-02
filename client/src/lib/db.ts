@@ -2,9 +2,8 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, Consumption, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, BatchUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
 import type { User } from '../types';
-import { allocateFifo, blendedRate, lotsCost } from './batches';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
 // prefix anywhere else — always go through getKey() / STORAGE_PREFIX.
@@ -476,64 +475,83 @@ export const rawMaterialBatchesDb = {
   delete:  (id: string) => dbDelete('inv_raw_material_batches', id),
 };
 
-// Recompute every batch's remaining qty and every job-card consumption row's
-// FIFO lots from scratch. Edit-safe by construction: nothing is patched
-// incrementally, so changing a quantity re-derives all downstream stock and
-// costs with no drift. Call after any job-card save or batch change.
-//
-// Rates stay sticky — a lot that already snapshotted a rate keeps it, so
-// correcting a batch rate later never rewrites historical job costs.
+// Recompute each batch's remaining = qty − Σ of every manual batch-use line that
+// references it (across all job cards). No FIFO, no auto-drain — the worker picks
+// the batch on each line and its rate is snapshotted there, so this is a pure
+// roll-up. Edit-safe: changing a line re-derives stock with no drift. Call after
+// any job-card save or batch change.
 export function syncBatchStock(): void {
   const batches = dbGetAll<RawMaterialBatch>('inv_raw_material_batches');
   const mats = dbGetAll<RawMaterial>('inv_raw_materials');
   const cards = dbGetAll<JobCard>('job_cards');
   const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
 
-  for (const b of batches) b.remaining = b.qty;
-
-  const byMaterial = new Map<string, RawMaterialBatch[]>();
-  for (const b of batches) {
-    const list = byMaterial.get(b.materialId) ?? [];
-    list.push(b);
-    byMaterial.set(b.materialId, list);
-  }
-  // Materials are matched by name so rows entered before an item existed still bind.
-  const matIdByName = new Map(mats.map((m) => [m.name.trim().toLowerCase(), m.id]));
-
-  // Replay consumption oldest-card-first so FIFO allocation is chronological.
-  const ordered = [...cards].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-
-  for (const c of ordered) {
+  const usedByBatch: Record<string, number> = {};
+  for (const c of cards) {
     for (const sk of stageKeys) {
-      const stage = (c as unknown as Record<string, { consumption?: Consumption[] }>)[sk];
-      for (const row of stage?.consumption ?? []) {
-        if (row.source === 'labour') continue;   // priced from the Rate Master, not stock
-        const matId = row.materialId && byMaterial.has(row.materialId)
-          ? row.materialId
-          : matIdByName.get((row.materialName ?? '').trim().toLowerCase());
-        const pool = matId ? byMaterial.get(matId) ?? [] : [];
-
-        const priorRates = new Map<string, number | null>();
-        for (const l of row.lots ?? []) priorRates.set(l.batchId, l.rate);
-
-        const { lots, shortfall } = allocateFifo(row.qty ?? 0, pool, priorRates);
-        row.lots = lots;
-        row.shortfall = shortfall || undefined;
-        row.rateSnapshot = blendedRate(lots);
-        row.lineCost = lotsCost(lots);
-        row.source = 'batch';
+      const stage = (c as unknown as Record<string, { materialUses?: BatchUse[] }>)[sk];
+      for (const u of stage?.materialUses ?? []) {
+        if (u.batchId && u.qty > 0) usedByBatch[u.batchId] = (usedByBatch[u.batchId] ?? 0) + u.qty;
       }
     }
   }
 
-  for (const m of mats) {
-    const pool = byMaterial.get(m.id) ?? [];
-    m.quantity = +pool.reduce((s, b) => s + b.remaining, 0).toFixed(3);
-  }
+  for (const b of batches) b.remaining = +(b.qty - (usedByBatch[b.id] ?? 0)).toFixed(3);
+
+  const remainingByMat: Record<string, number> = {};
+  for (const b of batches) remainingByMat[b.materialId] = (remainingByMat[b.materialId] ?? 0) + b.remaining;
+  for (const m of mats) m.quantity = +(remainingByMat[m.id] ?? 0).toFixed(3);
 
   setAll('inv_raw_material_batches', batches);
   setAll('inv_raw_materials', mats);
-  setAll('job_cards', cards);
+}
+
+// One-time migration: convert legacy auto-FIFO consumption rows (with `lots`)
+// into manual batch-use lines, so historical job costs survive the switch to
+// manual batch-pick. Each lot becomes its own BatchUse line at its snapshot rate.
+export function migrateConsumptionToBatchUsesOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}material_uses_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const cards = getAll<Record<string, unknown>>('job_cards');
+    const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'];
+    let changed = false;
+    for (const c of cards) {
+      for (const sk of stageKeys) {
+        const stage = c[sk] as { consumption?: Array<Record<string, unknown>>; materialUses?: BatchUse[] } | undefined;
+        if (!stage) continue;
+        if (stage.materialUses && stage.materialUses.length) continue;
+        const uses: BatchUse[] = [];
+        for (const row of stage.consumption ?? []) {
+          if (row.source === 'labour') continue;
+          const lots = (row.lots as Array<Record<string, unknown>>) ?? [];
+          if (lots.length) {
+            for (const l of lots) {
+              const qty = Number(l.qty) || 0;
+              const rate = l.rate == null ? null : Number(l.rate);
+              uses.push({
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+                materialId: String(row.materialId ?? ''), materialName: String(row.materialName ?? ''),
+                unit: String(row.unit ?? 'kg'), batchId: String(l.batchId ?? ''), batchDate: l.batchDate ? String(l.batchDate) : undefined,
+                qty, rate, lineCost: rate != null ? +(qty * rate).toFixed(2) : 0,
+              });
+            }
+          } else if ((Number(row.qty) || 0) > 0) {
+            const qty = Number(row.qty) || 0;
+            const rate = row.rateSnapshot == null ? null : Number(row.rateSnapshot);
+            uses.push({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+              materialId: String(row.materialId ?? ''), materialName: String(row.materialName ?? ''),
+              unit: String(row.unit ?? 'kg'), batchId: '', qty, rate, lineCost: rate != null ? +(qty * rate).toFixed(2) : 0,
+            });
+          }
+        }
+        if (uses.length) { stage.materialUses = uses; changed = true; }
+      }
+    }
+    if (changed) setAll('job_cards', cards);
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
 }
 
 // One-time migration: turn each existing RawMaterial's flat opening quantity into
