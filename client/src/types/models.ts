@@ -312,6 +312,7 @@ export interface JobCard {
   makingType?: MakingType;      // for BOPP: Roll | Bag
   orderRef?: string;            // linked Order.id
   orderNo?: string;             // linked Order.orderId (display)
+  orderJobSeq?: number;         // JC-n sequence within the order (1,2,3…)
   client?: string;              // customer, carried from the order
   rollDispatchedAt?: string;    // 1-click dispatch at roll stage
   bagDispatchedAt?: string;     // 1-click dispatch at bag stage

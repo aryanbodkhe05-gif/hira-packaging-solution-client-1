@@ -16,10 +16,16 @@ import type { RawMaterialBatch, ConsumptionLot } from '../types/models';
 const round = (n: number) => Math.round(n * 1000) / 1000;
 const money = (n: number) => Math.round(n * 100) / 100;
 
-// Oldest first; ties broken by insertion order so allocation is deterministic.
+// Oldest first: by receipt date, then created-at, then id — a fully deterministic
+// order so two batches received the same day (and even the same millisecond) can
+// never sort newest-first and skip the older stock.
 export function fifoOrder(batches: RawMaterialBatch[]): RawMaterialBatch[] {
-  return [...batches].sort((a, b) =>
-    a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date));
+  return [...batches].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const ca = a.createdAt || '', cb = b.createdAt || '';
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 export interface Allocation {

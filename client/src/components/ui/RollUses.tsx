@@ -96,7 +96,11 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
                   <div className="flex gap-1">
                     {([[false, 'Balance'], [true, 'Finished']] as const).map(([val, lbl]) => (
                       <button key={lbl} type="button"
-                        onClick={() => patch(i, { finished: val, balanceKg: val ? 0 : Math.max(0, available - u.qtyKg) })}
+                        onClick={() => patch(i, val
+                          // Finished → the whole roll/film is used: auto-fill qty with its full weight.
+                          ? { finished: true, qtyKg: available, balanceKg: 0 }
+                          // Balance → keep the manually-entered qty; remaining stays in stock.
+                          : { finished: false, balanceKg: Math.max(0, available - u.qtyKg) })}
                         className={`px-2 py-1 rounded text-xs font-medium transition-colors ${u.finished === val ? 'bg-primary text-white' : 'bg-white/10 text-muted hover:text-white'}`}>
                         {lbl}
                       </button>

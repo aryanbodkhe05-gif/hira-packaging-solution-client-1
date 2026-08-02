@@ -331,5 +331,25 @@ export function formatINR(n: number): string {
   return '₹' + (isFinite(n) ? n : 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// ── Numbering + made-vs-dispatched ──────────────────────────────────────────────
+// Display label: order number + JC-n when the card belongs to an order (an order
+// can span several cards), else the internal HPS job number.
+export function jobCardLabel(card: Pick<JobCard, 'jobNo' | 'orderNo' | 'orderJobSeq'>): string {
+  if (card.orderNo && card.orderJobSeq) return `${card.orderNo} / JC-${card.orderJobSeq}`;
+  return card.jobNo;
+}
+
+// Next JC-n sequence for an order, given its existing cards.
+export function nextOrderJobSeq(existing: Pick<JobCard, 'orderJobSeq'>[]): number {
+  const seqs = existing.map((c) => c.orderJobSeq ?? 0).filter((n) => n > 0);
+  return (seqs.length ? Math.max(...seqs) : 0) + 1;
+}
+
+// What this job card has PRODUCED (physically made), in pieces (bags) and kg.
+// Pieces come from the cutting/back-seal output; kg from the final stage output.
+export function jobCardMade(card: JobCard): { pieces: number; kg: number } {
+  return { pieces: totalBags(card), kg: finalOutputKg(card) };
+}
+
 // Stage label list in floor order (re-exported for convenience)
 export const STAGE_ORDER = JOB_STAGES;

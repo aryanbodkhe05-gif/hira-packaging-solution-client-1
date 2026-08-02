@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, ReactNode } from 'react';
 import { useParams, useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, Save, Printer, ArrowLeft, AlertTriangle,
-  IndianRupee, Plus, Trash2, Truck,
+  IndianRupee, Plus, Trash2, Truck, ArrowRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -24,8 +24,9 @@ import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, formatINR,
   prevActiveStage, nextActiveStage, stagePrimary, visibleStageKeys, totalBags,
-  autoPct, autoQty,
+  autoPct, autoQty, jobCardLabel,
 } from '../lib/jobcard';
+import { cardReadyToDispatch } from '../lib/dispatch';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts, staffScope } from '../lib/roles';
 import { useBranding } from '../lib/branding';
@@ -57,6 +58,51 @@ function StageWho({ brand, operator, onOperator }: { brand: string; operator?: s
       <Field label="Operator Name"><Txt value={operator} onChange={onOperator} placeholder="operator" /></Field>
     </div>
   );
+}
+
+// ── Carry-forward: a stage's forward output {kg, meter} + how to land it as the
+// next stage's input, mapped to each stage's ACTUAL current fields. ─────────────
+const cnum = (v?: number) => (typeof v === 'number' && isFinite(v) ? v : 0);
+const csum = (arr: (number | undefined)[]) => arr.reduce((a: number, b) => a + cnum(b), 0);
+
+function stageForward(j: JobCard, key: StageKey): { kg: number; meter: number } {
+  switch (key) {
+    case 'printing': return { kg: cnum(j.printing.outputKg) || cnum(j.printing.inputKg), meter: cnum(j.printing.meter) };
+    case 'metalize': return { kg: cnum(j.metalize.outputKg) || cnum(j.metalize.boppInputKg), meter: cnum(j.metalize.outputMtr) };
+    case 'slitting': return { kg: cnum(j.slitting.outputKg) || cnum(j.slitting.inputKg), meter: cnum(j.slitting.outputMeter) || cnum(j.slitting.inputMeter) };
+    case 'lamination': return { kg: cnum(j.lamination.outputKg) || csum(j.lamination.rows.map((r) => r.outKg)) || cnum(j.lamination.inputKg), meter: 0 };
+    case 'cutting': return { kg: j.cutting.method === 'Back Seal' ? cnum(j.cutting.bsInputKg) : csum(j.cutting.rows.map((r) => r.inputKg)), meter: 0 };
+    case 'dispatch': return { kg: csum(j.dispatch.lines.map((l) => l.quantityKg)), meter: 0 };
+  }
+}
+
+// Land a carried {kg, meter} into a stage's input, only where the field is empty
+// (never clobber a value the operator already entered).
+function applyStageInput(j: JobCard, key: StageKey, v: { kg: number; meter: number }): JobCard {
+  const put = (cur: number | undefined, val: number) => (cur == null || cur === 0) && val > 0 ? val : cur;
+  switch (key) {
+    case 'printing': return { ...j, printing: { ...j.printing, inputKg: put(j.printing.inputKg, v.kg) } };
+    case 'metalize': return { ...j, metalize: { ...j.metalize, boppInputKg: put(j.metalize.boppInputKg, v.kg) } };
+    case 'slitting': return { ...j, slitting: { ...j.slitting, inputKg: put(j.slitting.inputKg, v.kg), inputMeter: put(j.slitting.inputMeter, v.meter) } };
+    case 'lamination': {
+      // Other card uses a single inputKg; BOPP card keeps the legacy row field.
+      if (j.cardType === 'Other') return { ...j, lamination: { ...j.lamination, inputKg: put(j.lamination.inputKg, v.kg) } };
+      const rows = j.lamination.rows.length ? [...j.lamination.rows] : [{}];
+      rows[0] = { ...rows[0], boppInKg: put(rows[0].boppInKg, v.kg) };
+      return { ...j, lamination: { ...j.lamination, rows, inputKg: put(j.lamination.inputKg, v.kg) } };
+    }
+    case 'cutting': {
+      if ((j.cutting.method ?? 'BCS') === 'Back Seal') return { ...j, cutting: { ...j.cutting, bsInputKg: put(j.cutting.bsInputKg, v.kg) } };
+      const rows = j.cutting.rows.length ? [...j.cutting.rows] : [{}];
+      rows[0] = { ...rows[0], inputKg: put(rows[0].inputKg, v.kg) };
+      return { ...j, cutting: { ...j.cutting, rows } };
+    }
+    case 'dispatch': {
+      const lines = j.dispatch.lines.length ? [...j.dispatch.lines] : [{}];
+      lines[0] = { ...lines[0], quantityKg: put(lines[0].quantityKg, v.kg) };
+      return { ...j, dispatch: { ...j.dispatch, lines } };
+    }
+  }
 }
 
 // ── Stage shell (collapsible + N/A + metrics) ──────────────────────────────────
@@ -281,28 +327,25 @@ export function JobCardDetailPage() {
     return found ?? { materialId: id, materialName: name, unit: rawMaterialsDb.getAll().find((m) => m.id === id)?.unit ?? 'kg', qty: 0, rateSnapshot: null, lineCost: 0, lots: [], source: 'batch' };
   }
 
+  // Carry the current stage's output (kg AND meter) into the next active stage's
+  // input. Root cause of the old break: it only carried kg and read
+  // stagePrimary().output, which is 0 for the reworked stages that have no
+  // explicit output field (metalize, cutting) — so the button silently no-oped.
+  // This maps to the ACTUAL current fields of every stage and carries meter too.
   function carryForward(fromKey: StageKey) {
     setCard((p) => {
       if (!p) return p;
       const next = nextActiveStage(p, fromKey);
       if (!next) return p;
-      const out = stagePrimary(p, fromKey).output;
-      if (out <= 0) return p;
-      const clone = { ...p } as JobCard;
-      const setIfEmpty = (cur: number | undefined) => (cur == null || cur === 0 ? out : cur);
-      if (next === 'metalize') clone.metalize = { ...clone.metalize, boppInputKg: setIfEmpty(clone.metalize.boppInputKg) };
-      else if (next === 'slitting') clone.slitting = { ...clone.slitting, inputKg: setIfEmpty(clone.slitting.inputKg) };
-      else if (next === 'lamination') {
-        const rows = clone.lamination.rows.length ? [...clone.lamination.rows] : [{}];
-        rows[0] = { ...rows[0], boppInKg: setIfEmpty(rows[0].boppInKg) };
-        clone.lamination = { ...clone.lamination, rows };
-      } else if (next === 'cutting') {
-        if (clone.cutting.method === 'Back Seal') clone.cutting = { ...clone.cutting, bsInputKg: setIfEmpty(clone.cutting.bsInputKg) };
-        else {
-          const rows = clone.cutting.rows.length ? [...clone.cutting.rows] : [{}];
-          rows[0] = { ...rows[0], inputKg: setIfEmpty(rows[0].inputKg) };
-          clone.cutting = { ...clone.cutting, rows };
-        }
+      const val = stageForward(p, fromKey);
+      if (val.kg <= 0 && val.meter <= 0) return p;
+      let clone = applyStageInput(p, next, val);
+      // Feeding a stage input re-derives its auto material (unless overridden).
+      if (next === 'printing' && !clone.printing.inkManual) {
+        clone = autoFill(clone, 'printing', PRINTING_INK, autoPct(clone.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT), clone.printing.inputKg ?? 0);
+      }
+      if (next === 'cutting' && !clone.cutting.threadManual) {
+        clone = autoFill(clone, 'cutting', BCS_THREAD, autoPct(clone.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT), stagePrimary(clone, 'cutting').input);
       }
       return clone;
     });
@@ -371,6 +414,19 @@ export function JobCardDetailPage() {
     );
   };
 
+  // Prominent carry-forward button — carries the stage's output (kg + meter) into
+  // the next active stage's input.
+  const CarryBtn = ({ from }: { from: StageKey }) => {
+    const next = nextActiveStage(card, from);
+    if (!next) return null;
+    return (
+      <button type="button" onClick={() => carryForward(from)}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary/20 border border-primary/40 text-accent font-semibold text-sm hover:bg-primary/30 transition-colors">
+        <ArrowRight className="w-4 h-4" /> Carry output → {STAGE_LABEL[next]} input
+      </button>
+    );
+  };
+
   const fixedNames = (key: StageKey): string[] =>
     key === 'printing' ? [PRINTING_INK, ...PRINTING_SOLVENTS]
     : key === 'metalize' ? METALIZE_MATERIALS
@@ -414,8 +470,8 @@ export function JobCardDetailPage() {
         <div className="flex items-center gap-3">
           <button onClick={() => nav('/job-card')} className="p-2 rounded-lg hover:bg-white/10 text-muted hover:text-white"><ArrowLeft className="w-4 h-4" /></button>
           <div>
-            <h1 className="page-header">{card.jobNo || 'New Job Card'}</h1>
-            <p className="text-muted text-sm mt-0.5">Order traveler — fill each stage as the order moves</p>
+            <h1 className="page-header">{card.id ? jobCardLabel(card) : 'New Job Card'}</h1>
+            <p className="text-muted text-sm mt-0.5">{card.jobNo ? `${card.jobNo} · ` : ''}Order traveler — fill each stage as the order moves</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -423,6 +479,19 @@ export function JobCardDetailPage() {
           <button onClick={() => persist(card)} className="btn-primary"><Save className="w-4 h-4" /> Save</button>
         </div>
       </div>
+
+      {/* Made vs dispatched — produced vs shipped, with ready-to-dispatch balance */}
+      {card.id && (!isScoped || staffStage === 'dispatch') && (() => {
+        const p = cardReadyToDispatch(card, dispatchesDb.getAll());
+        if (p.madePcs <= 0 && p.dispatchedPcs <= 0) return null;
+        return (
+          <div className="grid grid-cols-3 gap-3 no-print">
+            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Made</p><p className="font-mono text-white text-lg">{p.madePcs.toLocaleString('en-IN')}</p></div>
+            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Dispatched</p><p className="font-mono text-white text-lg">{p.dispatchedPcs.toLocaleString('en-IN')}</p></div>
+            <div className={cn('glass-card p-3 text-center', p.readyPcs > 0 && 'border-amber-500/30')}><p className={cn('text-xs', p.readyPcs > 0 ? 'text-amber-300/80' : 'text-muted')}>Ready to Dispatch</p><p className={cn('font-mono text-lg', p.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{p.readyPcs.toLocaleString('en-IN')}</p></div>
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -510,7 +579,7 @@ export function JobCardDetailPage() {
               <Field label="Output (meter)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            <button onClick={() => carryForward('printing')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
+            <CarryBtn from="printing" />
 
             {/* Printing consumes BOPP FILM only — normal rolls are not selectable here */}
             <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
@@ -560,7 +629,7 @@ export function JobCardDetailPage() {
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
-            <button onClick={() => carryForward('metalize')} className="text-xs text-accent hover:underline">↳ Carry output to next stage input</button>
+            <CarryBtn from="metalize" />
             <div className="rounded-lg border border-accent/10 overflow-hidden">
               <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide flex items-center gap-1.5">
                 <IndianRupee className="w-3 h-3" /> Materials from Raw Materials — costed at batch rate
@@ -588,7 +657,7 @@ export function JobCardDetailPage() {
               <Field label="Balance (meter)"><Num value={card.slitting.balanceMeter} onChange={(v) => patchStage('slitting', { balanceMeter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
             </div>
-            <button onClick={() => carryForward('slitting')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
+            <CarryBtn from="slitting" />
           </StageCard>
 
           {!isScoped && card.makingType === 'Roll' && (
@@ -642,7 +711,7 @@ export function JobCardDetailPage() {
                 <p className="text-muted text-[11px]">P.P., Filler and LD are drawn from Raw Materials — this stage no longer touches P.P. Granule Stock.</p>
               </div>
             </div>
-            <button onClick={() => carryForward('lamination')} className="text-xs text-accent hover:underline block">↳ Carry output to next stage input</button>
+            <CarryBtn from="lamination" />
           </StageCard>
 
           {/* C5 — Cutting: BCS or Back Seal */}
@@ -740,6 +809,7 @@ export function JobCardDetailPage() {
                 </div>
               </div>
             </>)}
+            <CarryBtn from="cutting" />
           </StageCard>
 
           {!isScoped && card.makingType !== 'Roll' && (
@@ -788,6 +858,7 @@ export function JobCardDetailPage() {
                 <AddMaterial exclude={batchRows('lamination').map((r) => r.materialId)} onAdd={(mid) => setMaterialQty('lamination', mid, 0)} />
               </div>
             </div>
+            <CarryBtn from="lamination" />
           </StageCard>
 
           <StageCard jobKey="cutting" card={card} expanded={expanded.has('cutting')} onToggle={() => toggleExpand('cutting')} onSetNA={(na) => setNA('cutting', na)} stageFilter={staffStage}>
@@ -835,6 +906,7 @@ export function JobCardDetailPage() {
               </div>
               {renderNamed('cutting', BACKSEAL_GLUE)}
             </>)}
+            <CarryBtn from="cutting" />
           </StageCard>
 
           <StageCard jobKey="printing" card={card} expanded={expanded.has('printing')} onToggle={() => toggleExpand('printing')} onSetNA={(na) => setNA('printing', na)} stageFilter={staffStage} label="Flexo">

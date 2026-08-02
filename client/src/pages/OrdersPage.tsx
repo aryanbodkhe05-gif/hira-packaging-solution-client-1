@@ -4,12 +4,12 @@ import { Plus, Pencil, Trash2, Truck, Search, Factory, ExternalLink, XCircle } f
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 import { ordersDb, jobCardsDb, dispatchesDb, getList, addToList } from '../lib/db';
-import { orderDispatchProgress, progressBarClass } from '../lib/dispatch';
+import { orderDispatchProgress, progressBarClass, orderProduction } from '../lib/dispatch';
 import { canEditRates } from '../lib/roles';
 import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
-import type { Order } from '../types/models';
+import type { Order, JobCard } from '../types/models';
 import type { ProductType, OrderStatus, MakingType } from '../config';
-import { createJobCardFromOrder, genJobNo } from '../lib/jobcard';
+import { createJobCardFromOrder, genJobNo, nextOrderJobSeq, jobCardLabel, jobCardMade } from '../lib/jobcard';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -329,11 +329,14 @@ export function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(''); // 'YYYY-MM'
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; order?: Order } | null>(null);
+  const [cardsModal, setCardsModal] = useState<Order | null>(null);
   const nav = useNavigate();
 
   const { user } = useAuth();
   const reload = useCallback(() => setOrders(ordersDb.getAll()), []);
   const dispatches = useMemo(() => dispatchesDb.getAll(), [orders]);
+  const allCards = useMemo(() => jobCardsDb.getAll(), [orders]);
+  const cardsForOrder = useCallback((orderId: string) => jobCardsDb.getAll().filter((c) => c.orderRef === orderId), []);
 
   // Short-close: owner/manager closes an order before 100% (client wanted less /
   // capacity). Requires a confirm; records who + optional reason; stops pending.
@@ -346,24 +349,29 @@ export function OrdersPage() {
     reload();
   }
 
-  // Push an order into Production — creates the correct, pre-filled, linked Job Card.
-  function sendToProduction(order: Order) {
-    if (order.jobCardId && jobCardsDb.get(order.jobCardId)) {
-      nav(`/job-card/${order.jobCardId}`);
-      return;
-    }
+  // Create the next job card for an order (JC-n numbered). Same description; an
+  // order can span multiple cards.
+  function createNextJobCard(order: Order) {
     if (order.productType === 'BOPP' && !order.makingType) {
       toast.error('Set Making Type (Roll / Bag) on the order first'); return;
     }
     const now = new Date().toISOString();
     const draft = createJobCardFromOrder(order);
     const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
-    const created = jobCardsDb.create({ ...draft, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now });
-    ordersDb.update(order.id, { status: 'In Production', jobCardId: created.id });
-    const dest = created.cardType === 'Other' ? 'Other' : `BOPP (${created.makingType})`;
-    toast.success(`Sent to Production → ${dest} job card ${created.jobNo}`);
+    const seq = nextOrderJobSeq(cardsForOrder(order.id));
+    const created = jobCardsDb.create({ ...draft, jobNo, orderJobSeq: seq, ratesAsOf: now, createdAt: now, updatedAt: now });
+    // Keep the first card linked for backward compatibility; all cards are found via orderRef.
+    ordersDb.update(order.id, { status: 'In Production', jobCardId: order.jobCardId ?? created.id });
+    toast.success(`Created ${jobCardLabel(created)}`);
     reload();
     nav(`/job-card/${created.id}`);
+  }
+
+  // Open an order: if it already has job cards, show them all; else create JC-1.
+  function openOrder(order: Order) {
+    const cards = cardsForOrder(order.id);
+    if (cards.length === 0) { createNextJobCard(order); return; }
+    setCardsModal(order);
   }
 
   // Build month options from order dates
@@ -482,6 +490,7 @@ export function OrdersPage() {
                     <th className="table-header">Nos</th>
                     <th className="table-header">Status</th>
                     <th className="table-header">Dispatch</th>
+                    <th className="table-header">Made / Ready</th>
                     <th className="table-header">Bill No.</th>
                     <th className="table-header"></th>
                   </tr>
@@ -512,16 +521,30 @@ export function OrdersPage() {
                           </div>
                         ); })()}
                       </td>
+                      <td className="table-cell">
+                        {(() => {
+                          const pr = orderProduction(o, allCards, dispatches);
+                          const nCards = allCards.filter((c) => c.orderRef === o.id).length;
+                          if (nCards === 0) return <span className="text-muted text-xs">—</span>;
+                          return (
+                            <div className="text-[11px] leading-tight font-mono">
+                              <span className="text-white/80">{pr.madePcs.toLocaleString('en-IN')} made</span>
+                              {pr.readyPcs > 0 && <div className="text-amber-300">{pr.readyPcs.toLocaleString('en-IN')} ready to ship</div>}
+                              {pr.stillToProducePcs > 0 && <div className="text-muted">{pr.stillToProducePcs.toLocaleString('en-IN')} to produce</div>}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="table-cell font-mono text-xs">{o.billNo ?? '—'}</td>
                       <td className="table-cell">
                         <div className="flex gap-1">
-                          {o.jobCardId ? (
-                            <button onClick={() => nav(`/job-card/${o.jobCardId}`)}
-                              className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors" title="Open linked Job Card">
+                          {cardsForOrder(o.id).length > 0 ? (
+                            <button onClick={() => openOrder(o)}
+                              className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors" title="Open job cards">
                               <ExternalLink className="w-3.5 h-3.5" />
                             </button>
-                          ) : o.status !== 'Dispatched' && (
-                            <button onClick={() => sendToProduction(o)}
+                          ) : (
+                            <button onClick={() => openOrder(o)}
                               className="p-1.5 rounded hover:bg-primary/20 text-muted hover:text-accent transition-colors" title="Send to Production">
                               <Factory className="w-3.5 h-3.5" />
                             </button>
@@ -564,6 +587,70 @@ export function OrdersPage() {
           />
         </Modal>
       )}
+
+      {/* Order → job cards list (an order can span multiple cards) */}
+      {cardsModal && (
+        <Modal open onClose={() => setCardsModal(null)} size="lg"
+          title={`${cardsModal.orderId} — Job Cards`}>
+          <OrderJobCards order={cardsModal} dispatches={dispatches}
+            onOpen={(id) => nav(`/job-card/${id}`)}
+            onCreateNext={() => createNextJobCard(cardsModal)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Order → job cards list + made/dispatched/ready per card ─────────────────────
+function OrderJobCards({ order, dispatches, onOpen, onCreateNext }: {
+  order: Order; dispatches: ReturnType<typeof dispatchesDb.getAll>;
+  onOpen: (id: string) => void; onCreateNext: () => void;
+}) {
+  const cards: JobCard[] = jobCardsDb.getAll()
+    .filter((c) => c.orderRef === order.id)
+    .sort((a, b) => (a.orderJobSeq ?? 0) - (b.orderJobSeq ?? 0));
+  const pr = orderProduction(order, jobCardsDb.getAll(), dispatches);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-muted text-sm">{order.brandName} · {order.sizeDisplay} · target {order.quantityNos?.toLocaleString('en-IN') ?? '—'} nos</p>
+
+      {/* Order-level rollup: dispatched / ready-to-ship / still-to-produce */}
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="bg-navy/40 rounded-lg p-2.5"><p className="text-muted text-[11px]">Dispatched</p><p className="font-mono text-white">{pr.dispatchedPcs.toLocaleString('en-IN')}</p></div>
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5"><p className="text-amber-300/80 text-[11px]">Ready to dispatch</p><p className="font-mono text-amber-300">{pr.readyPcs.toLocaleString('en-IN')}</p></div>
+        <div className="bg-navy/40 rounded-lg p-2.5"><p className="text-muted text-[11px]">Still to produce</p><p className="font-mono text-white">{pr.stillToProducePcs.toLocaleString('en-IN')}</p></div>
+      </div>
+      {pr.readyPcs > 0 && (
+        <p className="text-amber-300/90 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          {pr.readyPcs.toLocaleString('en-IN')} bags produced, pending dispatch — a later dispatch draws these down first.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {cards.map((c) => {
+          const made = jobCardMade(c);
+          const disp = dispatches.filter((d) => d.jobCardId === c.id).reduce((s, d) => s + (d.qtyPieces || 0), 0);
+          const ready = Math.max(0, made.pieces - disp);
+          return (
+            <button key={c.id} onClick={() => onOpen(c.id)}
+              className="w-full text-left glass-card px-4 py-3 hover:border-accent/40 border border-white/10 transition-colors flex items-center justify-between gap-3">
+              <div>
+                <p className="text-white font-medium font-mono">{jobCardLabel(c)}</p>
+                <p className="text-muted text-xs">{c.status} · {c.cardType}{c.makingType ? ` (${c.makingType})` : ''}</p>
+              </div>
+              <div className="text-right text-xs font-mono">
+                <p className="text-white/80">Made {made.pieces.toLocaleString('en-IN')} · Disp {disp.toLocaleString('en-IN')}</p>
+                {ready > 0 && <p className="text-amber-300">Ready {ready.toLocaleString('en-IN')}</p>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <button onClick={onCreateNext} className="btn-primary w-full justify-center">
+        <Plus className="w-4 h-4" /> Create next job card ({order.orderId} / JC-{nextOrderJobSeq(cards)})
+      </button>
     </div>
   );
 }

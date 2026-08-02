@@ -4,6 +4,7 @@
 import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialBatchesDb, rateMasterDb, syncBatchStock,
+  jobCardsDb, dispatchesDb,
 } from './db';
 import { RATE_MASTER_SEED } from '../config';
 
@@ -80,6 +81,12 @@ export function seedSampleData(): void {
     mat('Thread',   'kg', [{ qty: 60,  rate: 180, date: daysAgo(9) }]);
     // Left unpriced on purpose — shows "rate not set" and stays out of totals.
     mat('Hot melt glue', 'kg', [{ qty: 90, rate: null, date: daysAgo(6), note: 'Awaiting invoice — price later' }]);
+    // FIFO demo (Part 4 spec example): 180 kg draws 100 @ ₹80 + 80 @ ₹100 = ₹16,000.
+    // Older batch keeps stock, so it must drain first before the newer batch.
+    mat('FIFO Demo Ink', 'kg', [
+      { qty: 100, rate: 80,  date: daysAgo(15), note: 'Older batch — drains first' },
+      { qty: 80,  rate: 100, date: daysAgo(3),  note: 'Newer batch — used after' },
+    ]);
     syncBatchStock();
   }
 
@@ -90,5 +97,23 @@ export function seedSampleData(): void {
   if (ordersDb.getAll().length === 0) {
     ordersDb.create({ orderId: 'HPS-20260702-0001', brandName: 'Amrit Snacks', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520', '480'], metalizeSize: '480', linerSize: '500', linerGrm: 1.2, length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 12000, quantityKg: 480, quantityUnit: 'Both', status: 'Pending', createdAt: iso() });
     ordersDb.create({ orderId: 'HPS-20260702-0002', brandName: 'Surya Foods', productType: 'Plain', makingType: undefined, bagType: 'Laminated', boppFilmSizes: [], length: 18, width: 28, grm: 1.1, sizeDisplay: '18 × 28 + 1.10 gm', quantityNos: 6000, quantityKg: 220, quantityUnit: 'Both', status: 'Pending', createdAt: iso() });
+
+    // Made-vs-dispatched demo (Part 3.2): order for 5000 bags, JC-1 produced 4000,
+    // a dispatch shipped 3000 → 1000 ready-to-dispatch, 1000 still to produce.
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], rollUses: [] };
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0003', brandName: 'Balance Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 5000, quantityKg: 380, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
+    const card = jobCardsDb.create({
+      jobNo: 'HPS-2026-9001', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Balance Demo',
+      header: { brand: 'Balance Demo', qty: 5000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], rollUses: [], inputKg: 400, outputKg: 380, meter: 5000 },
+      metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] }, lamination: { ...emptyStage, rows: [{}] },
+      cutting: { na: false, consumption: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 380, noOfBags: 4000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Cutting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    ordersDb.update(order.id, { jobCardId: card.id });
+    dispatchesDb.create({ type: 'Bag', jobCardId: card.id, jobNo: card.jobNo, orderRef: order.id, orderNo: order.orderId, party: 'Balance Demo', brand: 'BOPP', qtyPieces: 3000, qtyKg: 285, date: today(), createdAt: now });
   }
 }
