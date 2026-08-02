@@ -7,7 +7,7 @@ import { ordersDb, jobCardsDb, dispatchesDb, getList, addToList } from '../lib/d
 import { orderDispatchProgress, progressBarClass, orderProduction, cardReadyToDispatch } from '../lib/dispatch';
 import { canEditRates } from '../lib/roles';
 import { PRODUCT_TYPES, ORDER_STATUSES, MAKING_TYPES, BAG_TYPES_KEY, DEFAULT_BAG_TYPES } from '../config';
-import type { Order, JobCard } from '../types/models';
+import type { Order, JobCard, DispatchLine } from '../types/models';
 import type { ProductType, OrderStatus, MakingType } from '../config';
 import { createJobCardFromOrder, genJobNo, nextOrderJobSeq, jobCardLabel } from '../lib/jobcard';
 import { useAuth } from '../context/AuthContext';
@@ -360,17 +360,20 @@ export function OrdersPage() {
     const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
     const siblings = cardsForOrder(order.id);
     const seq = nextOrderJobSeq(siblings);
-    // Carry each sibling card's ready-to-dispatch balance onto this new card as a
-    // removable, tagged dispatch line — it dispatches the source card's balance,
-    // so the same bags are never counted twice across cards (Part 3).
+    // Ask before carrying each sibling card's ready-to-dispatch balance onto this
+    // new card. Only add it on a Yes. When later dispatched here it draws down the
+    // source card's balance, so the same bags are never counted twice (Part 2/3).
     const allCards = jobCardsDb.getAll();
-    const carried = siblings
-      .map((s) => ({ s, bal: cardReadyToDispatch(s, allCards) }))
-      .filter(({ bal }) => bal.readyPcs > 0 || bal.readyKg > 0)
-      .map(({ s, bal }) => ({
-        fromCardId: s.id, fromLabel: jobCardLabel(s).split(' / ').pop() || `JC-${s.orderJobSeq ?? ''}`,
-        pieces: bal.readyPcs || undefined, quantityKg: bal.readyKg || undefined,
-      }));
+    const candidates = siblings
+      .map((s) => ({ s, label: jobCardLabel(s).split(' / ').pop() || `JC-${s.orderJobSeq ?? ''}`, bal: cardReadyToDispatch(s, allCards) }))
+      .filter(({ bal }) => bal.readyPcs > 0 || bal.readyKg > 0);
+    const carried: DispatchLine[] = [];
+    for (const { s, label, bal } of candidates) {
+      const qtyText = bal.readyPcs > 0 ? `${bal.readyPcs.toLocaleString('en-IN')} bags` : `${bal.readyKg.toLocaleString('en-IN')} kg`;
+      if (window.confirm(`There is ${qtyText} ready-to-dispatch balance from ${label}. Add it to this dispatch?`)) {
+        carried.push({ fromCardId: s.id, fromLabel: label, pieces: bal.readyPcs || undefined, quantityKg: bal.readyKg || undefined });
+      }
+    }
     draft.dispatch = { ...draft.dispatch, lines: [...carried, ...(draft.dispatch.lines ?? [{}])] };
     const created = jobCardsDb.create({ ...draft, jobNo, orderJobSeq: seq, ratesAsOf: now, createdAt: now, updatedAt: now });
     // Keep the first card linked for backward compatibility; all cards are found via orderRef.

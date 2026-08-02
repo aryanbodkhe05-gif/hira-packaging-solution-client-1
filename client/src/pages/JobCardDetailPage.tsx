@@ -750,10 +750,17 @@ export function JobCardDetailPage() {
               </div>
             ); })()}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
               <Field label="No. of Bales"><Num value={card.dispatch.noOfBales} onChange={(v) => patchStage('dispatch', { noOfBales: v })} /></Field>
-              <Field label="Balance (kg)"><Num value={card.dispatch.balanceKg} onChange={(v) => patchStage('dispatch', { balanceKg: v })} /></Field>
+              <Field label="Balance in kg"><Num value={card.dispatch.balanceKg} onChange={(v) => patchStage('dispatch', { balanceKg: v })} /></Field>
+              {/* Balance in Nos — computed ready-to-dispatch bag balance (Made − Dispatched) */}
+              <Field label="Balance in Nos">
+                {(() => { const b = cardReadyToDispatch(card, jobCardsDb.getAll()); return (
+                  <input className={cn('input-field font-mono bg-white/5', b.readyPcs > 0 && 'text-amber-300')} readOnly
+                    value={b.readyPcs.toLocaleString('en-IN')} title="Bags still ready to dispatch (Made − Dispatched)" />
+                ); })()}
+              </Field>
               <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
             </div>
 

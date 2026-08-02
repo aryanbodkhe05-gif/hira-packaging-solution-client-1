@@ -196,12 +196,15 @@ export function stageCost(j: JobCard, key: StageKey): number {
 }
 
 // The job's final output kg used to cost labour/overhead: prefer the dispatched
-// quantity, else the last stage with a positive kg output.
+// quantity (this card's OWN lines only — carried lines dispatch another card's
+// balance, not this card's production), else the last stage with a positive kg.
+// (Carried lines excluded so a carried kg never inflates the source card's made.)
 export function finalOutputKg(j: JobCard): number {
-  const dispatched = sum(j.dispatch.lines.map((l) => num(l.quantityKg)));
+  const dispatched = sum(j.dispatch.lines.filter((l) => !l.fromCardId).map((l) => num(l.quantityKg)));
   if (dispatched > 0) return dispatched;
   for (let i = STAGE_KEYS.length - 1; i >= 0; i--) {
     const k = STAGE_KEYS[i];
+    if (k === 'dispatch') continue;   // dispatch lines aren't production output (and carried lines aren't this card's)
     if (!isStageActive(j, k)) continue;
     const out = stagePrimary(j, k).output;
     if (out > 0) return out;
