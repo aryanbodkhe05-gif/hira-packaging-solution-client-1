@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, BatchUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, BatchUse, MaterialUse, FifoLine, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -475,28 +475,51 @@ export const rawMaterialBatchesDb = {
   delete:  (id: string) => dbDelete('inv_raw_material_batches', id),
 };
 
-// Recompute each batch's remaining = qty − Σ of every manual batch-use line that
-// references it (across all job cards). No FIFO, no auto-drain — the worker picks
-// the batch on each line and its rate is snapshotted there, so this is a pure
-// roll-up. Edit-safe: changing a line re-derives stock with no drift. Call after
-// any job-card save or batch change.
+// Authoritative auto-FIFO recompute. Resets every batch's remaining to its full
+// qty, then replays each job card's material consumption in chronological order —
+// for each material draining the OLDEST batch first and flowing into newer ones,
+// writing the per-batch split (lines + cost) back onto the card and decrementing
+// EVERY batch touched. Edit-safe (full recompute, no drift) and never negative.
+// Call after any job-card save or batch change.
 export function syncBatchStock(): void {
   const batches = dbGetAll<RawMaterialBatch>('inv_raw_material_batches');
   const mats = dbGetAll<RawMaterial>('inv_raw_materials');
   const cards = dbGetAll<JobCard>('job_cards');
   const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const money = (n: number) => Math.round(n * 100) / 100;
+  const fifo = (arr: RawMaterialBatch[]) => [...arr].sort((a, b) =>
+    a.date !== b.date ? (a.date < b.date ? -1 : 1)
+    : (a.createdAt || '') !== (b.createdAt || '') ? ((a.createdAt || '') < (b.createdAt || '') ? -1 : 1)
+    : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
-  const usedByBatch: Record<string, number> = {};
-  for (const c of cards) {
+  for (const b of batches) b.remaining = b.qty;
+  const byMat = new Map<string, RawMaterialBatch[]>();
+  for (const b of batches) { const l = byMat.get(b.materialId) ?? []; l.push(b); byMat.set(b.materialId, l); }
+
+  const ordered = [...cards].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  for (const c of ordered) {
     for (const sk of stageKeys) {
-      const stage = (c as unknown as Record<string, { materialUses?: BatchUse[] }>)[sk];
-      for (const u of stage?.materialUses ?? []) {
-        if (u.batchId && u.qty > 0) usedByBatch[u.batchId] = (usedByBatch[u.batchId] ?? 0) + u.qty;
+      const stage = (c as unknown as Record<string, { materials?: MaterialUse[] }>)[sk];
+      for (const m of stage?.materials ?? []) {
+        const pool = fifo(byMat.get(m.materialId) ?? []);
+        let left = round(m.qty || 0);
+        const lines: FifoLine[] = [];
+        for (const b of pool) {
+          if (left <= 0) break;
+          if (b.remaining <= 0) continue;
+          const take = round(Math.min(b.remaining, left));
+          if (take <= 0) continue;
+          lines.push({ batchId: b.id, batchDate: b.date, take, rate: b.rate ?? null, cost: b.rate != null ? money(take * b.rate) : 0 });
+          b.remaining = round(b.remaining - take);
+          left = round(left - take);
+        }
+        m.lines = lines;
+        m.totalCost = money(lines.reduce((s, l) => s + (l.cost || 0), 0));
+        m.shortfall = left > 0 ? round(left) : undefined;
       }
     }
   }
-
-  for (const b of batches) b.remaining = +(b.qty - (usedByBatch[b.id] ?? 0)).toFixed(3);
 
   const remainingByMat: Record<string, number> = {};
   for (const b of batches) remainingByMat[b.materialId] = (remainingByMat[b.materialId] ?? 0) + b.remaining;
@@ -504,6 +527,7 @@ export function syncBatchStock(): void {
 
   setAll('inv_raw_material_batches', batches);
   setAll('inv_raw_materials', mats);
+  setAll('job_cards', cards);
 }
 
 // One-time migration: convert legacy auto-FIFO consumption rows (with `lots`)
@@ -547,6 +571,53 @@ export function migrateConsumptionToBatchUsesOnce(): void {
           }
         }
         if (uses.length) { stage.materialUses = uses; changed = true; }
+      }
+    }
+    if (changed) setAll('job_cards', cards);
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
+// One-time migration: fold legacy manual batch-use lines (materialUses) — and any
+// remaining lots-based consumption — into the auto-FIFO `materials` shape. Then
+// syncBatchStock re-derives the authoritative FIFO split. Runs once (flagged).
+export function migrateToFifoMaterialsOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}materials_fifo_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const cards = getAll<Record<string, unknown>>('job_cards');
+    const stageKeys = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'];
+    let changed = false;
+    for (const c of cards) {
+      for (const sk of stageKeys) {
+        const stage = c[sk] as { materialUses?: BatchUse[]; consumption?: Array<Record<string, unknown>>; materials?: MaterialUse[] } | undefined;
+        if (!stage || (stage.materials && stage.materials.length)) continue;
+        const byMat = new Map<string, MaterialUse>();
+        // From manual batch-use lines: each line's qty becomes a FIFO line.
+        for (const u of stage.materialUses ?? []) {
+          const m = byMat.get(u.materialId) ?? { materialId: u.materialId, materialName: u.materialName, unit: u.unit, qty: 0, lines: [], totalCost: 0 };
+          m.qty = +(m.qty + (u.qty || 0)).toFixed(3);
+          m.lines.push({ batchId: u.batchId, batchDate: u.batchDate ?? '', take: u.qty || 0, rate: u.rate ?? null, cost: u.rate != null ? +((u.qty || 0) * u.rate).toFixed(2) : 0 });
+          m.totalCost = +(m.totalCost + (u.rate != null ? (u.qty || 0) * u.rate : 0)).toFixed(2);
+          byMat.set(u.materialId, m);
+        }
+        // From very old lots-based consumption (only if no materialUses existed).
+        if (!byMat.size) {
+          for (const row of stage.consumption ?? []) {
+            if (row.source === 'labour') continue;
+            const id = String(row.materialId ?? '');
+            const lots = (row.lots as Array<Record<string, unknown>>) ?? [];
+            const m: MaterialUse = { materialId: id, materialName: String(row.materialName ?? ''), unit: String(row.unit ?? 'kg'), qty: Number(row.qty) || 0, lines: [], totalCost: 0 };
+            for (const l of lots) {
+              const take = Number(l.qty) || 0; const rate = l.rate == null ? null : Number(l.rate);
+              m.lines.push({ batchId: String(l.batchId ?? ''), batchDate: l.batchDate ? String(l.batchDate) : '', take, rate, cost: rate != null ? +(take * rate).toFixed(2) : 0 });
+              m.totalCost = +(m.totalCost + (rate != null ? take * rate : 0)).toFixed(2);
+            }
+            if (m.qty > 0) byMat.set(id, m);
+          }
+        }
+        const materials = [...byMat.values()];
+        if (materials.length) { stage.materials = materials; delete stage.materialUses; changed = true; }
       }
     }
     if (changed) setAll('job_cards', cards);

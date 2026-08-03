@@ -59,9 +59,11 @@ export function seedSampleData(): void {
         rawMaterialBatchesDb.create({ materialId: m.id, qty: b.qty, remaining: b.qty, rate: b.rate, date: b.date, note: b.note, createdAt: iso() });
       }
     };
+    // Worked example: older 100 kg @ ₹120 (smaller than the job needs) + newer
+    // 300 kg @ ₹140. A 300 kg draw splits 100 @ ₹120 + 200 @ ₹140.
     mat('Gravure ink', 'kg', [
-      { qty: 100, rate: 120, date: daysAgo(20), note: 'Older batch — consumed first' },
-      { qty: 200, rate: 140, date: daysAgo(4),  note: 'Newer batch — used after the first empties' },
+      { qty: 100, rate: 120, date: daysAgo(20), note: 'Older batch — drains first' },
+      { qty: 300, rate: 140, date: daysAgo(4),  note: 'Newer batch — used after the first empties' },
     ]);
     mat('Ethyl acetate', 'kg', [
       { qty: 300, rate: 95,  date: daysAgo(18) },
@@ -98,40 +100,35 @@ export function seedSampleData(): void {
     ordersDb.create({ orderId: 'HPS-20260702-0001', brandName: 'Amrit Snacks', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520', '480'], metalizeSize: '480', linerSize: '500', linerGrm: 1.2, length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 12000, quantityKg: 480, quantityUnit: 'Both', status: 'Pending', createdAt: iso() });
     ordersDb.create({ orderId: 'HPS-20260702-0002', brandName: 'Surya Foods', productType: 'Plain', makingType: undefined, bagType: 'Laminated', boppFilmSizes: [], length: 18, width: 28, grm: 1.1, sizeDisplay: '18 × 28 + 1.10 gm', quantityNos: 6000, quantityKg: 220, quantityUnit: 'Both', status: 'Pending', createdAt: iso() });
 
-    // Made-vs-dispatched + carried-over demo (Parts 1–3): order for 5000 bags.
-    // JC-1: made 4000 (cutting bags), own dispatch line ships 3000 → ready 1000.
-    // JC-2: created next, with a carried reminder line "from JC-1: 1000 bags".
+    // Dispatch + carry-button demo (Parts 1–2): order for 12,000 bags.
+    // JC-1: made 6,000 (cutting bags), dispatch line ships 5,000 → 1,000 ready.
+    // JC-2: no carried balance yet — use the carry button on JC-2 to move JC-1's
+    // 1,000 across. JC-1 printing also consumes 300 kg ink to show the FIFO split.
     const now = iso();
-    const emptyStage = { na: true, consumption: [], materialUses: [], rollUses: [] };
-    // A manual batch-pick line on JC-1 printing (proves Part 4): 40 kg of ink
-    // drawn from a specific batch at its rate.
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
     const inkMat = rawMaterialsDb.getAll().find((m) => m.name === 'Gravure ink');
-    const inkBatch = inkMat ? rawMaterialBatchesDb.forItem(inkMat.id).sort((a, b) => a.date.localeCompare(b.date))[0] : undefined;
-    const inkUse = inkMat && inkBatch ? [{
-      id: 'seed-inkuse-1', materialId: inkMat.id, materialName: 'Gravure ink', unit: 'kg',
-      batchId: inkBatch.id, batchDate: inkBatch.date, qty: 40, rate: inkBatch.rate,
-      lineCost: inkBatch.rate != null ? +(40 * inkBatch.rate).toFixed(2) : 0,
-    }] : [];
+    // qty only — syncBatchStock computes the per-batch FIFO lines on boot.
+    const inkUse = inkMat ? [{ materialId: inkMat.id, materialName: 'Gravure ink', unit: 'kg', qty: 300, lines: [], totalCost: 0 }] : [];
 
-    const order = ordersDb.create({ orderId: 'HPS-20260702-0003', brandName: 'Balance Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 5000, quantityKg: 380, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0003', brandName: 'Balance Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 12000, quantityKg: 900, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
     const jc1 = jobCardsDb.create({
       jobNo: 'HPS-2026-9001', cardType: 'BOPP', makingType: 'Bag',
       orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Balance Demo',
-      header: { brand: 'Balance Demo', qty: 5000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
-      printing: { na: false, consumption: [], materialUses: inkUse, rollUses: [], inputKg: 400, outputKg: 380, meter: 5000 },
+      header: { brand: 'Balance Demo', qty: 12000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], materials: inkUse, rollUses: [], inputKg: 400, outputKg: 380, meter: 5000 },
       metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] }, lamination: { ...emptyStage, rows: [{}] },
-      cutting: { na: false, consumption: [], materialUses: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 380, noOfBags: 4000, machine: 'Cutting-1' }] },
-      dispatch: { na: false, consumption: [], materialUses: [], rollUses: [], lines: [{ pieces: 3000, quantityKg: 285, dispatchDate: today() }], bagsPerBale: 100 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 380, noOfBags: 6000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{ pieces: 5000, quantityKg: 380, dispatchDate: today() }], bagsPerBale: 100 },
       status: 'In Progress', currentStage: 'Cutting', ratesAsOf: now, createdAt: now, updatedAt: now,
     });
-    // JC-2 with the carried reminder line (no date yet → JC-1 keeps its 1000 ready).
+    // JC-2 — no carried balance; move JC-1's 1,000 ready via the button on JC-2.
     jobCardsDb.create({
       jobNo: 'HPS-2026-9002', cardType: 'BOPP', makingType: 'Bag',
       orderRef: order.id, orderNo: order.orderId, orderJobSeq: 2, client: 'Balance Demo',
-      header: { brand: 'Balance Demo', qty: 1000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
+      header: { brand: 'Balance Demo', qty: 6000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
       printing: { ...emptyStage, na: false }, metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] }, lamination: { ...emptyStage, rows: [{}] },
-      cutting: { na: false, consumption: [], materialUses: [], rollUses: [], gusset: false, perforation: false, rows: [{}] },
-      dispatch: { na: false, consumption: [], materialUses: [], rollUses: [], lines: [{ fromCardId: jc1.id, fromLabel: 'JC-1', pieces: 1000, quantityKg: 95 }, {}], bagsPerBale: 100 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{}] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], carriedIn: [], bagsPerBale: 100 },
       status: 'In Progress', currentStage: 'Printing', ratesAsOf: now, createdAt: iso(), updatedAt: now,
     });
     ordersDb.update(order.id, { jobCardId: jc1.id });

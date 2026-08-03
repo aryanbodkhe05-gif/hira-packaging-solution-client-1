@@ -170,27 +170,46 @@ export interface RollUse {
   balanceKg?: number;           // weight left on the roll when not finished
 }
 
-// One batch of a raw material consumed by a stage — MANUALLY picked, exactly like
-// roll consumption. No auto-FIFO: the worker chooses the batch and the qty, each
-// line costs at that batch's own rate, and a second batch is simply another line.
+// (legacy) manual batch-pick line — superseded by auto-FIFO MaterialUse below.
 export interface BatchUse {
   id: string;
   materialId: string;
   materialName: string;
   unit: string;
-  batchId: string;              // the chosen RawMaterialBatch
-  batchDate?: string;           // for display
-  qty: number;                  // qty drawn from this batch
-  rate: number | null;          // ₹/unit snapshotted from the batch at pick time
-  lineCost: number;             // qty × rate (0 when rate not set)
+  batchId: string;
+  batchDate?: string;
+  qty: number;
+  rate: number | null;
+  lineCost: number;
+}
+
+// ── Auto-FIFO raw-material consumption ──────────────────────────────────────────
+// The worker enters ONE quantity Q for a material; the system drains the oldest
+// batch first, flowing into newer batches, and snapshots the per-batch split.
+export interface FifoLine {
+  batchId: string;
+  batchDate: string;            // for the breakdown display
+  take: number;                 // qty drawn from this batch
+  rate: number | null;          // ₹/unit snapshotted from the batch
+  cost: number;                 // take × rate (0 when rate not set)
+}
+export interface MaterialUse {
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;                  // total quantity consumed (Q)
+  lines: FifoLine[];            // FIFO split — one line per batch drained
+  totalCost: number;            // Σ line costs
+  shortfall?: number;           // qty no batch could cover (blocked at entry, so normally 0)
 }
 
 interface StageBase {
   na: boolean;                  // stage marked Not Applicable
   date?: string;
   operator?: string;
-  consumption: Consumption[];   // legacy (auto-FIFO) — migrated into materialUses
-  materialUses?: BatchUse[];    // manual batch-pick consumption lines
+  consumption: Consumption[];   // legacy (auto-FIFO lots) — migrated into materials
+  materialUses?: BatchUse[];    // legacy (manual batch-pick) — migrated into materials
+  materials?: MaterialUse[];    // auto-FIFO consumption (current)
   rollUses?: RollUse[];         // per-roll consumption lines (Printing, Lamination)
 }
 
@@ -277,15 +296,27 @@ export interface CuttingStage extends StageBase {
 
 export interface DispatchLine {
   quantityKg?: number;          // Qty (kg) — may be blank
-  pieces?: number;              // Qty (bags/pcs) — may be blank
+  pieces?: number;              // Qty (bags/pcs) — actually shipped; may be blank
   dispatchDate?: string;
-  fromCardId?: string;          // carried-over: this line dispatches another card's ready balance
-  fromLabel?: string;           // e.g. "JC-1" — shown on the carried line
+  fromCardId?: string;          // legacy carried-line — no longer used (see carriedIn)
+  fromLabel?: string;
+}
+// A ready-to-dispatch balance MOVED onto this card from a sibling job card via the
+// carry button. On move it leaves the source (its ready → 0) and becomes this
+// card's to dispatch. Kept separate from newly-made dispatch lines.
+export interface CarriedIn {
+  id: string;
+  fromCardId: string;
+  fromLabel: string;            // e.g. "JC-1"
+  pieces: number;
+  kg?: number;
+  movedAt: string;
 }
 export interface DispatchStage extends StageBase {
   pendingKg?: number;
   pendingPcs?: number;
   lines: DispatchLine[];
+  carriedIn?: CarriedIn[];      // balances moved in from sibling cards
   bagsPerBale?: number;
   noOfBales?: number;
   balanceKg?: number;

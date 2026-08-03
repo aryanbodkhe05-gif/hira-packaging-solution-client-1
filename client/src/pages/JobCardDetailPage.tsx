@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, ReactNode } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useParams, useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, Save, Printer, ArrowLeft, AlertTriangle,
@@ -17,16 +17,16 @@ import {
   BCS_THREAD, BACKSEAL_GLUE,
 } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide, CuttingMethod } from '../config';
-import type { JobCard, DispatchRecord, RollUse, BatchUse, DispatchLine } from '../types/models';
-import { BatchUsePanel, type Suggestion } from '../components/ui/BatchUsePanel';
+import type { JobCard, DispatchRecord, RollUse, MaterialUse, CarriedIn } from '../types/models';
+import { MaterialFifoPanel, type Suggestion } from '../components/ui/MaterialFifoPanel';
 import { RollUsesPanel } from '../components/ui/RollUses';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, formatINR,
   prevActiveStage, nextActiveStage, stagePrimary, visibleStageKeys, totalBags,
-  autoPct, autoQty, jobCardLabel,
+  autoPct, autoQty, jobCardLabel, firstMaterialShortfall,
 } from '../lib/jobcard';
-import { cardReadyToDispatch } from '../lib/dispatch';
+import { cardReadyToDispatch, siblingsWithReady, moveCarriedBalance } from '../lib/dispatch';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts, staffScope } from '../lib/roles';
 import { useBranding } from '../lib/branding';
@@ -181,6 +181,12 @@ export function JobCardDetailPage() {
   const cost = useMemo(() => (card ? computeCosting(card) : null), [card]);
 
   const persist = useCallback((c: JobCard, silent = false) => {
+    // Block a save that consumes more of a material than is in stock.
+    const short = firstMaterialShortfall(c);
+    if (short) {
+      toast.error(`Insufficient stock for ${short.name}: need ${short.need.toLocaleString('en-IN')}, have ${short.have.toLocaleString('en-IN')}`);
+      return;
+    }
     const now = new Date().toISOString();
     // Commit roll/film consumption to inventory, then re-snapshot each line's rate
     // from the roll it actually consumed.
@@ -204,21 +210,43 @@ export function JobCardDetailPage() {
       (committed[k] as { rollUses?: RollUse[] }).rollUses = next;
     }
 
+    let finalCard: JobCard;
     if (!committed.id) {
       const jobNo = committed.jobNo || genJobNo(jobCardsDb.getAll().map((x) => x.jobNo));
       const created = jobCardsDb.create({ ...committed, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now } as Omit<JobCard, 'id'>);
       syncBatchStock();
       if (!silent) toast.success(`Job card ${created.jobNo} created`);
+      finalCard = normalizeJobCard(jobCardsDb.get(created.id) ?? created);
       nav(`/job-card/${created.id}`, { replace: true });
-      setCard(normalizeJobCard(jobCardsDb.get(created.id) ?? created));
     } else {
       jobCardsDb.update(committed.id, { ...committed, ratesAsOf: now, updatedAt: now });
       syncBatchStock();   // re-derive batch remainders + FIFO lots for every card
       if (!silent) toast.success('Saved');
       const fresh = jobCardsDb.get(committed.id);
-      setCard(fresh ? normalizeJobCard(fresh) : { ...committed, ratesAsOf: now, updatedAt: now });
+      finalCard = fresh ? normalizeJobCard(fresh) : { ...committed, ratesAsOf: now, updatedAt: now };
     }
+    lastSavedRef.current = JSON.stringify(finalCard);   // so auto-save doesn't re-fire on the saved state
+    setSaveState('saved');
+    setCard(finalCard);
+    return true;
   }, [nav]);
+
+  // ── Auto-save (Part 3) ──────────────────────────────────────────────────────
+  // Persist typed-but-unsaved entries automatically (debounced), so nothing is
+  // lost if the user forgets to press Save. Skips while a material overdraws stock.
+  const lastSavedRef = useRef<string>(card ? JSON.stringify(card) : '');
+  const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saved'>('idle');
+  useEffect(() => {
+    if (!card) return;
+    const snap = JSON.stringify(card);
+    if (snap === lastSavedRef.current) return;   // nothing changed (e.g. just saved)
+    setSaveState('dirty');
+    const t = setTimeout(() => {
+      if (firstMaterialShortfall(card)) { setSaveState('idle'); return; }   // don't auto-save an invalid state
+      persist(card, true);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [card, persist]);
 
   if (!card) return <Navigate to="/job-card" replace />;
 
@@ -230,9 +258,32 @@ export function JobCardDetailPage() {
     setCard((p) => p && ({ ...p, [key]: { ...p[key], ...patch } } as JobCard));
   }
 
-  // Manual batch-pick consumption — the worker adds/edits batch lines directly.
-  function setMaterialUses(key: StageKey, uses: BatchUse[]) {
-    setCard((p) => p && ({ ...p, [key]: { ...p[key], materialUses: uses } } as JobCard));
+  // Auto-FIFO consumption — the panel handles the split; we just store it.
+  function setMaterials(key: StageKey, materials: MaterialUse[]) {
+    setCard((p) => p && ({ ...p, [key]: { ...p[key], materials } } as JobCard));
+  }
+
+  // Move a sibling card's whole ready-to-dispatch balance onto this card. Persists
+  // immediately so it leaves the source at that moment (source ready → 0).
+  function carryFromSibling(sibling: JobCard) {
+    if (!card?.id) { toast.error('Save the job card first'); return; }
+    const ci = moveCarriedBalance(sibling, jobCardsDb.getAll());
+    if (!ci) return;
+    setCard((p) => {
+      if (!p) return p;
+      const dispatch = { ...p.dispatch, carriedIn: [...(p.dispatch.carriedIn ?? []), ci] };
+      jobCardsDb.update(p.id, { dispatch, updatedAt: new Date().toISOString() });
+      return { ...p, dispatch };
+    });
+    toast.success(`Moved ${ci.pieces.toLocaleString('en-IN')} bags from ${ci.fromLabel} to this card`);
+  }
+  function removeCarried(id: string) {
+    setCard((p) => {
+      if (!p) return p;
+      const dispatch = { ...p.dispatch, carriedIn: (p.dispatch.carriedIn ?? []).filter((c) => c.id !== id) };
+      if (p.id) jobCardsDb.update(p.id, { dispatch, updatedAt: new Date().toISOString() });
+      return { ...p, dispatch };
+    });
   }
   function setPrintingInput(v: number | undefined) { patchStage('printing', { inputKg: v }); }
 
@@ -279,11 +330,16 @@ export function JobCardDetailPage() {
         date: now.slice(0, 10), createdAt: now,
       };
     } else {
+      // Dispatched = only what's actually entered in the dispatch lines (NOT the
+      // made qty) — this is the fix for the double-count / 6,000-not-5,000 bug.
+      const lines = card.dispatch.lines ?? [];
+      const shippedPcs = lines.reduce((s, l) => s + (l.pieces || 0), 0);
+      const shippedKg = lines.reduce((s, l) => s + (l.quantityKg || 0), 0);
+      if (shippedPcs <= 0 && shippedKg <= 0) { toast.error('Enter a dispatch line (qty) first'); return; }
       rec = {
         type: 'Bag', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
         party: card.client || card.header.brand, brand: card.header.brand,
-        qtyPieces: totalBags(card),
-        qtyKg: stagePrimary(card, 'cutting').input,
+        qtyPieces: shippedPcs, qtyKg: shippedKg,
         date: now.slice(0, 10), createdAt: now,
       };
     }
@@ -332,8 +388,15 @@ export function JobCardDetailPage() {
     return [];
   };
 
+  // Last-saved snapshot — batch.remaining reflects THESE takes, so the FIFO panel
+  // uses them (not the live edits) when adding back this card's own draw.
+  const savedCard = (() => { try { return JSON.parse(lastSavedRef.current) as JobCard; } catch { return null; } })();
   const StageMaterials = ({ stageKey }: { stageKey: StageKey }) => (
-    <BatchUsePanel value={card![stageKey].materialUses ?? []} onChange={(u) => setMaterialUses(stageKey, u)} suggestions={stageSuggestions(stageKey)} />
+    <MaterialFifoPanel
+      value={card![stageKey].materials ?? []}
+      saved={savedCard?.[stageKey]?.materials ?? []}
+      onChange={(m) => setMaterials(stageKey, m)}
+      suggestions={stageSuggestions(stageKey)} />
   );
 
   return (
@@ -355,6 +418,9 @@ export function JobCardDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted min-w-16 text-right" title="Entries auto-save a moment after you stop typing">
+            {saveState === 'dirty' ? <span className="text-yellow-300">saving…</span> : saveState === 'saved' ? <span className="text-green-300">✓ saved</span> : ''}
+          </span>
           <button onClick={() => window.print()} className="btn-secondary"><Printer className="w-4 h-4" /> Print</button>
           <button onClick={() => persist(card)} className="btn-primary"><Save className="w-4 h-4" /> Save</button>
         </div>
@@ -764,21 +830,41 @@ export function JobCardDetailPage() {
               <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
             </div>
 
-            <p className="label !mb-1">Dispatch lines: Qty (kg) · Qty (bags) · Date — either qty may be blank</p>
+            {/* Carried ready-to-dispatch balance — a DISTINCT block, moved in from a
+                sibling card via the button, separate from the newly-made dispatch. */}
+            {(card.dispatch.carriedIn ?? []).length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 space-y-2">
+                <p className="text-amber-300 text-xs font-semibold uppercase tracking-wide">Carried ready-to-dispatch balance</p>
+                {(card.dispatch.carriedIn ?? []).map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 text-sm">
+                    <span className="text-white/85 font-mono">{c.pieces.toLocaleString('en-IN')} bags</span>
+                    <span className="text-muted text-xs">from {c.fromLabel}{c.kg ? ` · ${c.kg.toLocaleString('en-IN')} kg` : ''}</span>
+                    <button type="button" onClick={() => removeCarried(c.id)}
+                      className="ml-auto p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Return to source card">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <p className="text-[11px] text-amber-300/70">These moved off {(card.dispatch.carriedIn ?? []).map((c) => c.fromLabel).join(', ')} and are now this card's to dispatch. Ship them via the dispatch lines below.</p>
+              </div>
+            )}
+
+            {/* Carry buttons — offer each sibling's outstanding ready balance */}
+            {!isScoped && siblingsWithReady(card, jobCardsDb.getAll()).map(({ card: sib, label, bal }) => (
+              <button key={sib.id} type="button" onClick={() => carryFromSibling(sib)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200 font-medium text-sm hover:bg-amber-500/25 transition-colors">
+                <Plus className="w-4 h-4" /> Add ready-to-dispatch balance from {label} ({bal.readyPcs.toLocaleString('en-IN')} bags)
+              </button>
+            ))}
+
+            <p className="label !mb-1">Dispatch lines (newly-made): Qty (kg) · Qty (bags) · Date — either qty may be blank</p>
             {card.dispatch.lines.map((l, i) => (
-              <div key={i} className="space-y-1">
-                {l.fromCardId && (
-                  <span className="inline-block badge bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px]">
-                    Carried from {l.fromLabel}: {(l.pieces || 0).toLocaleString('en-IN')} bags
-                  </span>
-                )}
-                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-                  <Num value={l.quantityKg} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], quantityKg: v }; patchStage('dispatch', { lines }); }} placeholder="Qty kg" />
-                  <Num value={l.pieces} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], pieces: v }; patchStage('dispatch', { lines }); }} placeholder="Qty bags" />
-                  <DateInput value={l.dispatchDate} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], dispatchDate: v }; patchStage('dispatch', { lines }); }} />
-                  <button type="button" onClick={() => patchStage('dispatch', { lines: card.dispatch.lines.filter((_, j) => j !== i) })}
-                    className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Remove line"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
+              <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                <Num value={l.quantityKg} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], quantityKg: v }; patchStage('dispatch', { lines }); }} placeholder="Qty kg" />
+                <Num value={l.pieces} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], pieces: v }; patchStage('dispatch', { lines }); }} placeholder="Qty bags" />
+                <DateInput value={l.dispatchDate} onChange={(v) => { const lines = [...card.dispatch.lines]; lines[i] = { ...lines[i], dispatchDate: v }; patchStage('dispatch', { lines }); }} />
+                <button type="button" onClick={() => patchStage('dispatch', { lines: card.dispatch.lines.filter((_, j) => j !== i) })}
+                  className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Remove line"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
             <button onClick={() => patchStage('dispatch', { lines: [...card.dispatch.lines, {}] })} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add dispatch line</button>

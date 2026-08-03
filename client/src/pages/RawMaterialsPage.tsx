@@ -18,35 +18,45 @@ const PAGE_SIZE = 20;
 const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 
-// ── Item form: name + unit only. Stock and rate live on batches. ───────────────
-function ItemForm({ initial, onSave, onClose }: {
-  initial: Omit<RawMaterial, 'id'>; onSave: (d: Omit<RawMaterial, 'id'>) => void; onClose: () => void;
+// ── Add-material form: name, unit, qty, rate, date. Each add is a batch. ───────
+// (Edit mode changes only the item's name/unit — stock stays on its batches.)
+export interface ItemFormData { name: string; unit: string; dateAdded: string; qty: number; rate: number | null; }
+function ItemForm({ initial, editing, onSave, onClose }: {
+  initial: RawMaterial | null; editing?: boolean;
+  onSave: (d: ItemFormData) => void; onClose: () => void;
 }) {
-  const [f, setF] = useState(initial);
-  const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
+  const [name, setName] = useState(initial?.name ?? '');
+  const [unit, setUnit] = useState(initial?.unit ?? 'kg');
+  const [date, setDate] = useState(initial?.dateAdded ?? today());
+  const [qtyText, setQtyText] = useState('');
+  const [rateText, setRateText] = useState('');
   function submit() {
-    if (!f.name.trim()) { toast.error('Item name is required'); return; }
-    rememberTypeAhead(RAW_MATERIALS_KEY, f.name, DEFAULT_RAW_MATERIALS);
-    onSave({ ...f, name: f.name.trim() });
+    if (!name.trim()) { toast.error('Item name is required'); return; }
+    if (!editing && num(qtyText) <= 0) { toast.error('Quantity is required'); return; }
+    rememberTypeAhead(RAW_MATERIALS_KEY, name, DEFAULT_RAW_MATERIALS);
+    onSave({ name: name.trim(), unit: unit.trim() || 'kg', dateAdded: date, qty: num(qtyText), rate: rateText.trim() === '' ? null : num(rateText) });
   }
   return (
     <div className="space-y-4">
       <div>
         <label className="label">Item Name *</label>
-        <TypeAhead value={f.name} onChange={(v) => set('name', v)} listKey={RAW_MATERIALS_KEY}
-          defaults={DEFAULT_RAW_MATERIALS} placeholder="Type a few letters…" autoFocus />
-        <p className="text-muted text-[11px] mt-1">Free text — saved to your item list for next time.</p>
+        <TypeAhead value={name} onChange={setName} listKey={RAW_MATERIALS_KEY} defaults={DEFAULT_RAW_MATERIALS} placeholder="Type a few letters…" autoFocus />
+        <p className="text-muted text-[11px] mt-1">Free text — saved to your item list for next time.{!editing && ' Adding the same name again adds a new batch.'}</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="label">Unit</label><input className="input-field" value={f.unit} onChange={(e) => set('unit', e.target.value)} placeholder="kg / litre / bobbin" /></div>
-        <div><label className="label">Date</label><input className="input-field" type="date" value={f.dateAdded} onChange={(e) => set('dateAdded', e.target.value)} /></div>
+        <div><label className="label">Unit</label><input className="input-field" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="kg / litre / bobbin" /></div>
+        <div><label className="label">Date</label><input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        {!editing && <div><label className="label">Quantity *</label><input className="input-field font-mono" type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} /></div>}
+        {!editing && <div><label className="label">Rate (₹/{unit || 'unit'})</label><input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="optional" /></div>}
       </div>
-      <p className="text-muted text-xs bg-white/5 rounded-lg px-3 py-2">
-        Stock and rate are recorded per batch. Add a batch after saving the item.
-      </p>
+      {!editing && rateText.trim() === '' && (
+        <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+          Saved without a rate — this batch is excluded from cost totals until priced (never counted as ₹0).
+        </p>
+      )}
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} className="btn-primary flex-1 justify-center">Save Item</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center">{editing ? 'Save Item' : 'Add Material'}</button>
       </div>
     </div>
   );
@@ -123,9 +133,17 @@ export function RawMaterialsPage() {
     setBatches(rawMaterialBatchesDb.getAll());
   }, []);
 
-  function handleSave(data: Omit<RawMaterial, 'id'>) {
-    if (modal?.type === 'edit' && modal.item) { rawMaterialsDb.update(modal.item.id, data); toast.success('Item updated'); }
-    else { rawMaterialsDb.create(data); toast.success('Item added — now add its first batch'); }
+  function handleSave(data: ItemFormData) {
+    if (modal?.type === 'edit' && modal.item) {
+      rawMaterialsDb.update(modal.item.id, { name: data.name, unit: data.unit });
+      toast.success('Item updated');
+    } else {
+      // Find-or-create the item by name, then add this batch (each add is a batch).
+      const existing = rawMaterialsDb.getAll().find((m) => m.name.trim().toLowerCase() === data.name.toLowerCase());
+      const materialId = existing ? existing.id : rawMaterialsDb.create({ name: data.name, unit: data.unit, quantity: 0, dateAdded: data.dateAdded }).id;
+      rawMaterialBatchesDb.create({ materialId, qty: data.qty, remaining: data.qty, rate: data.rate, date: data.dateAdded, createdAt: new Date().toISOString() });
+      toast.success(existing ? `Batch added to ${data.name}` : `${data.name} added`);
+    }
     setModal(null); reload();
   }
   function handleDelete(id: string) {
@@ -273,7 +291,7 @@ export function RawMaterialsPage() {
 
       {modal && (
         <Modal open onClose={() => setModal(null)} title={modal.type === 'add' ? 'Add Raw Material' : 'Edit Item'} size="md">
-          <ItemForm initial={modal.item ?? { name: '', unit: 'kg', quantity: 0, dateAdded: today() }} onSave={handleSave} onClose={() => setModal(null)} />
+          <ItemForm initial={modal.item ?? null} editing={modal.type === 'edit'} onSave={handleSave} onClose={() => setModal(null)} />
         </Modal>
       )}
 

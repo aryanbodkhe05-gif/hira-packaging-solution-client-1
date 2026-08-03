@@ -1,7 +1,9 @@
 // Partial-dispatch progress — COMPUTED, never stored. Pending = order total −
 // Σ dispatched across ALL dispatch records linked to the order (any job card).
-import type { Order, DispatchRecord, JobCard } from '../types/models';
-import { jobCardMade } from './jobcard';
+import type { Order, DispatchRecord, JobCard, CarriedIn } from '../types/models';
+import { jobCardMade, jobCardLabel } from './jobcard';
+
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 export interface DispatchProgress {
   dispatchedPcs: number;
@@ -35,40 +37,69 @@ export function orderDispatchProgress(order: Order, dispatches: DispatchRecord[]
 }
 
 // ── Made / Dispatched / Ready — derived ONLY from real entries ──────────────────
-// Dispatched is the Σ of the job card's own Dispatch-section lines (bags + kg).
-// Carried-over lines (fromCardId set) dispatch ANOTHER card's balance, so they
-// count against the source card, never the card they sit on — keeping the same
-// bags from being counted twice across job cards.
+// Dispatched = only what's actually shipped in this card's dispatch lines (NEVER
+// the made qty). A ready-to-dispatch balance can be MOVED onto another card via
+// the carry button (card.dispatch.carriedIn); on move it leaves the source, so:
+//   available(card) = made + carriedIn − transferredOut(to other cards)
+//   ready(card)     = available − dispatched(actual lines)
 const num = (v?: number) => (typeof v === 'number' && isFinite(v) ? v : 0);
 
 export interface CardBalance {
-  madePcs: number; madeKg: number; isEstimate: boolean;   // madePcs is DISPLAY (actual, or planned when nothing made yet)
-  dispatchedPcs: number; dispatchedKg: number;   // own lines + carried-against-this-card
-  readyPcs: number; readyKg: number;             // from ACTUAL made only
+  madePcs: number; madeKg: number; isEstimate: boolean;   // madePcs is DISPLAY (actual, or planned when nothing made)
+  dispatchedPcs: number; dispatchedKg: number;            // actual dispatch lines only
+  carriedInPcs: number; carriedInKg: number;              // balances moved in from siblings
+  transferredOutPcs: number;                              // balances moved out to siblings
+  readyPcs: number; readyKg: number;
 }
 export function cardReadyToDispatch(card: JobCard, allCards: JobCard[]): CardBalance {
   const made = jobCardMade(card);   // actual produced (0 until Cutting bags entered)
-  // Own dispatch lines (not carried from elsewhere).
-  const own = (card.dispatch.lines ?? []).filter((l) => !l.fromCardId);
-  let dPcs = own.reduce((s, l) => s + num(l.pieces), 0);
-  let dKg = own.reduce((s, l) => s + num(l.quantityKg), 0);
-  // Carried-over lines on OTHER cards that dispatch THIS card's balance. A carried
-  // line only draws the source down once it is actually dispatched (has a date);
-  // until then it's a pre-filled reminder and the source keeps its ready balance.
+  const lines = card.dispatch.lines ?? [];
+  const dPcs = lines.reduce((s, l) => s + num(l.pieces), 0);
+  const dKg = lines.reduce((s, l) => s + num(l.quantityKg), 0);
+  const cIn = card.dispatch.carriedIn ?? [];
+  const carriedInPcs = cIn.reduce((s, c) => s + num(c.pieces), 0);
+  const carriedInKg = cIn.reduce((s, c) => s + num(c.kg), 0);
+  // Balances moved OUT of this card = carriedIn entries on other cards pointing here.
+  let outPcs = 0, outKg = 0;
   for (const c of allCards) {
     if (c.id === card.id) continue;
-    for (const l of c.dispatch.lines ?? []) {
-      if (l.fromCardId === card.id && l.dispatchDate) { dPcs += num(l.pieces); dKg += num(l.quantityKg); }
+    for (const ci of c.dispatch.carriedIn ?? []) {
+      if (ci.fromCardId === card.id) { outPcs += num(ci.pieces); outKg += num(ci.kg); }
     }
   }
-  // Display made: actual if produced, else the planned qty flagged as an estimate.
+  const availPcs = made.pieces + carriedInPcs - outPcs;
+  const availKg = made.kg + carriedInKg - outKg;
+  // Made display = actually produced bags; if none entered yet, show the planned
+  // qty flagged as an estimate (never counted in ready/order maths).
   const isEstimate = made.pieces === 0 && num(card.header.qty) > 0;
   const displayMade = made.pieces > 0 ? made.pieces : num(card.header.qty);
   return {
     madePcs: displayMade, madeKg: made.kg, isEstimate,
     dispatchedPcs: dPcs, dispatchedKg: dKg,
-    // Ready uses ACTUAL made — you can't ship an estimate.
-    readyPcs: Math.max(0, made.pieces - dPcs), readyKg: Math.max(0, +(made.kg - dKg).toFixed(2)),
+    carriedInPcs, carriedInKg, transferredOutPcs: outPcs,
+    readyPcs: Math.max(0, availPcs - dPcs), readyKg: Math.max(0, +(availKg - dKg).toFixed(2)),
+  };
+}
+
+// Sibling cards of the same order that still hold a ready-to-dispatch balance and
+// haven't already been carried onto `card` — the carry button's options.
+export function siblingsWithReady(card: JobCard, allCards: JobCard[]): { card: JobCard; label: string; bal: CardBalance }[] {
+  if (!card.orderRef) return [];
+  const already = new Set((card.dispatch.carriedIn ?? []).map((c) => c.fromCardId));
+  return allCards
+    .filter((c) => c.id !== card.id && c.orderRef === card.orderRef && !already.has(c.id))
+    .map((c) => ({ card: c, label: jobCardLabel(c).split(' / ').pop() || `JC-${c.orderJobSeq ?? ''}`, bal: cardReadyToDispatch(c, allCards) }))
+    .filter(({ bal }) => bal.readyPcs > 0 || bal.readyKg > 0);
+}
+
+// Build the carriedIn entry that moves a sibling's whole ready balance onto a card.
+export function moveCarriedBalance(sibling: JobCard, allCards: JobCard[]): CarriedIn | null {
+  const bal = cardReadyToDispatch(sibling, allCards);
+  if (bal.readyPcs <= 0 && bal.readyKg <= 0) return null;
+  return {
+    id: genId(), fromCardId: sibling.id,
+    fromLabel: jobCardLabel(sibling).split(' / ').pop() || `JC-${sibling.orderJobSeq ?? ''}`,
+    pieces: bal.readyPcs, kg: bal.readyKg || undefined, movedAt: new Date().toISOString(),
   };
 }
 

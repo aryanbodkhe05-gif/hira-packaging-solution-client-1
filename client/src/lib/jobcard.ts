@@ -22,7 +22,7 @@ const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 function emptyConsumption(): Consumption[] { return []; }
 
 export function emptyJobCard(cardType: CardType = 'BOPP', finish: Finish = 'Glossy', makingType?: MakingType): Omit<JobCard, 'id'> {
-  const base = { na: false, consumption: emptyConsumption(), materialUses: [], rollUses: [] };
+  const base = { na: false, consumption: emptyConsumption(), materials: [], rollUses: [] };
   // Pre-mark stages N/A that the variant doesn't use (excluded from costing + carry-forward).
   const isOther = cardType === 'Other';
   const isRoll = cardType === 'BOPP' && makingType === 'Roll'; // roll jobs hide Cutting only
@@ -78,9 +78,9 @@ export function normalizeJobCard(j: JobCard): JobCard {
   j.cardType ??= 'BOPP';
   if ((j.cardType as string) === 'Normal') j.cardType = 'Other'; // migrate legacy label
   for (const k of STAGE_KEYS) {
-    const st = j[k] as { rollUses?: unknown[]; materialUses?: unknown[] };
+    const st = j[k] as { rollUses?: unknown[]; materials?: unknown[] };
     st.rollUses ??= [];
-    st.materialUses ??= [];
+    st.materials ??= [];
   }
   j.printing.consumption ??= [];
   j.metalize.consumption ??= [];
@@ -186,12 +186,12 @@ export interface CostingResult {
   hasUnsetRates: boolean;       // some consumed material had no rate
 }
 
-// Stage cost = manual batch-pick material lines + per-roll consumption. Labour /
+// Stage cost = auto-FIFO material consumption + per-roll consumption. Labour /
 // overhead is auto-applied globally against the job's final output kg (see
 // computeCosting), not per stage.
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
-  return sum((j[key].materialUses ?? []).map((u) => num(u.lineCost)))
+  return sum((j[key].materials ?? []).map((m) => num(m.totalCost)))
     + sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
 }
 
@@ -228,6 +228,18 @@ export function labourLines(j: JobCard): LabourLine[] {
     }));
 }
 
+// Any active stage that consumes more of a material than is in stock (blocks save).
+// `have` = the qty actually coverable (need − shortfall).
+export function firstMaterialShortfall(j: JobCard): { name: string; need: number; have: number } | null {
+  for (const k of STAGE_KEYS) {
+    if (!isStageActive(j, k)) continue;
+    for (const m of j[k].materials ?? []) {
+      if ((m.shortfall ?? 0) > 0) return { name: m.materialName, need: m.qty, have: +(m.qty - (m.shortfall ?? 0)).toFixed(3) };
+    }
+  }
+  return null;
+}
+
 export function totalBags(j: JobCard): number {
   if (!isStageActive(j, 'cutting')) return 0;
   if (j.cutting.method === 'Back Seal') return num(j.cutting.bsPieces);
@@ -243,9 +255,8 @@ export function computeCosting(j: JobCard): CostingResult {
     stageCosts[k] = c;
     materialCost += c;
     if (!isStageActive(j, k)) continue;
-    // A line is "unpriced" when its picked batch/roll has no rate — flagged,
-    // never silently costed at ₹0.
-    if ((j[k].materialUses ?? []).some((u) => num(u.qty) > 0 && u.rate == null)) hasUnset = true;
+    // Flagged (never ₹0'd) when a drained batch/roll has no rate, or stock ran short.
+    if ((j[k].materials ?? []).some((m) => (m.shortfall ?? 0) > 0 || m.lines.some((l) => l.take > 0 && l.rate == null))) hasUnset = true;
     if ((j[k].rollUses ?? []).some((r) => num(r.qtyKg) > 0 && r.rate == null)) hasUnset = true;
   }
 

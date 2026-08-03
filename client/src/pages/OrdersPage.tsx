@@ -358,23 +358,10 @@ export function OrdersPage() {
     const now = new Date().toISOString();
     const draft = createJobCardFromOrder(order);
     const jobNo = genJobNo(jobCardsDb.getAll().map((j) => j.jobNo));
-    const siblings = cardsForOrder(order.id);
-    const seq = nextOrderJobSeq(siblings);
-    // Ask before carrying each sibling card's ready-to-dispatch balance onto this
-    // new card. Only add it on a Yes. When later dispatched here it draws down the
-    // source card's balance, so the same bags are never counted twice (Part 2/3).
-    const allCards = jobCardsDb.getAll();
-    const candidates = siblings
-      .map((s) => ({ s, label: jobCardLabel(s).split(' / ').pop() || `JC-${s.orderJobSeq ?? ''}`, bal: cardReadyToDispatch(s, allCards) }))
-      .filter(({ bal }) => bal.readyPcs > 0 || bal.readyKg > 0);
-    const carried: DispatchLine[] = [];
-    for (const { s, label, bal } of candidates) {
-      const qtyText = bal.readyPcs > 0 ? `${bal.readyPcs.toLocaleString('en-IN')} bags` : `${bal.readyKg.toLocaleString('en-IN')} kg`;
-      if (window.confirm(`There is ${qtyText} ready-to-dispatch balance from ${label}. Add it to this dispatch?`)) {
-        carried.push({ fromCardId: s.id, fromLabel: label, pieces: bal.readyPcs || undefined, quantityKg: bal.readyKg || undefined });
-      }
-    }
-    draft.dispatch = { ...draft.dispatch, lines: [...carried, ...(draft.dispatch.lines ?? [{}])] };
+    const seq = nextOrderJobSeq(cardsForOrder(order.id));
+    // No auto-carry: any earlier card's ready-to-dispatch balance is moved onto
+    // this card later via the explicit "Add ready-to-dispatch balance" button in
+    // the Dispatch section (Part 2, Read B).
     const created = jobCardsDb.create({ ...draft, jobNo, orderJobSeq: seq, ratesAsOf: now, createdAt: now, updatedAt: now });
     // Keep the first card linked for backward compatibility; all cards are found via orderRef.
     ordersDb.update(order.id, { status: 'In Production', jobCardId: order.jobCardId ?? created.id });
