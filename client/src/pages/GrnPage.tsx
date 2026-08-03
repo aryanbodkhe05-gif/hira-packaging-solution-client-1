@@ -2,8 +2,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Search, FileText, PackageCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  grnsDb, suppliersDb, rawMaterialsDb, rawMaterialBatchesDb, boppFilmsDb, invRollsDb, ppGranulesDb,
-  syncBatchStock, addToList,
+  grnsDb, suppliersDb, rawMaterialsDb, rawMaterialReceiptsDb, boppFilmsDb, invRollsDb, ppGranulesDb,
+  syncMaterialPools, addToList,
 } from '../lib/db';
 import {
   GRN_DESTINATIONS, DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY,
@@ -100,7 +100,7 @@ function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
       </div>
       <p className="text-muted text-xs">
         On receive, this increments <span className="text-accent">{dest}</span> stock and logs the GRN.
-        {dest === 'Raw Materials' && ' The quantity is added as a new batch at the rate above, consumed FIFO.'}
+        {dest === 'Raw Materials' && ' The quantity is blended into the material\'s moving-average rate at the price above.'}
         {(dest === 'BOPP Film' || dest === 'Rolls') && ' The rate is stored on this specific item and used whenever it is consumed.'}
         {f.rate.trim() === '' && dest !== 'P.P. Granule' && ' Leaving the rate blank is fine — it shows as "rate not set" and can be priced later.'}
       </p>
@@ -129,18 +129,18 @@ export function GrnPage() {
     const now = new Date().toISOString();
 
     if (d.destination === 'Raw Materials') {
-      // Every receipt is its own batch at its own rate — that is what makes the
-      // next consumption cost at this price once older batches run out.
+      // Every receipt is logged at its own rate and blended into the material's
+      // moving-average pool (received qty × rate updates the running average).
       const items = rawMaterialsDb.getAll();
       const ex = items.find((i) => i.name.toLowerCase() === d.itemName.toLowerCase());
       const materialId = ex
         ? ex.id
-        : rawMaterialsDb.create({ name: d.itemName.trim(), unit: d.unit || 'kg', quantity: 0, dateAdded: d.date }).id;
-      rawMaterialBatchesDb.create({
-        materialId, qty: d.qty, remaining: d.qty, rate, date: d.date, grnRef: grnNo, createdAt: now,
+        : rawMaterialsDb.create({ name: d.itemName.trim(), unit: d.unit || 'kg', quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: d.date }).id;
+      rawMaterialReceiptsDb.create({
+        materialId, qty: d.qty, rate, date: d.date, grnRef: grnNo, createdAt: now,
       });
       addToList(RAW_MATERIALS_KEY, d.itemName.trim(), DEFAULT_RAW_MATERIALS);
-      syncBatchStock();
+      syncMaterialPools();
     } else if (d.destination === 'BOPP Film') {
       boppFilmsDb.create({ filmNo: d.itemName, nWt: d.qty, kg: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'Rolls') {

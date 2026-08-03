@@ -3,7 +3,7 @@
 // therefore never pollutes the live shared database).
 import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
-  rawMaterialsDb, rawMaterialBatchesDb, rateMasterDb, syncBatchStock,
+  rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
   jobCardsDb, dispatchesDb,
 } from './db';
 import { RATE_MASTER_SEED } from '../config';
@@ -49,21 +49,21 @@ export function seedSampleData(): void {
     film('F-620-1', '620mm', 'Glossy', 300, 7400, 162);
   }
 
-  // Raw materials, each stocked as batches. Gravure ink deliberately has TWO
-  // batches at different rates so the FIFO split is visible: a 300 kg draw is
-  // priced 100 kg @ ₹120 + 200 kg @ ₹140 = ₹40,000 (matches the spec example).
+  // Raw materials, each ONE moving-average pool. Gravure ink deliberately has TWO
+  // receipts at different rates so the blended average is visible: 100 kg @ ₹100 +
+  // 400 kg @ ₹120 → 500 kg worth ₹58,000 at ₹116/kg (matches the spec example). A
+  // 300 kg draw then costs 300 × ₹116 = ₹34,800, leaving 200 kg @ ₹116 = ₹23,200.
   if (rawMaterialsDb.getAll().length === 0) {
-    const mat = (name: string, unit: string, batches: { qty: number; rate: number | null; date: string; note?: string }[]) => {
-      const m = rawMaterialsDb.create({ name, unit, quantity: 0, dateAdded: daysAgo(30) });
-      for (const b of batches) {
-        rawMaterialBatchesDb.create({ materialId: m.id, qty: b.qty, remaining: b.qty, rate: b.rate, date: b.date, note: b.note, createdAt: iso() });
+    const mat = (name: string, unit: string, receipts: { qty: number; rate: number | null; date: string; note?: string }[]) => {
+      const m = rawMaterialsDb.create({ name, unit, quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: daysAgo(30) });
+      for (const r of receipts) {
+        rawMaterialReceiptsDb.create({ materialId: m.id, qty: r.qty, rate: r.rate, date: r.date, note: r.note, createdAt: iso() });
       }
     };
-    // Worked example: older 100 kg @ ₹120 (smaller than the job needs) + newer
-    // 300 kg @ ₹140. A 300 kg draw splits 100 @ ₹120 + 200 @ ₹140.
+    // Worked example: 100 kg @ ₹100 then 400 kg @ ₹120 → average ₹116/kg.
     mat('Gravure ink', 'kg', [
-      { qty: 100, rate: 120, date: daysAgo(20), note: 'Older batch — drains first' },
-      { qty: 300, rate: 140, date: daysAgo(4),  note: 'Newer batch — used after the first empties' },
+      { qty: 100, rate: 100, date: daysAgo(20), note: 'First receipt @ ₹100' },
+      { qty: 400, rate: 120, date: daysAgo(4),  note: 'Second receipt @ ₹120 — blends to ₹116 avg' },
     ]);
     mat('Ethyl acetate', 'kg', [
       { qty: 300, rate: 95,  date: daysAgo(18) },
@@ -81,15 +81,9 @@ export function seedSampleData(): void {
     mat('Filler',   'kg', [{ qty: 400, rate: 42, date: daysAgo(16) }]);
     mat('LD',       'kg', [{ qty: 300, rate: 98, date: daysAgo(16) }]);
     mat('Thread',   'kg', [{ qty: 60,  rate: 180, date: daysAgo(9) }]);
-    // Left unpriced on purpose — shows "rate not set" and stays out of totals.
+    // Left unpriced on purpose — shows "unrated" and stays out of the average/value.
     mat('Hot melt glue', 'kg', [{ qty: 90, rate: null, date: daysAgo(6), note: 'Awaiting invoice — price later' }]);
-    // FIFO demo (Part 4 spec example): 180 kg draws 100 @ ₹80 + 80 @ ₹100 = ₹16,000.
-    // Older batch keeps stock, so it must drain first before the newer batch.
-    mat('FIFO Demo Ink', 'kg', [
-      { qty: 100, rate: 80,  date: daysAgo(15), note: 'Older batch — drains first' },
-      { qty: 80,  rate: 100, date: daysAgo(3),  note: 'Newer batch — used after' },
-    ]);
-    syncBatchStock();
+    syncMaterialPools();
   }
 
   if (rateMasterDb.getAll().length === 0) {
@@ -103,12 +97,12 @@ export function seedSampleData(): void {
     // Dispatch + carry-button demo (Parts 1–2): order for 12,000 bags.
     // JC-1: made 6,000 (cutting bags), dispatch line ships 5,000 → 1,000 ready.
     // JC-2: no carried balance yet — use the carry button on JC-2 to move JC-1's
-    // 1,000 across. JC-1 printing also consumes 300 kg ink to show the FIFO split.
+    // 1,000 across. JC-1 printing consumes 300 kg ink at the ₹116 average = ₹34,800.
     const now = iso();
     const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
     const inkMat = rawMaterialsDb.getAll().find((m) => m.name === 'Gravure ink');
-    // qty only — syncBatchStock computes the per-batch FIFO lines on boot.
-    const inkUse = inkMat ? [{ materialId: inkMat.id, materialName: 'Gravure ink', unit: 'kg', qty: 300, lines: [], totalCost: 0 }] : [];
+    // qty only — syncMaterialPools snapshots the avg rate (₹116) + cost on boot.
+    const inkUse = inkMat ? [{ materialId: inkMat.id, materialName: 'Gravure ink', unit: 'kg', qty: 300, avgRate: null, cost: 0 }] : [];
 
     const order = ordersDb.create({ orderId: 'HPS-20260702-0003', brandName: 'Balance Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 12000, quantityKg: 900, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
     const jc1 = jobCardsDb.create({

@@ -186,12 +186,12 @@ export interface CostingResult {
   hasUnsetRates: boolean;       // some consumed material had no rate
 }
 
-// Stage cost = auto-FIFO material consumption + per-roll consumption. Labour /
+// Stage cost = moving-average material consumption + per-roll consumption. Labour /
 // overhead is auto-applied globally against the job's final output kg (see
 // computeCosting), not per stage.
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
-  return sum((j[key].materials ?? []).map((m) => num(m.totalCost)))
+  return sum((j[key].materials ?? []).map((m) => num(m.cost)))
     + sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));
 }
 
@@ -255,8 +255,8 @@ export function computeCosting(j: JobCard): CostingResult {
     stageCosts[k] = c;
     materialCost += c;
     if (!isStageActive(j, k)) continue;
-    // Flagged (never ₹0'd) when a drained batch/roll has no rate, or stock ran short.
-    if ((j[k].materials ?? []).some((m) => (m.shortfall ?? 0) > 0 || m.lines.some((l) => l.take > 0 && l.rate == null))) hasUnset = true;
+    // Flagged (never ₹0'd) when a consumed material's pool is unrated, or stock ran short.
+    if ((j[k].materials ?? []).some((m) => (m.shortfall ?? 0) > 0 || (num(m.qty) > 0 && m.avgRate == null))) hasUnset = true;
     if ((j[k].rollUses ?? []).some((r) => num(r.qtyKg) > 0 && r.rate == null)) hasUnset = true;
   }
 

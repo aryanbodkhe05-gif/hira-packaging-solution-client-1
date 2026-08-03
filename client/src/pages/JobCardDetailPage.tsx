@@ -7,7 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import {
   jobCardsDb, dispatchesDb, ordersDb,
-  syncBatchStock, consumeRoll, factoryMachinesDb, getList, saveSettings,
+  syncMaterialPools, consumeRoll, factoryMachinesDb, getList, saveSettings,
 } from '../lib/db';
 import {
   FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES,
@@ -18,7 +18,7 @@ import {
 } from '../config';
 import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide, CuttingMethod } from '../config';
 import type { JobCard, DispatchRecord, RollUse, MaterialUse, CarriedIn } from '../types/models';
-import { MaterialFifoPanel, type Suggestion } from '../components/ui/MaterialFifoPanel';
+import { MaterialUsePanel, type Suggestion } from '../components/ui/MaterialUsePanel';
 import { RollUsesPanel } from '../components/ui/RollUses';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
@@ -214,13 +214,13 @@ export function JobCardDetailPage() {
     if (!committed.id) {
       const jobNo = committed.jobNo || genJobNo(jobCardsDb.getAll().map((x) => x.jobNo));
       const created = jobCardsDb.create({ ...committed, jobNo, ratesAsOf: now, createdAt: now, updatedAt: now } as Omit<JobCard, 'id'>);
-      syncBatchStock();
+      syncMaterialPools();
       if (!silent) toast.success(`Job card ${created.jobNo} created`);
       finalCard = normalizeJobCard(jobCardsDb.get(created.id) ?? created);
       nav(`/job-card/${created.id}`, { replace: true });
     } else {
       jobCardsDb.update(committed.id, { ...committed, ratesAsOf: now, updatedAt: now });
-      syncBatchStock();   // re-derive batch remainders + FIFO lots for every card
+      syncMaterialPools();   // re-derive each material pool + snapshot avg rates for every card
       if (!silent) toast.success('Saved');
       const fresh = jobCardsDb.get(committed.id);
       finalCard = fresh ? normalizeJobCard(fresh) : { ...committed, ratesAsOf: now, updatedAt: now };
@@ -388,11 +388,11 @@ export function JobCardDetailPage() {
     return [];
   };
 
-  // Last-saved snapshot — batch.remaining reflects THESE takes, so the FIFO panel
-  // uses them (not the live edits) when adding back this card's own draw.
+  // Last-saved snapshot — the material pool already reflects THESE draws, so the
+  // panel uses them (not the live edits) when adding back this card's own draw.
   const savedCard = (() => { try { return JSON.parse(lastSavedRef.current) as JobCard; } catch { return null; } })();
   const StageMaterials = ({ stageKey }: { stageKey: StageKey }) => (
-    <MaterialFifoPanel
+    <MaterialUsePanel
       value={card![stageKey].materials ?? []}
       saved={savedCard?.[stageKey]?.materials ?? []}
       onChange={(m) => setMaterials(stageKey, m)}

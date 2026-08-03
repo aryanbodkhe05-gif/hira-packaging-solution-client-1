@@ -183,24 +183,18 @@ export interface BatchUse {
   lineCost: number;
 }
 
-// ── Auto-FIFO raw-material consumption ──────────────────────────────────────────
-// The worker enters ONE quantity Q for a material; the system drains the oldest
-// batch first, flowing into newer batches, and snapshots the per-batch split.
-export interface FifoLine {
-  batchId: string;
-  batchDate: string;            // for the breakdown display
-  take: number;                 // qty drawn from this batch
-  rate: number | null;          // ₹/unit snapshotted from the batch
-  cost: number;                 // take × rate (0 when rate not set)
-}
+// ── Moving-average raw-material consumption ─────────────────────────────────────
+// Each raw material is ONE pool (see RawMaterial). The worker enters a quantity;
+// it is charged at the pool's current moving-average rate, snapshotted here at
+// entry time so later receipts never change historical job costs. No batches.
 export interface MaterialUse {
   materialId: string;
   materialName: string;
   unit: string;
-  qty: number;                  // total quantity consumed (Q)
-  lines: FifoLine[];            // FIFO split — one line per batch drained
-  totalCost: number;            // Σ line costs
-  shortfall?: number;           // qty no batch could cover (blocked at entry, so normally 0)
+  qty: number;                  // quantity consumed
+  avgRate: number | null;       // ₹/unit — pool average at entry; null when the pool is unrated
+  cost: number;                 // qty × avgRate (0 when unrated)
+  shortfall?: number;           // qty the pool couldn't cover (blocked at entry, so normally 0)
 }
 
 interface StageBase {
@@ -401,27 +395,46 @@ export interface InvRoll {
   dispatchedAt?: string;
 }
 
-// Consumables: ink, thread, thinner, solvents, etc. Stock and cost live on the
-// item's batches (see RawMaterialBatch) — `quantity` is a cached roll-up of the
-// remaining qty across batches, recomputed by syncBatchStock().
+// Consumables: ink, thread, thinner, solvents, etc. Held as ONE moving-average
+// pool. Receipts add stock at their own rate and update the blended average;
+// consumption is charged at the current average and leaves the average unchanged.
+// Everything below `unit` is DERIVED by syncMaterialPools() from the receipt log
+// and card consumption — never edited directly.
 export interface RawMaterial {
   id: string;
   name: string;            // from reusable item list (type-ahead)
   unit: string;
-  quantity: number;        // derived: Σ batch.remaining
+  quantity: number;        // rated stock on hand = Σ rated receipts − Σ consumed
+  totalValue: number;      // ₹ value of the rated stock on hand
+  avgRate: number | null;  // totalValue / quantity; null when there is no rated stock
+  unratedQty: number;      // stock received without a rate — excluded from avg/value until priced
   dateAdded: string;
 }
 
-// One receipt of a raw material at one rate. An item has many batches with
-// different rates; consumption draws from the oldest batch with stock first.
+// One receipt of a raw material into its pool — the audit trail of what was
+// received at what rate. Costing uses the pooled moving average, not individual
+// receipts. A null rate = unrated stock, folded into the pool once priced.
+export interface RawMaterialReceipt {
+  id: string;
+  materialId: string;
+  qty: number;             // qty received
+  rate: number | null;     // ₹/unit at receipt; null => "rate not set"
+  date: string;            // receipt date (yyyy-mm-dd)
+  grnRef?: string;         // GRN no. when received via a GRN
+  note?: string;
+  createdAt: string;
+}
+
+// (legacy) discrete FIFO batch — read once by the moving-average migration, then
+// superseded by RawMaterialReceipt. No runtime code depends on it any more.
 export interface RawMaterialBatch {
   id: string;
   materialId: string;
-  qty: number;             // qty received in this batch
-  remaining: number;       // derived: qty − consumed by job cards (FIFO)
-  rate: number | null;     // ₹/unit at receipt; null => "rate not set"
-  date: string;            // receipt date (yyyy-mm-dd) — drives FIFO order
-  grnRef?: string;         // GRN no. when received via a GRN
+  qty: number;
+  remaining: number;
+  rate: number | null;
+  date: string;
+  grnRef?: string;
   note?: string;
   createdAt: string;
 }
