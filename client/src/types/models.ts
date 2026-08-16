@@ -545,6 +545,7 @@ export interface BoppFilm {
   finish?: Finish;         // glossy / matte / metalized / pearl (optional)
   micron?: number;         // optional legacy field
   rate?: number | null;    // ₹/kg for THIS film, captured at receipt; null => not set
+  party?: string;          // supplier/party this film was bought from
   dateAdded: string;
   balanceUsed?: boolean;
 }

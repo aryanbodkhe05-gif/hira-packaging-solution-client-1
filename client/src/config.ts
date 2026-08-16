@@ -129,6 +129,10 @@ export const DEFAULT_PARTIES: string[] = [];
 export const ROLL_SIZEGM_KEY = 'list_roll_sizegm';
 export const DEFAULT_ROLL_SIZEGM: string[] = [];
 
+// BOPP film sizes — reusable type-ahead for bulk film add.
+export const FILM_SIZES_KEY = 'list_film_sizes';
+export const DEFAULT_FILM_SIZES: string[] = [];
+
 // P.P. Granule stock — named items are typed as one of these (extensible).
 // "Master Batch" was formerly "RP". Enhancer added per the shop-floor list.
 export const GRANULE_TYPES = ['P.P.', 'Filler', 'Master Batch', 'Colour', 'Enhancer'] as const;

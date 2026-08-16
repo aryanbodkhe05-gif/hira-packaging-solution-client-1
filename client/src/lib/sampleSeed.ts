@@ -70,14 +70,15 @@ export function seedSampleData(): void {
   if (boppFilmsDb.getAll().length === 0) {
     // BOPP films inward like rolls — grouped by size, each film its own rate.
     // F-520-3 is left unpriced to show the "rate not set" flag on consumption.
-    const film = (filmNo: string, size: string, finish: 'Glossy' | 'Matte' | 'Metalized', nWt: number, meter: number, rate: number | null) =>
-      boppFilmsDb.create({ filmNo, size, finish, gWt: nWt + 3, nWt, kg: nWt, meter, rate, dateAdded: today() });
-    film('F-520-1', '520mm', 'Glossy', 240, 6000, 165);
-    film('F-520-2', '520mm', 'Glossy', 220, 5600, 168);
-    film('F-520-3', '520mm', 'Matte',  180, 4500, null);
-    film('F-480-1', '480mm', 'Matte',  200, 5200, 172);
-    film('F-480-2', '480mm', 'Metalized', 160, 4000, 188);
-    film('F-620-1', '620mm', 'Glossy', 300, 7400, 162);
+    const film = (filmNo: string, size: string, finish: 'Glossy' | 'Matte' | 'Metalized', nWt: number, meter: number, rate: number | null, party?: string) =>
+      boppFilmsDb.create({ filmNo, size, finish, gWt: nWt + 3, nWt, kg: nWt, meter, rate, party, dateAdded: today() });
+    // 520mm group bulk-received from one party (proves bulk add + party on films).
+    film('F-520mm-1', '520mm', 'Glossy', 240, 6000, 165, 'Supreme Films');
+    film('F-520mm-2', '520mm', 'Glossy', 220, 5600, 168, 'Supreme Films');
+    film('F-520mm-3', '520mm', 'Matte',  180, 4500, null, 'Supreme Films');
+    film('F-480mm-1', '480mm', 'Matte',  200, 5200, 172, 'Jindal Poly');
+    film('F-480mm-2', '480mm', 'Metalized', 160, 4000, 188, 'Jindal Poly');
+    film('F-620mm-1', '620mm', 'Glossy', 300, 7400, 162, 'Cosmo Films');
   }
 
   // Raw materials, each ONE moving-average pool. Gravure ink deliberately has TWO
