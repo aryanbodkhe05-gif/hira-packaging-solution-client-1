@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, Search, FlaskConical, ChevronRight, ChevronDown, 
 import toast from 'react-hot-toast';
 import { rawMaterialsDb, rawMaterialReceiptsDb, syncMaterialPools } from '../lib/db';
 import { canViewCosts } from '../lib/roles';
-import { DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY } from '../config';
+import { DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY, DEFAULT_PARTIES, PARTIES_KEY } from '../config';
 import type { RawMaterial, RawMaterialReceipt } from '../types/models';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -19,7 +19,7 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 
 // ── Add-material form: name, unit, qty, rate, date. The qty/rate become the item's
 // first receipt into its moving-average pool. (Edit mode changes only name/unit.)
-export interface ItemFormData { name: string; unit: string; dateAdded: string; qty: number; rate: number | null; }
+export interface ItemFormData { name: string; unit: string; dateAdded: string; qty: number; rate: number | null; party: string; billNo: string; }
 function ItemForm({ initial, editing, onSave, onClose }: {
   initial: RawMaterial | null; editing?: boolean;
   onSave: (d: ItemFormData) => void; onClose: () => void;
@@ -29,11 +29,14 @@ function ItemForm({ initial, editing, onSave, onClose }: {
   const [date, setDate] = useState(initial?.dateAdded ?? today());
   const [qtyText, setQtyText] = useState('');
   const [rateText, setRateText] = useState('');
+  const [party, setParty] = useState('');
+  const [billNo, setBillNo] = useState('');
   function submit() {
     if (!name.trim()) { toast.error('Item name is required'); return; }
     if (!editing && num(qtyText) <= 0) { toast.error('Quantity is required'); return; }
     rememberTypeAhead(RAW_MATERIALS_KEY, name, DEFAULT_RAW_MATERIALS);
-    onSave({ name: name.trim(), unit: unit.trim() || 'kg', dateAdded: date, qty: num(qtyText), rate: rateText.trim() === '' ? null : num(rateText) });
+    if (party.trim()) rememberTypeAhead(PARTIES_KEY, party, DEFAULT_PARTIES);
+    onSave({ name: name.trim(), unit: unit.trim() || 'kg', dateAdded: date, qty: num(qtyText), rate: rateText.trim() === '' ? null : num(rateText), party: party.trim(), billNo: billNo.trim() });
   }
   return (
     <div className="space-y-4">
@@ -48,6 +51,12 @@ function ItemForm({ initial, editing, onSave, onClose }: {
         {!editing && <div><label className="label">Quantity *</label><input className="input-field font-mono" type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} /></div>}
         {!editing && <div><label className="label">Rate (₹/{unit || 'unit'})</label><input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="optional" /></div>}
       </div>
+      {!editing && (
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">Party Name</label><TypeAhead value={party} onChange={setParty} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="supplier / party" /></div>
+          <div><label className="label">Bill No.</label><input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="invoice / bill no." /></div>
+        </div>
+      )}
       {!editing && rateText.trim() === '' && (
         <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
           Saved without a rate — this stock is held as unrated and excluded from the average and value until priced (never counted as ₹0).
@@ -72,6 +81,7 @@ function ReceiptForm({ initial, unit, editing, onSave, onClose }: {
   function submit() {
     if (!f.qty) { toast.error('Quantity is required'); return; }
     const rate = rateText.trim() === '' ? null : num(rateText);
+    if (f.party?.trim()) rememberTypeAhead(PARTIES_KEY, f.party, DEFAULT_PARTIES);
     onSave({ ...f, rate });
   }
   return (
@@ -93,8 +103,12 @@ function ReceiptForm({ initial, unit, editing, onSave, onClose }: {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
+        <div><label className="label">Party Name</label><TypeAhead value={f.party ?? ''} onChange={(v) => set('party', v)} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="supplier / party" /></div>
+        <div><label className="label">Bill No.</label><input className="input-field font-mono" value={f.billNo ?? ''} onChange={(e) => set('billNo', e.target.value)} placeholder="invoice / bill no." /></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         <div><label className="label">Receipt Date</label><input className="input-field" type="date" value={f.date} onChange={(e) => set('date', e.target.value)} /></div>
-        <div><label className="label">Note</label><input className="input-field" value={f.note ?? ''} onChange={(e) => set('note', e.target.value)} placeholder="supplier / invoice" /></div>
+        <div><label className="label">Note</label><input className="input-field" value={f.note ?? ''} onChange={(e) => set('note', e.target.value)} placeholder="extra note" /></div>
       </div>
       {editing && (
         <p className="text-muted text-xs">Repricing this receipt. Quantity isn't editable here — to change stock, add or delete a receipt.</p>
@@ -138,7 +152,7 @@ export function RawMaterialsPage() {
       // Find-or-create the item by name, then log this receipt into its pool.
       const existing = rawMaterialsDb.getAll().find((m) => m.name.trim().toLowerCase() === data.name.toLowerCase());
       const materialId = existing ? existing.id : rawMaterialsDb.create({ name: data.name, unit: data.unit, quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: data.dateAdded }).id;
-      rawMaterialReceiptsDb.create({ materialId, qty: data.qty, rate: data.rate, date: data.dateAdded, createdAt: new Date().toISOString() });
+      rawMaterialReceiptsDb.create({ materialId, qty: data.qty, rate: data.rate, date: data.dateAdded, party: data.party || undefined, billNo: data.billNo || undefined, createdAt: new Date().toISOString() });
       toast.success(existing ? `Stock received into ${data.name}` : `${data.name} added`);
     }
     setModal(null); reload();
@@ -248,6 +262,8 @@ export function RawMaterialsPage() {
                                 <th className="text-left py-1 font-medium">Qty</th>
                                 <th className="text-left py-1 font-medium">Rate</th>
                                 {showCosts && <th className="text-left py-1 font-medium">Value</th>}
+                                <th className="text-left py-1 font-medium">Party</th>
+                                <th className="text-left py-1 font-medium">Bill No</th>
                                 <th className="text-left py-1 font-medium">Note</th>
                                 <th></th>
                               </tr></thead>
@@ -262,6 +278,8 @@ export function RawMaterialsPage() {
                                         : <span className="text-white/90">₹{r.rate.toLocaleString('en-IN')}/{m.unit}</span>}
                                     </td>
                                     {showCosts && <td className="py-1.5 font-mono text-white/70">{r.rate == null ? '—' : formatINR(r.qty * r.rate)}</td>}
+                                    <td className="py-1.5 text-white/70">{r.party || '—'}</td>
+                                    <td className="py-1.5 font-mono text-white/60">{r.billNo || '—'}</td>
                                     <td className="py-1.5 text-muted">{r.note ?? r.grnRef ?? '—'}</td>
                                     <td className="py-1.5"><div className="flex gap-1 justify-end">
                                       <button onClick={() => setReceiptModal({ item: m, receipt: r })} title={r.rate == null ? 'Set rate' : 'Edit'} className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent"><Pencil className="w-3 h-3" /></button>

@@ -57,8 +57,15 @@ export interface DowntimeLog {
 }
 
 // ── Module 11 — PP Fabric (Tape) Production ───────────────────────────────────
+// A production unit (Loom / P.P.). Default two; extensible. Names editable in Settings.
+export interface Unit {
+  id: string;               // stable id, e.g. 'unit-1'
+  name: string;             // editable display name
+}
+
 export interface FabricBatch {
   id: string;
+  unitId?: string;          // which Loom/P.P. unit this belongs to (default 'unit-1')
   batchId: string;          // HIRA-YYYYMMDD-NNN
   date: string;             // yyyy-mm-dd
   shift: Shift;
@@ -97,6 +104,7 @@ export interface Loom {
 
 export interface LoomEntry {
   id: string;
+  unitId?: string;          // which Loom/P.P. unit this belongs to (default 'unit-1')
   entryId: string;          // LM-YYYYMMDD-NNN
   date: string;             // yyyy-mm-dd
   shift: Shift;
@@ -384,11 +392,16 @@ export interface InvRoll {
   rollNo: string;
   type: string;            // extensible list (UL, Natural, Lamination, UL Multi Colour, …)
   size: string;
-  quality: number;
+  gm?: number;             // GM (grams/GSM) — groups rolls with size for bulk add + numbering
+  quality: number;         // legacy grade — kept for old rolls; superseded by gm for grouping
   gWt: number;             // gross weight (kg)
   nWt: number;             // net weight (kg)
   meter: number;
+  avg?: number;            // per-roll Avg (as entered on the shop floor)
   rate?: number | null;    // ₹/kg for THIS roll, captured at receipt; null => not set
+  party?: string;          // supplier/party; "Hira Packaging" when transferred from our own unit
+  inTransit?: boolean;     // transferred from a Loom/P.P. unit, awaiting Receive in Inventory
+  fromUnitId?: string;     // the unit a transferred roll came from
   dateAdded: string;       // auto-captured entry date (yyyy-mm-dd)
   balanceUsed?: boolean;   // flagged when partially consumed in production
   dispatched?: boolean;    // flagged when dispatched directly from stock
@@ -420,6 +433,8 @@ export interface RawMaterialReceipt {
   qty: number;             // qty received
   rate: number | null;     // ₹/unit at receipt; null => "rate not set"
   date: string;            // receipt date (yyyy-mm-dd)
+  party?: string;          // supplier / party this stock came from
+  billNo?: string;         // supplier bill / invoice no.
   grnRef?: string;         // GRN no. when received via a GRN
   note?: string;
   createdAt: string;
@@ -436,6 +451,22 @@ export interface RawMaterialBatch {
   date: string;
   grnRef?: string;
   note?: string;
+  createdAt: string;
+}
+
+// A roll made inside a Loom/P.P. unit (its own stock). Transferred to Inventory
+// Rolls via the two-step transfer → receive flow.
+export interface UnitRoll {
+  id: string;
+  unitId: string;          // which unit made/holds this roll
+  type?: string;
+  size: string;
+  gm?: number;
+  gWt: number;
+  nWt: number;
+  meter: number;
+  avg?: number;
+  status: 'in_unit' | 'in_transit';   // in_transit = sent out, awaiting Inventory Receive
   createdAt: string;
 }
 
@@ -479,6 +510,7 @@ export interface GRN {
 // P.P and Filler (and RP, Colour) are tracked as separate items.
 export interface PPGranuleItem {
   id: string;
+  unitId?: string;         // which Loom/P.P. unit this belongs to (default 'unit-1')
   name: string;            // e.g. "Virgin PP Grade A", "CaCO3 Filler 80%"
   type: string;            // reusable, extensible (P.P. | Filler | RP | Colour | …)
   supplier?: string;

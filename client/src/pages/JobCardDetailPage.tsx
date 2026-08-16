@@ -525,8 +525,6 @@ export function JobCardDetailPage() {
               <Field label="Output (meter)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            <CarryBtn from="printing" />
-
             {/* Printing consumes BOPP FILM only — normal rolls are not selectable here */}
             <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
               kinds={['film']} title="BOPP film consumed — one line per film" />
@@ -541,6 +539,8 @@ export function JobCardDetailPage() {
             </div>
             {/* Manual batch-pick material consumption */}
             <StageMaterials stageKey="printing" />
+            {/* Carry-output button sits AFTER the consumption section */}
+            <CarryBtn from="printing" />
           </StageCard>
 
           {/* C3 — Metalize */}
@@ -554,8 +554,8 @@ export function JobCardDetailPage() {
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
-            <CarryBtn from="metalize" />
             <StageMaterials stageKey="metalize" />
+            <CarryBtn from="metalize" />
           </StageCard>
 
           {/* C2 — Slitting */}

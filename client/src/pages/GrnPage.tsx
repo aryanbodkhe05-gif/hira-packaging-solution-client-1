@@ -137,7 +137,9 @@ export function GrnPage() {
         ? ex.id
         : rawMaterialsDb.create({ name: d.itemName.trim(), unit: d.unit || 'kg', quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: d.date }).id;
       rawMaterialReceiptsDb.create({
-        materialId, qty: d.qty, rate, date: d.date, grnRef: grnNo, createdAt: now,
+        materialId, qty: d.qty, rate, date: d.date,
+        party: d.supplier || undefined, billNo: d.invoiceNo || undefined,
+        grnRef: grnNo, createdAt: now,
       });
       addToList(RAW_MATERIALS_KEY, d.itemName.trim(), DEFAULT_RAW_MATERIALS);
       syncMaterialPools();

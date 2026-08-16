@@ -37,9 +37,10 @@ export function TypeAhead({ value, onChange, listKey, defaults, placeholder, aut
         onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 150); }}
       />
       {open && matches.length > 0 && (
-        <div className="absolute z-30 left-0 right-0 mt-1 glass-card border border-accent/30 max-h-52 overflow-y-auto shadow-2xl">
+        // Solid/opaque popup (not glass) so suggestions never bleed into content behind them.
+        <div className="absolute z-40 left-0 right-0 mt-1 rounded-xl bg-navy border border-accent/40 max-h-52 overflow-y-auto shadow-2xl ring-1 ring-black/40">
           {touched && value.trim() && (
-            <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted border-b border-white/5">Saved items — click to select</p>
+            <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted border-b border-white/10 bg-navy">Saved items — click to select</p>
           )}
           {matches.map((o) => (
             <button key={o} type="button" onMouseDown={(e) => e.preventDefault()}

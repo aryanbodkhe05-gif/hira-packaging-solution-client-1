@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Save, Building2, MessageCircle, Plus, Trash2, Percent } from 'lucide-react';
+import { Save, Building2, MessageCircle, Plus, Trash2, Percent, Factory } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getSettings, saveSettings } from '../lib/db';
 import { getBranding, saveBranding } from '../lib/branding';
+import { getUnits, saveUnits, nextUnitId } from '../lib/units';
+import type { Unit } from '../types/models';
 import { INK_PCT_KEY, THREAD_PCT_KEY, DEFAULT_INK_PCT, DEFAULT_THREAD_PCT } from '../config';
 
 // ── WhatsApp contacts (multiple numbers, each tagged with a role) ───────────────
@@ -32,7 +34,12 @@ export function SettingsPage() {
   const [contacts, setContacts] = useState<WaContact[]>(() => loadContacts(getSettings()));
   const [inkPct, setInkPct] = useState(() => getSettings()[INK_PCT_KEY] ?? String(DEFAULT_INK_PCT));
   const [threadPct, setThreadPct] = useState(() => getSettings()[THREAD_PCT_KEY] ?? String(DEFAULT_THREAD_PCT));
+  const [units, setUnits] = useState<Unit[]>(() => getUnits());
   const [saved, setSaved] = useState(false);
+
+  const setUnitName = (id: string, name: string) => setUnits((us) => us.map((u) => (u.id === id ? { ...u, name } : u)));
+  const addUnit = () => setUnits((us) => [...us, { id: nextUnitId(us), name: `Unit ${us.length + 1}` }]);
+  const removeUnit = (id: string) => setUnits((us) => (us.length <= 1 ? us : us.filter((u) => u.id !== id)));
 
   const setContact = (id: string, patch: Partial<WaContact>) =>
     setContacts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -53,6 +60,7 @@ export function SettingsPage() {
       [THREAD_PCT_KEY]: threadPct.trim() || String(DEFAULT_THREAD_PCT),
     });
     saveBranding(b);
+    saveUnits(units.map((u) => ({ ...u, name: u.name.trim() || u.id })));
     setSaved(true);
     toast.success('Settings saved');
     setTimeout(() => setSaved(false), 2000);
@@ -113,6 +121,24 @@ export function SettingsPage() {
             <p className="text-muted text-[11px] mt-1">BCS cutting. Default {DEFAULT_THREAD_PCT}%.</p>
           </div>
         </div>
+      </div>
+
+      {/* Loom / P.P. Units — names editable; add more as needed */}
+      <div className="glass-card p-5 space-y-4">
+        <p className="section-title flex items-center gap-2"><Factory className="w-4 h-4 text-accent" /> Loom / P.P. Units</p>
+        <p className="text-muted text-xs">Rename your production units, or add more. Each unit keeps fully separate loom log, fabric, granule stock and roll count. Staff logins can be scoped to one unit.</p>
+        <div className="space-y-2">
+          {units.map((u, i) => (
+            <div key={u.id} className="flex gap-2 items-center">
+              <span className="text-muted text-xs font-mono w-16 shrink-0">Unit {i + 1}</span>
+              <input className="input-field flex-1" value={u.name} onChange={(e) => setUnitName(u.id, e.target.value)} placeholder={`Unit ${i + 1} name`} />
+              <button onClick={() => removeUnit(u.id)} disabled={units.length <= 1} title="Remove unit"
+                className="p-2 rounded-lg hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addUnit} className="btn-secondary"><Plus className="w-4 h-4" /> Add Unit</button>
+        <p className="text-muted text-[11px]">Note: removing a unit doesn't delete its data — it just hides the tab. Re-add a unit with the same position to see it again.</p>
       </div>
 
       {/* WhatsApp config — multiple numbers, each with a role */}

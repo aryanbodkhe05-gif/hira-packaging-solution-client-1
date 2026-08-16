@@ -121,6 +121,14 @@ export const DEFAULT_RAW_MATERIALS = [
 export const ROLL_TYPES_KEY = 'list_roll_types';
 export const RAW_MATERIALS_KEY = 'list_raw_materials';
 
+// Supplier/party names — reusable type-ahead list (raw materials + inventory rolls).
+export const PARTIES_KEY = 'list_parties';
+export const DEFAULT_PARTIES: string[] = [];
+
+// Roll size+GM group labels — reusable type-ahead for bulk roll add.
+export const ROLL_SIZEGM_KEY = 'list_roll_sizegm';
+export const DEFAULT_ROLL_SIZEGM: string[] = [];
+
 // P.P. Granule stock — named items are typed as one of these (extensible).
 // "Master Batch" was formerly "RP". Enhancer added per the shop-floor list.
 export const GRANULE_TYPES = ['P.P.', 'Filler', 'Master Batch', 'Colour', 'Enhancer'] as const;

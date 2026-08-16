@@ -3,8 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AlertProvider } from './context/AlertContext';
+import { UnitProvider } from './context/UnitContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoomUnitLayout } from './components/layout/LoomUnitLayout';
+import { RollCountPage } from './pages/RollCountPage';
 import { LoginPage }        from './pages/LoginPage';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
@@ -81,6 +83,7 @@ function AppRoutes() {
         <Route path="loom-unit/loom"       element={<Guard allow={canAccessLoom(role)} home={home}><LoomUnitLayout><LoomProductionPage /></LoomUnitLayout></Guard>} />
         <Route path="loom-unit/pp-fabric"  element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPFabricPage /></LoomUnitLayout></Guard>} />
         <Route path="loom-unit/pp-granule" element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPGranuleStockPage /></LoomUnitLayout></Guard>} />
+        <Route path="loom-unit/roll-count" element={<Guard allow={canAccessLoom(role) || canAccessPPUnit(role)} home={home}><LoomUnitLayout><RollCountPage /></LoomUnitLayout></Guard>} />
         {/* Old paths kept as redirects so existing links/bookmarks still work */}
         <Route path="loom"                 element={<Navigate to="/loom-unit/loom" replace />} />
         <Route path="pp-fabric"            element={<Navigate to="/loom-unit/pp-fabric" replace />} />
@@ -113,7 +116,9 @@ export default function App() {
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AuthProvider>
         <AlertProvider>
-          <AppRoutes />
+          <UnitProvider>
+            <AppRoutes />
+          </UnitProvider>
         </AlertProvider>
       </AuthProvider>
       <Toaster

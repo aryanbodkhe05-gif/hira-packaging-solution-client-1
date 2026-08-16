@@ -1,7 +1,8 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Search, Boxes, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ppGranulesDb, getList } from '../lib/db';
+import { useUnit } from '../context/UnitContext';
 import { DEFAULT_GRANULE_TYPES, GRANULE_TYPES_KEY, granuleTypeColor, DEFAULT_BAG_WEIGHT_KG } from '../config';
 import type { PPGranuleItem } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -70,19 +71,22 @@ function ItemForm({ initial, onSave, onClose }: {
 }
 
 export function PPGranuleStockPage() {
-  const [rows, setRows] = useState<PPGranuleItem[]>(() => ppGranulesDb.getAll());
+  const { activeUnit } = useUnit();
+  const [rows, setRows] = useState<PPGranuleItem[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; row?: PPGranuleItem } | null>(null);
-  const reload = useCallback(() => setRows(ppGranulesDb.getAll()), []);
+  // Scope to the active unit (legacy rows default to unit-1).
+  const reload = useCallback(() => setRows(ppGranulesDb.getAll().filter((r) => (r.unitId ?? 'unit-1') === activeUnit)), [activeUnit]);
+  useEffect(() => { reload(); }, [reload]);
 
   const typeOptions = useMemo(() => getList(GRANULE_TYPES_KEY, DEFAULT_GRANULE_TYPES), []);
 
   function handleSave(data: Omit<PPGranuleItem, 'id'>) {
     const now = new Date().toISOString();
     if (modal?.type === 'edit' && modal.row) { ppGranulesDb.update(modal.row.id, { ...data, updatedAt: now }); toast.success('Item updated'); }
-    else { ppGranulesDb.create({ ...data, createdAt: now, updatedAt: now }); toast.success('Granule item added'); }
+    else { ppGranulesDb.create({ ...data, unitId: activeUnit, createdAt: now, updatedAt: now }); toast.success('Granule item added'); }
     setModal(null); reload();
   }
   function handleDelete(id: string) { ppGranulesDb.delete(id); toast.success('Item deleted'); reload(); }

@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, applyGranuleUses } from '../lib/db';
+import { useUnit } from '../context/UnitContext';
+import { getActiveUnit } from '../lib/units';
 import { GranuleUsesEditor } from '../components/ui/GranuleUsesEditor';
 import {
   SHIFTS, LOOM_STATUSES, WIDTH_UNITS,
@@ -250,7 +252,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
       toast.success('Entry updated');
     } else {
       const ids = loomEntriesDb.getAll().map((e) => e.entryId);
-      loomEntriesDb.create({ ...data, entryId: genDailyId('LM', ids, data.date), createdAt: now, updatedAt: now });
+      loomEntriesDb.create({ ...data, unitId: getActiveUnit(), entryId: genDailyId('LM', ids, data.date), createdAt: now, updatedAt: now });
       toast.success('Entry saved');
     }
     setModal(null);
@@ -540,6 +542,7 @@ function LoomsSection({ looms, onChanged }: { looms: Loom[]; onChanged: () => vo
 // MAIN PAGE
 // ═════════════════════════════════════════════════════════════════════════════
 export function LoomProductionPage() {
+  const { activeUnit } = useUnit();
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<'entries' | 'looms'>('entries');
   const [tick, setTick] = useState(0);
@@ -553,8 +556,10 @@ export function LoomProductionPage() {
 
   const { entries, looms } = useMemo(() => {
     void tick;
-    return { entries: loomEntriesDb.getAll(), looms: loomsDb.getAll() };
-  }, [tick]);
+    // Loom entries are scoped to the active unit (legacy rows default to unit-1);
+    // the loom machine master is shared across units.
+    return { entries: loomEntriesDb.getAll().filter((e) => (e.unitId ?? 'unit-1') === activeUnit), looms: loomsDb.getAll() };
+  }, [tick, activeUnit]);
 
   const stats = useMemo(() => {
     const todayStr = today();

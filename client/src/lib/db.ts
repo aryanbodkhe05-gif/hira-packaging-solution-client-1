@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine, UnitRoll } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -467,6 +467,15 @@ export const grnsDb = {
   delete:  (id: string) => dbDelete('grns', id),
 };
 
+// Rolls made inside a Loom/P.P. unit (per-unit stock), transferred to Inventory
+// Rolls via the two-step transfer → receive flow.
+export const unitRollsDb = {
+  getAll:  () => dbGetAll<UnitRoll>('unit_rolls'),
+  create:  (r: Omit<UnitRoll, 'id'>) => dbCreate<UnitRoll>('unit_rolls', r),
+  update:  (id: string, p: Partial<UnitRoll>) => dbUpdate<UnitRoll>('unit_rolls', id, p),
+  delete:  (id: string) => dbDelete('unit_rolls', id),
+};
+
 // Receipt log for the moving-average pools. Every add-stock / GRN appends a
 // receipt here; syncMaterialPools() derives each material's qty / value / avg rate
 // from these receipts minus card consumption.
@@ -595,6 +604,26 @@ export function migrateToMovingAvgOnce(): void {
       }
     }
     if (changed) setAll('job_cards', cards);
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
+// One-time migration: introduce Loom/P.P. units. Every existing loom entry, fabric
+// batch and granule item (created before units existed) is assigned to Unit 1 so no
+// data is stranded. Guarded on data presence + a flag (idempotent across devices).
+export function migrateUnitsOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}units_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const stamp = (table: string) => {
+      const rows = getAll<{ unitId?: string }>(table);
+      let changed = false;
+      for (const r of rows) { if (!r.unitId) { r.unitId = 'unit-1'; changed = true; } }
+      if (changed) setAll(table, rows);
+    };
+    stamp('loom_entries');
+    stamp('fabric_batches');
+    stamp('inv_pp_granules');
     localStorage.setItem(FLAG, new Date().toISOString());
   } catch { /* ignore */ }
 }

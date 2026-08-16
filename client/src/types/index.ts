@@ -7,6 +7,7 @@ export interface AuthUser {
   username: string;
   role: UserRole;
   process?: string;   // Staff only — the one process/stage they are scoped to
+  unitId?: string;    // Loom/P.P. Unit staff only — the unit they are scoped to
   active?: boolean;
   createdAt?: string;
 }

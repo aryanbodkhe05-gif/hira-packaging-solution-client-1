@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, applyGranuleUses } from '../lib/db';
+import { useUnit } from '../context/UnitContext';
+import { getActiveUnit } from '../lib/units';
 import {
   SHIFTS, BATCH_STATUSES, WASTAGE_TYPES, WASTAGE_ACTIONS, granuleTypeHex,
 } from '../config';
@@ -257,7 +259,8 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
   const [shiftFilter, setShiftFilter] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; batch?: FabricBatch } | null>(null);
-  const [granuleItems, setGranuleItems] = useState<PPGranuleItem[]>(() => ppGranulesDb.getAll());
+  const byUnit = (arr: PPGranuleItem[]) => arr.filter((g) => (g.unitId ?? 'unit-1') === getActiveUnit());
+  const [granuleItems, setGranuleItems] = useState<PPGranuleItem[]>(() => byUnit(ppGranulesDb.getAll()));
 
   useEffect(() => { if (openNew) setModal({ type: 'add' }); }, [openNew]);
 
@@ -271,10 +274,10 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
     } else {
       const ids = fabricBatchesDb.getAll().map((b) => b.batchId);
       applyGranuleUses(data.uses, -1);                // deduct from stock
-      fabricBatchesDb.create({ ...data, batchId: genDailyId('HIRA', ids, data.date), createdAt: now, updatedAt: now });
+      fabricBatchesDb.create({ ...data, unitId: getActiveUnit(), batchId: genDailyId('HIRA', ids, data.date), createdAt: now, updatedAt: now });
       toast.success('Batch saved — granule stock deducted');
     }
-    setGranuleItems(ppGranulesDb.getAll());
+    setGranuleItems(byUnit(ppGranulesDb.getAll()));
     setModal(null);
     onChanged();
   }
@@ -283,7 +286,7 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
     fabricBatchesDb.delete(b.id);
     // Cascade: remove wastage linked to this batch
     fabricWastageDb.getAll().filter((w) => w.batchRef === b.id).forEach((w) => fabricWastageDb.delete(w.id));
-    setGranuleItems(ppGranulesDb.getAll());
+    setGranuleItems(byUnit(ppGranulesDb.getAll()));
     toast.success('Batch deleted — granule stock restored');
     onChanged();
   }
@@ -533,6 +536,7 @@ function WastageSection({ batches, wastage, onChanged }: {
 // MAIN PAGE
 // ═════════════════════════════════════════════════════════════════════════════
 export function PPFabricPage() {
+  const { activeUnit } = useUnit();
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<'batches' | 'wastage'>('batches');
   const [tick, setTick] = useState(0);
@@ -546,12 +550,13 @@ export function PPFabricPage() {
 
   const { batches, wastage, wastageByBatch } = useMemo(() => {
     void tick;
-    const batches = fabricBatchesDb.getAll();
+    // Fabric batches scoped to the active unit (legacy rows default to unit-1).
+    const batches = fabricBatchesDb.getAll().filter((b) => (b.unitId ?? 'unit-1') === activeUnit);
     const wastage = fabricWastageDb.getAll();
     const wastageByBatch: Record<string, number> = {};
     wastage.forEach((w) => { wastageByBatch[w.batchRef] = (wastageByBatch[w.batchRef] ?? 0) + (w.quantityKg || 0); });
     return { batches, wastage, wastageByBatch };
-  }, [tick]);
+  }, [tick, activeUnit]);
 
   const stats = useMemo(() => {
     const todayStr = today();

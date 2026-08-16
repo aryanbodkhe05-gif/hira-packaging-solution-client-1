@@ -7,6 +7,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { formatDate, cn } from '../lib/utils';
 import { ListSelect } from '../components/ui/ListSelect';
 import { DEFAULT_PROCESSES, PROCESSES_KEY } from '../config';
+import { getUnits } from '../lib/units';
 import type { AuthUser, UserRole } from '../types';
 
 const procWord = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -30,6 +31,9 @@ function UserForm({ initial, onSaved, onClose }: {
   const [name, setName] = useState(initial?.name ?? '');
   const [role, setRole] = useState<UserRole>(initial?.role ?? 'STAFF');
   const [process, setProcess] = useState(initial?.process ?? DEFAULT_PROCESSES[0]);
+  const units = getUnits();
+  const [unitId, setUnitId] = useState(initial?.unitId ?? units[0]?.id ?? 'unit-1');
+  const isUnitProc = process === 'Loom' || process === 'P.P. Unit';
   const [active, setActive] = useState(initial?.active ?? true);
   const [useCustomPw, setUseCustomPw] = useState(false);
   const [password, setPassword] = useState('');
@@ -40,12 +44,13 @@ function UserForm({ initial, onSaved, onClose }: {
     if (useCustomPw && password.trim().length < 6) { toast.error('Password must be at least 6 characters'); return; }
     try {
       const proc = role === 'STAFF' ? process : undefined;
+      const unit = role === 'STAFF' && (proc === 'Loom' || proc === 'P.P. Unit') ? unitId : undefined;
       if (editing) {
-        const res = auth.updateUser(initial!.id, { name: name.trim(), role, process: proc, active, password: useCustomPw ? password : undefined });
+        const res = auth.updateUser(initial!.id, { name: name.trim(), role, process: proc, unitId: unit ?? '', active, password: useCustomPw ? password : undefined });
         toast.success('User updated');
         onSaved(res.credentials);
       } else {
-        const res = auth.createUser(name.trim(), role, useCustomPw ? password : undefined, proc);
+        const res = auth.createUser(name.trim(), role, useCustomPw ? password : undefined, proc, unit);
         toast.success('User created');
         onSaved(res.credentials);
       }
@@ -70,6 +75,16 @@ function UserForm({ initial, onSaved, onClose }: {
           <label className="label">Process (Staff sees only this) *</label>
           <ListSelect value={process} onChange={setProcess} listKey={PROCESSES_KEY} defaults={DEFAULT_PROCESSES} placeholder="Select process…" />
           <p className="text-muted text-[11px] mt-1">This Staff login sees only <span className="text-white/70">{process || '…'}</span> — that stage across every job card, or only the Loom / P.P. Unit pages.</p>
+        </div>
+      )}
+
+      {role === 'STAFF' && isUnitProc && (
+        <div>
+          <label className="label">Unit (this login is locked to it) *</label>
+          <select className="input-field" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+            {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          <p className="text-muted text-[11px] mt-1">A {process} staffer sees only <span className="text-white/70">{units.find((u) => u.id === unitId)?.name ?? unitId}</span> and can't switch units.</p>
         </div>
       )}
 

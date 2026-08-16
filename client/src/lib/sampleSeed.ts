@@ -4,9 +4,10 @@
 import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
-  jobCardsDb, dispatchesDb,
+  jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb,
 } from './db';
 import { RATE_MASTER_SEED } from '../config';
+import { saveUnits, getUnits } from './units';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const iso = () => new Date().toISOString();
@@ -20,20 +21,50 @@ export function seedSampleData(): void {
     factoryMachinesDb.create({ name: 'Lam-1', type: 'Lamination', active: true, createdAt: iso() });
   }
 
+  // Two named units with fully separate data (Part 4). Names editable in Settings.
+  if (getUnits().every((u) => /^Unit \d+$/.test(u.name))) {
+    saveUnits([{ id: 'unit-1', name: 'Weaving Unit A' }, { id: 'unit-2', name: 'Unit 2' }]);
+  }
+
   if (ppGranulesDb.getAll().length === 0) {
-    const g = (name: string, type: string, kg: number) => ppGranulesDb.create({ name, type, currentStockKg: kg, bagWeightKg: 25, dateReceived: today(), createdAt: iso(), updatedAt: iso() });
-    g('Virgin PP Grade A', 'P.P.', 2000); g('CaCO3 Filler 80%', 'Filler', 600);
-    g('Reprocessed PP', 'Master Batch', 800); g('Blue Masterbatch', 'Colour', 150); g('Slip Enhancer', 'Enhancer', 120);
+    const g = (name: string, type: string, kg: number, unitId: string) => ppGranulesDb.create({ unitId, name, type, currentStockKg: kg, bagWeightKg: 25, dateReceived: today(), createdAt: iso(), updatedAt: iso() });
+    // Unit 1 stock
+    g('Virgin PP Grade A', 'P.P.', 2000, 'unit-1'); g('CaCO3 Filler 80%', 'Filler', 600, 'unit-1');
+    g('Reprocessed PP', 'Master Batch', 800, 'unit-1'); g('Blue Masterbatch', 'Colour', 150, 'unit-1'); g('Slip Enhancer', 'Enhancer', 120, 'unit-1');
+    // Unit 2 stock (different quantities — proves separation)
+    g('Virgin PP Grade B', 'P.P.', 900, 'unit-2'); g('CaCO3 Filler 70%', 'Filler', 300, 'unit-2');
+  }
+
+  // Per-unit Loom Log + P.P. Fabric entries (separate data per unit).
+  if (loomEntriesDb.getAll().length === 0) {
+    loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom 1', width: 24, widthUnit: 'inches', meters: 1800, quality: 2.5, weightKg: 240, rollCount: 6, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
+    loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom 2', width: 20, widthUnit: 'inches', meters: 1200, quality: 3,   weightKg: 160, rollCount: 4, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
+  }
+  if (fabricBatchesDb.getAll().length === 0) {
+    fabricBatchesDb.create({ unitId: 'unit-1', batchId: 'HIRA-A-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 1500, status: 'Closed', createdAt: iso(), updatedAt: iso() });
+    fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 900,  status: 'Open',   createdAt: iso(), updatedAt: iso() });
+  }
+
+  // Roll Count: rolls sitting in Unit 1 stock, ready to transfer to Inventory (Part 5).
+  if (unitRollsDb.getAll().length === 0) {
+    const ur = (size: string, gm: number, nWt: number, meter: number, avg: number) =>
+      unitRollsDb.create({ unitId: 'unit-1', type: 'Milky', size, gm, gWt: nWt + 2, nWt, meter, avg, status: 'in_unit', createdAt: iso() });
+    ur('500mm', 12, 45, 4200, 10.5); ur('500mm', 12, 47, 4300, 10.9); ur('600mm', 14, 60, 5000, 12.0);
   }
 
   if (invRollsDb.getAll().length === 0) {
-    // Each roll carries its OWN rate — consuming roll R-003 costs ₹142/kg while
-    // R-001 costs ₹128/kg. R-004 is deliberately left unpriced to show the
-    // "rate not set" flag and its exclusion from totals.
-    const r = (rollNo: string, size: string, quality: number, nWt: number, meter: number, rate: number | null) =>
-      invRollsDb.create({ rollNo, type: 'Milky', size, quality, gWt: nWt + 2, nWt, meter, rate, dateAdded: today() });
-    r('R-001', '22', 2.5, 48, 4200, 128); r('R-002', '22', 2.5, 50, 4400, 131);
-    r('R-003', '22', 3, 66, 5000, 142);   r('R-004', '24', 2.5, 52, 4300, null);
+    // Bulk-added rolls, grouped by size+GM, each with its own weights/avg/party.
+    const r = (rollNo: string, size: string, gm: number, nWt: number, meter: number, avg: number, rate: number | null, party: string) =>
+      invRollsDb.create({ rollNo, type: 'Milky', size, gm, quality: 0, gWt: nWt + 2, nWt, meter, avg, rate, party, dateAdded: today() });
+    // Group 500mm / 12 — bought from an outside party
+    r('R-500-12-1', '500mm', 12, 48, 4200, 10.2, 128, 'Shakti Traders');
+    r('R-500-12-2', '500mm', 12, 50, 4400, 10.6, 131, 'Shakti Traders');
+    // Group 600mm / 14
+    r('R-600-14-1', '600mm', 14, 66, 5000, 12.1, 142, 'Om Polymers');
+    // Already received FROM our own unit → party auto "Hira Packaging"
+    r('R-500-12-3', '500mm', 12, 45, 4100, 10.0, null, 'Hira Packaging');
+    // In transit from Weaving Unit A, awaiting Receive (no roll no yet)
+    invRollsDb.create({ rollNo: '', type: 'Milky', size: '500mm', gm: 12, quality: 0, gWt: 49, nWt: 47, meter: 4300, avg: 10.8, rate: null, party: 'Hira Packaging', inTransit: true, fromUnitId: 'unit-1', dateAdded: today() });
   }
 
   if (boppFilmsDb.getAll().length === 0) {
@@ -54,16 +85,16 @@ export function seedSampleData(): void {
   // 400 kg @ ₹120 → 500 kg worth ₹58,000 at ₹116/kg (matches the spec example). A
   // 300 kg draw then costs 300 × ₹116 = ₹34,800, leaving 200 kg @ ₹116 = ₹23,200.
   if (rawMaterialsDb.getAll().length === 0) {
-    const mat = (name: string, unit: string, receipts: { qty: number; rate: number | null; date: string; note?: string }[]) => {
+    const mat = (name: string, unit: string, receipts: { qty: number; rate: number | null; date: string; note?: string; party?: string; billNo?: string }[]) => {
       const m = rawMaterialsDb.create({ name, unit, quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: daysAgo(30) });
       for (const r of receipts) {
-        rawMaterialReceiptsDb.create({ materialId: m.id, qty: r.qty, rate: r.rate, date: r.date, note: r.note, createdAt: iso() });
+        rawMaterialReceiptsDb.create({ materialId: m.id, qty: r.qty, rate: r.rate, date: r.date, note: r.note, party: r.party, billNo: r.billNo, createdAt: iso() });
       }
     };
-    // Worked example: 100 kg @ ₹100 then 400 kg @ ₹120 → average ₹116/kg.
+    // Worked example: 100 kg @ ₹100 then 400 kg @ ₹120 → average ₹116/kg. Party + Bill shown too.
     mat('Gravure ink', 'kg', [
-      { qty: 100, rate: 100, date: daysAgo(20), note: 'First receipt @ ₹100' },
-      { qty: 400, rate: 120, date: daysAgo(4),  note: 'Second receipt @ ₹120 — blends to ₹116 avg' },
+      { qty: 100, rate: 100, date: daysAgo(20), note: 'First receipt @ ₹100', party: 'Sakshi Chemicals', billNo: 'INV-2201' },
+      { qty: 400, rate: 120, date: daysAgo(4),  note: 'blends to ₹116 avg',   party: 'Sakshi Chemicals', billNo: 'INV-2288' },
     ]);
     mat('Ethyl acetate', 'kg', [
       { qty: 300, rate: 95,  date: daysAgo(18) },
