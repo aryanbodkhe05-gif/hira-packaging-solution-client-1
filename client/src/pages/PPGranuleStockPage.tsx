@@ -3,6 +3,8 @@ import { Plus, Pencil, Trash2, Search, Boxes, AlertTriangle } from 'lucide-react
 import toast from 'react-hot-toast';
 import { ppGranulesDb, getList } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
+import { canViewCosts } from '../lib/roles';
+import { granuleTypeRates } from '../lib/granules';
 import { DEFAULT_GRANULE_TYPES, GRANULE_TYPES_KEY, granuleTypeColor, DEFAULT_BAG_WEIGHT_KG } from '../config';
 import type { PPGranuleItem } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -112,6 +114,8 @@ export function PPGranuleStockPage() {
   }, [rows]);
 
   const lowStock = rows.filter((r) => r.minStockAlert != null && r.currentStockKg <= r.minStockAlert).length;
+  const showCosts = canViewCosts();
+  const typeRates = useMemo(() => granuleTypeRates(rows), [rows]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -130,6 +134,7 @@ export function PPGranuleStockPage() {
             </div>
             <span className="font-mono text-xl font-bold text-white mt-1">{v.kg.toLocaleString('en-IN', { maximumFractionDigits: 1 })} <span className="text-sm text-muted font-normal">kg</span></span>
             {v.hasBags && <span className="text-muted text-xs font-mono">≈ {Math.round(v.bags).toLocaleString('en-IN')} bags remaining</span>}
+            {showCosts && <span className="text-accent/90 text-xs font-mono">{typeRates[t] != null ? `avg ₹${typeRates[t]}/kg` : 'rate not set'}</span>}
           </div>
         ))}
         <StatCard label="Low Stock Alerts" value={lowStock} icon={AlertTriangle} iconColor="text-red-400" mono />

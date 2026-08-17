@@ -462,7 +462,7 @@ function LoomsSection({ looms, onChanged }: { looms: Loom[]; onChanged: () => vo
       loomsDb.update(modal.loom.id, { ...data, updatedAt: now });
       toast.success('Loom updated');
     } else {
-      loomsDb.create({ ...data, createdAt: now, updatedAt: now });
+      loomsDb.create({ ...data, unitId: getActiveUnit(), createdAt: now, updatedAt: now });
       toast.success('Loom added');
     }
     setModal(null);
@@ -558,7 +558,10 @@ export function LoomProductionPage() {
     void tick;
     // Loom entries are scoped to the active unit (legacy rows default to unit-1);
     // the loom machine master is shared across units.
-    return { entries: loomEntriesDb.getAll().filter((e) => (e.unitId ?? 'unit-1') === activeUnit), looms: loomsDb.getAll() };
+    return {
+      entries: loomEntriesDb.getAll().filter((e) => (e.unitId ?? 'unit-1') === activeUnit),
+      looms: loomsDb.getAll().filter((l) => (l.unitId ?? 'unit-1') === activeUnit),
+    };
   }, [tick, activeUnit]);
 
   const stats = useMemo(() => {

@@ -81,6 +81,9 @@ function ReceiptForm({ initial, unit, editing, onSave, onClose }: {
   function submit() {
     if (!f.qty) { toast.error('Quantity is required'); return; }
     const rate = rateText.trim() === '' ? null : num(rateText);
+    // Editing an existing receipt's quantity changes the material's stock — confirm first.
+    if (editing && f.qty !== initial.qty &&
+        !confirm(`⚠️ Change stock quantity from ${initial.qty} to ${f.qty} ${unit}?`)) return;
     if (f.party?.trim()) rememberTypeAhead(PARTIES_KEY, f.party, DEFAULT_PARTIES);
     onSave({ ...f, rate });
   }
@@ -89,12 +92,8 @@ function ReceiptForm({ initial, unit, editing, onSave, onClose }: {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label">Quantity Received{editing ? '' : ' *'} ({unit})</label>
-          {editing ? (
-            <input className="input-field font-mono bg-white/5 text-white/60" value={f.qty} readOnly title="Quantity can't be changed when repricing a receipt" />
-          ) : (
-            <input className="input-field font-mono" type="number" min="0" step="any" autoFocus
-              value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} />
-          )}
+          <input className="input-field font-mono" type="number" min="0" step="any" autoFocus={!editing}
+            value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} />
         </div>
         <div>
           <label className="label">Rate (₹/{unit})</label>
@@ -111,7 +110,7 @@ function ReceiptForm({ initial, unit, editing, onSave, onClose }: {
         <div><label className="label">Note</label><input className="input-field" value={f.note ?? ''} onChange={(e) => set('note', e.target.value)} placeholder="extra note" /></div>
       </div>
       {editing && (
-        <p className="text-muted text-xs">Repricing this receipt. Quantity isn't editable here — to change stock, add or delete a receipt.</p>
+        <p className="text-muted text-xs">Editing this receipt. Changing the quantity asks for confirmation before it updates stock.</p>
       )}
       {rateText.trim() === '' && (
         <p className="text-yellow-300/90 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 flex gap-2">

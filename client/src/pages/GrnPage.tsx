@@ -5,6 +5,7 @@ import {
   grnsDb, suppliersDb, rawMaterialsDb, rawMaterialReceiptsDb, boppFilmsDb, invRollsDb, ppGranulesDb,
   syncMaterialPools, addToList,
 } from '../lib/db';
+import { blendGranuleRate } from '../lib/granules';
 import {
   GRN_DESTINATIONS, DEFAULT_RAW_MATERIALS, RAW_MATERIALS_KEY,
   DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY,
@@ -96,6 +97,7 @@ function GrnForm({ suppliers, granuleItems, onReceive, onClose }: {
             {granuleItems.length === 0 && <p className="text-muted text-xs mt-1">Add a granule item in P.P. Granule inventory first.</p>}
           </div>
           <div><label className="label">KG received *</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.qty || ''} onChange={(e) => set('qty', num(e.target.value))} /></div>
+          <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.rate} onChange={(e) => set('rate', e.target.value)} placeholder="blends into avg" /></div>
         </>)}
       </div>
       <p className="text-muted text-xs">
@@ -149,7 +151,11 @@ export function GrnPage() {
       invRollsDb.create({ rollNo: d.itemName, type: d.rollType || 'Milky', size: '', quality: 0, gWt: d.qty, nWt: d.qty, meter: d.meter || 0, rate, dateAdded: d.date });
     } else if (d.destination === 'P.P. Granule') {
       const it = ppGranulesDb.get(d.granuleItemId);
-      if (it) ppGranulesDb.update(it.id, { currentStockKg: it.currentStockKg + d.qty, grnRef: grnNo });
+      // Blend the received rate into the item's moving-average, then add stock.
+      if (it) ppGranulesDb.update(it.id, {
+        costPerKg: blendGranuleRate(it.currentStockKg, it.costPerKg, d.qty, rate) ?? undefined,
+        currentStockKg: it.currentStockKg + d.qty, grnRef: grnNo, updatedAt: now,
+      });
     }
     grnsDb.create({
       grnNo, supplier: d.supplier, invoiceNo: d.invoiceNo, date: d.date, destination: d.destination,

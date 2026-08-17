@@ -20,15 +20,15 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
 
   // Rolls already committed by this card stay selectable so the line can be edited.
   const stock = useMemo(() => {
-    const out: { key: string; kind: 'roll' | 'film'; id: string; label: string; available: number; rate: number | null; type?: string; size?: string }[] = [];
+    const out: { key: string; kind: 'roll' | 'film'; id: string; label: string; available: number; rate: number | null; type?: string; size?: string; gm?: number }[] = [];
     if (kinds.includes('roll')) {
-      for (const r of invRollsDb.getAll().filter((x) => !x.dispatched)) {
-        out.push({ key: `roll:${r.id}`, kind: 'roll', id: r.id, label: `${r.rollNo} · ${r.type}`, available: r.nWt, rate: r.rate ?? null, type: r.type, size: r.size });
+      for (const r of invRollsDb.getAll().filter((x) => !x.dispatched && !x.inTransit)) {
+        out.push({ key: `roll:${r.id}`, kind: 'roll', id: r.id, label: `${r.rollNo} · ${r.type}`, available: r.nWt, rate: r.rate ?? null, type: r.type, size: r.size, gm: r.gm });
       }
     }
     if (kinds.includes('film')) {
       for (const f of boppFilmsDb.getAll().filter((x) => !x.balanceUsed || (x.nWt ?? x.kg) > 0)) {
-        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size });
+        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size, gm: f.gm });
       }
     }
     return out;
@@ -39,7 +39,7 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
     if (!s) return;
     if (value.some((u) => u.rollId === s.id)) { toast.error(`${s.label} is already on this stage`); return; }
     onChange([...value, {
-      rollId: s.id, rollNo: s.label.split(' · ')[0], kind: s.kind, type: s.type, size: s.size,
+      rollId: s.id, rollNo: s.label.split(' · ')[0], kind: s.kind, type: s.type, size: s.size, gm: s.gm,
       qtyKg: 0, rate: s.rate, lineCost: 0, finished: false, balanceKg: s.available,
     }]);
     setPicking('');
@@ -69,7 +69,8 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-accent text-sm">{u.rollNo}</span>
                 {u.type && <span className="text-muted text-xs">{u.type}</span>}
-                {u.size && <span className="text-muted text-xs">· {u.size}</span>}
+                <span className="text-muted text-xs">· Size {u.size || '—'}</span>
+                <span className="text-muted text-xs">· GM {u.gm ?? '—'}</span>
                 <span className="text-muted text-xs">· {available.toLocaleString('en-IN')} kg in stock</span>
                 <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
                   className="ml-auto p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400">

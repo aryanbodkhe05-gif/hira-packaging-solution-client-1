@@ -72,6 +72,7 @@ export interface FabricBatch {
   line: string;             // e.g. "Line 3"
   uses: GranuleUse[];       // granule items consumed (P.P / Filler / RP / Colour) — deducted from stock
   outputMeters?: number;    // total fabric produced (meters)
+  outputKg?: number;        // tape produced (kg) — drives the tape price/kg
   status: BatchStatus;      // Open | Closed
   notes?: string;
   createdAt: string;
@@ -93,6 +94,7 @@ export interface FabricWastage {
 // ── Module 12 — Loom Production ────────────────────────────────────────────────
 export interface Loom {
   id: string;
+  unitId?: string;          // which Loom/P.P. unit this loom belongs to (default 'unit-1')
   loomNo: string;           // e.g. "Loom 1"
   model?: string;
   maxRpm: number;           // max RPM capacity — drives efficiency %
@@ -171,6 +173,7 @@ export interface RollUse {
   kind: 'roll' | 'film';        // inv_rolls vs inv_bopp_films
   type?: string;                // roll type (Milky / Natural / …)
   size?: string;
+  gm?: number;                  // GM of the consumed roll/film (shown on the line)
   qtyKg: number;                // weight consumed from this roll
   rate: number | null;          // ₹/kg snapshotted from the roll; null => not set
   lineCost: number;             // qtyKg × rate (0 when rate not set)
@@ -539,6 +542,7 @@ export interface BoppFilm {
   id: string;
   filmNo: string;
   size?: string;           // film size (mm) — groups films like rolls group by size
+  gm?: number;             // optional GM (shown on consumption lines when set)
   gWt?: number;            // gross weight (kg)
   nWt?: number;            // net weight (kg) — the consumable stock weight
   kg: number;              // legacy alias for nWt, kept in sync for older consumers
@@ -554,13 +558,18 @@ export interface BoppFilm {
 // Archive of fully-consumed input rolls / films (moved here from stock).
 export interface FinishedRoll {
   id: string;
+  srcId?: string;          // original inv_roll id — lets a delete/edit restore it to stock
   rollNo: string;
   type: string;
   size: string;
+  gm?: number;
   quality: number;
   gWt: number;
   nWt: number;
   meter: number;
+  avg?: number;
+  rate?: number | null;
+  party?: string;
   dateAdded: string;       // when it originally entered stock
   consumedAt: string;      // when marked finished
   jobNo?: string;
@@ -569,11 +578,17 @@ export interface FinishedRoll {
 
 export interface FinishedFilm {
   id: string;
+  srcId?: string;          // original inv_bopp_films id — lets a delete/edit restore it
   filmNo: string;
+  size?: string;
+  gm?: number;
   kg: number;
+  nWt?: number;
   meter: number;
   finish?: Finish;
   micron?: number;
+  rate?: number | null;
+  party?: string;
   dateAdded: string;
   consumedAt: string;
   jobNo?: string;

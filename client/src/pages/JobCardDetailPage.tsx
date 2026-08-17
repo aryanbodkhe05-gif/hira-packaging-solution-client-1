@@ -7,7 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import {
   jobCardsDb, dispatchesDb, ordersDb,
-  syncMaterialPools, consumeRoll, factoryMachinesDb, getList, saveSettings,
+  syncMaterialPools, applyRollUse, factoryMachinesDb, getList, saveSettings,
 } from '../lib/db';
 import {
   FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES,
@@ -193,16 +193,17 @@ export function JobCardDetailPage() {
     const committed: JobCard = { ...c };
     // A Cutting-BCS / Back Seal scoped staffer's method is forced on save.
     if (lockedMethod) committed.cutting = { ...committed.cutting, method: lockedMethod };
+    // Roll/film stock is fully reversible: reverse everything this card previously
+    // committed, then apply the current lines. So a deleted line restores stock, an
+    // edited line re-adjusts, and re-saving never double-decrements.
     for (const k of STAGE_KEYS) {
-      const uses = (committed[k].rollUses ?? []).filter((u) => u.qtyKg > 0);
-      if (!uses.length) continue;
       const prevUses = c.id ? (jobCardsDb.get(c.id)?.[k].rollUses ?? []) : [];
-      const next: RollUse[] = uses.map((u) => {
-        // Only commit a line the first time it is saved, so re-saving a card
-        // doesn't decrement the same roll twice.
-        const already = prevUses.find((p) => p.rollId === u.rollId && p.qtyKg === u.qtyKg && p.finished === u.finished);
-        if (already) return u;
-        const rate = consumeRoll({ rollId: u.rollId, kind: u.kind, qtyKg: u.qtyKg, finished: u.finished },
+      for (const p of prevUses) {
+        if ((p.qtyKg || 0) > 0) applyRollUse({ rollId: p.rollId, kind: p.kind, qtyKg: p.qtyKg, finished: p.finished }, -1);
+      }
+      const next: RollUse[] = (committed[k].rollUses ?? []).map((u) => {
+        if ((u.qtyKg || 0) <= 0) return { ...u, lineCost: 0 };
+        const rate = applyRollUse({ rollId: u.rollId, kind: u.kind, qtyKg: u.qtyKg, finished: u.finished }, 1,
           { jobNo: c.jobNo, orderNo: c.orderNo });
         const eff = u.rate ?? rate;
         return { ...u, rate: eff, lineCost: eff != null ? +(u.qtyKg * eff).toFixed(2) : 0 };

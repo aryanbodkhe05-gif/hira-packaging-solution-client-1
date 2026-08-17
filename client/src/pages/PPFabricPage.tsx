@@ -15,6 +15,9 @@ import type {
   Shift, BatchStatus, WastageType, WastageAction,
 } from '../config';
 import type { FabricBatch, FabricWastage, GranuleUse, PPGranuleItem } from '../types/models';
+import { canViewCosts } from '../lib/roles';
+import { formatINR } from '../lib/jobcard';
+import { tapePrice, granuleTypeRates } from '../lib/granules';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatCard } from '../components/ui/StatCard';
@@ -81,6 +84,12 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
   const byType: Record<string, number> = {};
   uses.forEach((u) => { byType[u.type] = (byType[u.type] ?? 0) + (u.qtyKg || 0); });
 
+  // Tape price = granules (avg-costed) + labour/overhead, per kg. Tape kg defaults
+  // to the granule input mass when an explicit output kg isn't entered.
+  const showCosts = canViewCosts();
+  const tapeKg = f.outputKg || total;
+  const price = useMemo(() => tapePrice(uses.filter((u) => u.itemId && u.qtyKg > 0), tapeKg, granuleItems), [uses, tapeKg, granuleItems]);
+
   function submit() {
     if (!f.line.trim()) { toast.error('Machine / Line No. is required'); return; }
     const valid = uses.filter((u) => u.itemId && u.qtyKg > 0);
@@ -133,6 +142,7 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label className="label">Total Fabric Output (m) *</label><input className="input-field font-mono" type="number" min="1" step="any" value={f.outputMeters || ''} onChange={(e) => set('outputMeters', toNum(e.target.value))} placeholder="meters" /></div>
+        <div><label className="label">Tape Output (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.outputKg || ''} onChange={(e) => set('outputKg', toNum(e.target.value))} placeholder={`default ${total} (granule input)`} /></div>
         <div><label className="label">Status</label>
           <select className="input-field" value={f.status} onChange={(e) => set('status', e.target.value as BatchStatus)}>{BATCH_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
         </div>
@@ -159,6 +169,30 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
           ))}
         </div>
       </div>
+
+      {/* Tape price calculator (owner/manager only) — granules + labour/overhead ÷ kg */}
+      {showCosts && (
+        <div className="p-4 rounded-xl bg-navy/60 border border-accent/20 space-y-2">
+          <p className="text-xs uppercase tracking-wide text-muted flex items-center justify-between">
+            <span>Tape price calculator</span>
+            <span className="text-white/60 normal-case">over {tapeKg.toLocaleString('en-IN')} kg tape</span>
+          </p>
+          <div className="flex justify-between text-sm"><span className="text-muted">Granules (avg-costed)</span><span className="font-mono text-white/85">{formatINR(price.granuleCost)}</span></div>
+          {Object.entries(price.granuleByType).length > 0 && (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-2">
+              {Object.entries(price.granuleByType).map(([t, c]) => (
+                <span key={t} className="text-[11px] font-mono text-muted">{t}: {formatINR(c)}</span>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-between text-sm"><span className="text-muted">Labour &amp; overhead</span><span className="font-mono text-white/85">{formatINR(price.labourCost)}</span></div>
+          <div className="flex justify-between border-t border-white/10 pt-2 text-sm"><span className="text-white/80">Total tape cost</span><span className="font-mono text-white font-semibold">{formatINR(price.totalCost)}</span></div>
+          <div className="flex justify-between text-base"><span className="text-white font-semibold">Tape price / kg</span><span className="font-mono text-accent font-bold">{formatINR(price.pricePerKg)}</span></div>
+          {(price.granuleUnrated || price.labourUnset) && (
+            <p className="text-[11px] text-yellow-300/90">Some granules/rates are unpriced — excluded from the total until set.</p>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
@@ -259,8 +293,12 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
   const [shiftFilter, setShiftFilter] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; batch?: FabricBatch } | null>(null);
+  const { activeUnit } = useUnit();
   const byUnit = (arr: PPGranuleItem[]) => arr.filter((g) => (g.unitId ?? 'unit-1') === getActiveUnit());
   const [granuleItems, setGranuleItems] = useState<PPGranuleItem[]>(() => byUnit(ppGranulesDb.getAll()));
+  // Refresh the granule list when the active unit changes (so the batch form's
+  // granule dropdown + tape price always use THIS unit's stock).
+  useEffect(() => { setGranuleItems(ppGranulesDb.getAll().filter((g) => (g.unitId ?? 'unit-1') === activeUnit)); }, [activeUnit]);
 
   useEffect(() => { if (openNew) setModal({ type: 'add' }); }, [openNew]);
 

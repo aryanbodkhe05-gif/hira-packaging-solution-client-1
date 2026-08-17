@@ -220,6 +220,14 @@ export function dbCreate<T extends { id: string }>(table: string, item: Omit<T, 
   return record;
 }
 
+// Insert a record keeping its given id (used to restore a consumed roll/film to
+// stock with its original id, so consumption lines still reference it correctly).
+export function dbInsertWithId<T extends { id: string }>(table: string, record: T): T {
+  const all = getAll<T>(table);
+  if (!all.some((r) => r.id === record.id)) { all.unshift(record); setAll(table, all); }
+  return record;
+}
+
 export function dbUpdate<T extends { id: string }>(table: string, id: string, patch: Partial<T>): T | null {
   const all = getAll<T>(table);
   const idx = all.findIndex((r) => r.id === id);
@@ -402,45 +410,91 @@ export function applyGranuleUses(uses: GranuleUse[], sign: 1 | -1): void {
   if (changed) setAll('inv_pp_granules', items);
 }
 
-// Commit one roll/film consumption line to inventory. A finished roll is archived
-// to the Finished list and dropped from stock; a partly-used roll stays in stock
-// with its remaining weight. Returns the roll's own rate for cost snapshotting.
-export function consumeRoll(
+// Apply (sign +1) or REVERSE (sign -1) one roll/film consumption line against
+// inventory — fully reversible so an edited/deleted consumption line leaves stock
+// exactly as before:
+//   apply  + finished → archive the roll to Finished (with its id) and drop it from stock
+//   apply  + balance  → deduct the used weight, roll stays in stock
+//   reverse + finished → recreate the roll in stock from its archive (original id), un-archive
+//   reverse + balance  → add the used weight back
+// Returns the roll's own rate on apply (for cost snapshotting).
+export function applyRollUse(
   use: { rollId: string; kind: 'roll' | 'film'; qtyKg: number; finished: boolean },
+  sign: 1 | -1,
   ctx: { jobNo?: string; orderNo?: string } = {},
 ): number | null {
   const now = new Date().toISOString();
+  const round = (n: number) => +n.toFixed(3);
+
   if (use.kind === 'roll') {
-    const roll = dbGetAll<InvRoll>('inv_rolls').find((r) => r.id === use.rollId);
-    if (!roll) return null;
-    if (use.finished) {
-      dbCreate<FinishedRoll>('inv_finished_rolls', {
-        rollNo: roll.rollNo, type: roll.type, size: roll.size, quality: roll.quality,
-        gWt: roll.gWt, nWt: roll.nWt, meter: roll.meter, dateAdded: roll.dateAdded,
-        consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
-      });
-      dbDelete('inv_rolls', roll.id);
-    } else {
-      dbUpdate<InvRoll>('inv_rolls', roll.id, {
-        nWt: +Math.max(0, roll.nWt - use.qtyKg).toFixed(3), balanceUsed: true,
-      });
+    if (sign === 1) {
+      const roll = dbGetAll<InvRoll>('inv_rolls').find((r) => r.id === use.rollId);
+      if (!roll) return null;
+      if (use.finished) {
+        dbCreate<FinishedRoll>('inv_finished_rolls', {
+          srcId: roll.id, rollNo: roll.rollNo, type: roll.type, size: roll.size, gm: roll.gm,
+          quality: roll.quality, gWt: roll.gWt, nWt: roll.nWt, meter: roll.meter, avg: roll.avg,
+          rate: roll.rate ?? null, party: roll.party, dateAdded: roll.dateAdded,
+          consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
+        });
+        dbDelete('inv_rolls', roll.id);
+      } else {
+        dbUpdate<InvRoll>('inv_rolls', roll.id, { nWt: round(Math.max(0, roll.nWt - use.qtyKg)), balanceUsed: true });
+      }
+      return roll.rate ?? null;
     }
-    return roll.rate ?? null;
+    // reverse
+    if (use.finished) {
+      const fin = [...dbGetAll<FinishedRoll>('inv_finished_rolls')].reverse().find((f) => f.srcId === use.rollId);
+      if (fin) {
+        dbInsertWithId<InvRoll>('inv_rolls', {
+          id: fin.srcId!, rollNo: fin.rollNo, type: fin.type, size: fin.size, gm: fin.gm, quality: fin.quality,
+          gWt: fin.gWt, nWt: fin.nWt, meter: fin.meter, avg: fin.avg, rate: fin.rate ?? null, party: fin.party,
+          dateAdded: fin.dateAdded,
+        });
+        dbDelete('inv_finished_rolls', fin.id);
+      }
+    } else {
+      const roll = dbGetAll<InvRoll>('inv_rolls').find((r) => r.id === use.rollId);
+      if (roll) dbUpdate<InvRoll>('inv_rolls', roll.id, { nWt: round(roll.nWt + use.qtyKg) });
+    }
+    return null;
   }
 
-  const film = dbGetAll<BoppFilm>('inv_bopp_films').find((f) => f.id === use.rollId);
-  if (!film) return null;
-  if (use.finished) {
-    dbCreate<FinishedFilm>('inv_finished_films', {
-      filmNo: film.filmNo, kg: film.nWt ?? film.kg, meter: film.meter, finish: film.finish, micron: film.micron,
-      dateAdded: film.dateAdded, consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
-    });
-    dbDelete('inv_bopp_films', film.id);
-  } else {
-    const left = +Math.max(0, (film.nWt ?? film.kg) - use.qtyKg).toFixed(3);
-    dbUpdate<BoppFilm>('inv_bopp_films', film.id, { nWt: left, kg: left, balanceUsed: true });
+  // ── film ──
+  if (sign === 1) {
+    const film = dbGetAll<BoppFilm>('inv_bopp_films').find((f) => f.id === use.rollId);
+    if (!film) return null;
+    if (use.finished) {
+      dbCreate<FinishedFilm>('inv_finished_films', {
+        srcId: film.id, filmNo: film.filmNo, size: film.size, gm: film.gm, kg: film.nWt ?? film.kg,
+        nWt: film.nWt ?? film.kg, meter: film.meter, finish: film.finish, micron: film.micron,
+        rate: film.rate ?? null, party: film.party, dateAdded: film.dateAdded,
+        consumedAt: now, jobNo: ctx.jobNo, orderNo: ctx.orderNo,
+      });
+      dbDelete('inv_bopp_films', film.id);
+    } else {
+      const left = round(Math.max(0, (film.nWt ?? film.kg) - use.qtyKg));
+      dbUpdate<BoppFilm>('inv_bopp_films', film.id, { nWt: left, kg: left, balanceUsed: true });
+    }
+    return film.rate ?? null;
   }
-  return film.rate ?? null;
+  // reverse film
+  if (use.finished) {
+    const fin = [...dbGetAll<FinishedFilm>('inv_finished_films')].reverse().find((f) => f.srcId === use.rollId);
+    if (fin) {
+      const w = fin.nWt ?? fin.kg;
+      dbInsertWithId<BoppFilm>('inv_bopp_films', {
+        id: fin.srcId!, filmNo: fin.filmNo, size: fin.size, gm: fin.gm, nWt: w, kg: w, meter: fin.meter,
+        finish: fin.finish, micron: fin.micron, rate: fin.rate ?? null, party: fin.party, dateAdded: fin.dateAdded,
+      });
+      dbDelete('inv_finished_films', fin.id);
+    }
+  } else {
+    const film = dbGetAll<BoppFilm>('inv_bopp_films').find((f) => f.id === use.rollId);
+    if (film) { const w = round((film.nWt ?? film.kg) + use.qtyKg); dbUpdate<BoppFilm>('inv_bopp_films', film.id, { nWt: w, kg: w }); }
+  }
+  return null;
 }
 
 export const usersDb = {
@@ -624,6 +678,7 @@ export function migrateUnitsOnce(): void {
     stamp('loom_entries');
     stamp('fabric_batches');
     stamp('inv_pp_granules');
+    stamp('looms');
     localStorage.setItem(FLAG, new Date().toISOString());
   } catch { /* ignore */ }
 }

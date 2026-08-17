@@ -5,6 +5,7 @@ import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
   jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
+  loomsDb, applyGranuleUses,
 } from './db';
 import {
   RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
@@ -28,23 +29,38 @@ export function seedSampleData(): void {
     saveUnits([{ id: 'unit-1', name: 'Weaving Unit A' }, { id: 'unit-2', name: 'Unit 2' }]);
   }
 
+  let ppU1: { id: string; name: string } | undefined;
+  let fillerU1: { id: string; name: string } | undefined;
   if (ppGranulesDb.getAll().length === 0) {
-    const g = (name: string, type: string, kg: number, unitId: string) => ppGranulesDb.create({ unitId, name, type, currentStockKg: kg, bagWeightKg: 25, dateReceived: today(), createdAt: iso(), updatedAt: iso() });
+    // costPerKg = the granule's moving-average rate (drives the tape price calculator).
+    const g = (name: string, type: string, kg: number, unitId: string, rate: number) => ppGranulesDb.create({ unitId, name, type, costPerKg: rate, currentStockKg: kg, bagWeightKg: 25, dateReceived: today(), createdAt: iso(), updatedAt: iso() });
     // Unit 1 stock
-    g('Virgin PP Grade A', 'P.P.', 2000, 'unit-1'); g('CaCO3 Filler 80%', 'Filler', 600, 'unit-1');
-    g('Reprocessed PP', 'Master Batch', 800, 'unit-1'); g('Blue Masterbatch', 'Colour', 150, 'unit-1'); g('Slip Enhancer', 'Enhancer', 120, 'unit-1');
-    // Unit 2 stock (different quantities — proves separation)
-    g('Virgin PP Grade B', 'P.P.', 900, 'unit-2'); g('CaCO3 Filler 70%', 'Filler', 300, 'unit-2');
+    ppU1 = g('Virgin PP Grade A', 'P.P.', 2000, 'unit-1', 95); fillerU1 = g('CaCO3 Filler 80%', 'Filler', 600, 'unit-1', 42);
+    g('Reprocessed PP', 'Master Batch', 800, 'unit-1', 70); g('Blue Masterbatch', 'Colour', 150, 'unit-1', 180); g('Slip Enhancer', 'Enhancer', 120, 'unit-1', 150);
+    // Unit 2 stock (different quantities + rates — proves separation)
+    g('Virgin PP Grade B', 'P.P.', 900, 'unit-2', 98); g('CaCO3 Filler 70%', 'Filler', 300, 'unit-2', 40);
+  }
+
+  // Loom machines: seed ONE loom in Unit 1 only (proves per-unit isolation — it must
+  // NOT appear in Unit 2).
+  if (loomsDb.getAll().length === 0) {
+    loomsDb.create({ unitId: 'unit-1', loomNo: 'Loom A1', maxRpm: 180, status: 'Active', createdAt: iso(), updatedAt: iso() });
   }
 
   // Per-unit Loom Log + P.P. Fabric entries (separate data per unit).
   if (loomEntriesDb.getAll().length === 0) {
-    loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom 1', width: 24, widthUnit: 'inches', meters: 1800, quality: 2.5, weightKg: 240, rollCount: 6, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
-    loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom 2', width: 20, widthUnit: 'inches', meters: 1200, quality: 3,   weightKg: 160, rollCount: 4, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
+    loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom A1', width: 24, widthUnit: 'inches', meters: 1800, quality: 2.5, weightKg: 240, rollCount: 6, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
+    loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom B1', width: 20, widthUnit: 'inches', meters: 1200, quality: 3,   weightKg: 160, rollCount: 4, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
   }
   if (fabricBatchesDb.getAll().length === 0) {
-    fabricBatchesDb.create({ unitId: 'unit-1', batchId: 'HIRA-A-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 1500, status: 'Closed', createdAt: iso(), updatedAt: iso() });
-    fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 900,  status: 'Open',   createdAt: iso(), updatedAt: iso() });
+    // Unit 1 batch consumes granules → the tape price calculator prices it from
+    // granule (avg) + labour/overhead. Deduct the consumed granules from stock.
+    const uses = ppU1 && fillerU1
+      ? [{ itemId: ppU1.id, itemName: ppU1.name, type: 'P.P.', qtyKg: 800 }, { itemId: fillerU1.id, itemName: fillerU1.name, type: 'Filler', qtyKg: 200 }]
+      : [];
+    if (uses.length) applyGranuleUses(uses, -1);
+    fabricBatchesDb.create({ unitId: 'unit-1', batchId: 'HIRA-A-001', date: today(), shift: 'Morning', line: 'Line 1', uses, outputMeters: 1500, outputKg: 1000, status: 'Closed', createdAt: iso(), updatedAt: iso() });
+    fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 900, status: 'Open', createdAt: iso(), updatedAt: iso() });
   }
 
   // Roll Count: rolls sitting in Unit 1 stock (manual roll nos), ready to transfer.
