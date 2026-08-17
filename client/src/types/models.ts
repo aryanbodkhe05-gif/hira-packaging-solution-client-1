@@ -459,6 +459,7 @@ export interface RawMaterialBatch {
 export interface UnitRoll {
   id: string;
   unitId: string;          // which unit made/holds this roll
+  rollNo?: string;         // manual roll no typed by the worker
   type?: string;
   size: string;
   gm?: number;

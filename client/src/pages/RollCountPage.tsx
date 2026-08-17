@@ -6,6 +6,7 @@ import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
 import {
   DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY, DEFAULT_ROLL_SIZEGM, ROLL_SIZEGM_KEY,
+  DEFAULT_ROLL_GM, ROLL_GM_KEY,
 } from '../config';
 import type { UnitRoll } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -17,8 +18,9 @@ import { TypeAhead, rememberTypeAhead } from '../components/ui/TypeAhead';
 const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 
-// Add a roll made in this unit into its own stock.
-function AddRollForm({ onSave, onClose }: { onSave: (r: { type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) => void; onClose: () => void }) {
+// Add a roll made in this unit into its own stock. Roll No is typed by hand.
+function AddRollForm({ onSave, onClose }: { onSave: (r: { rollNo: string; type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) => void; onClose: () => void }) {
+  const [rollNo, setRollNo] = useState('');
   const [type, setType] = useState('');
   const [size, setSize] = useState('');
   const [gm, setGm] = useState('');
@@ -27,16 +29,19 @@ function AddRollForm({ onSave, onClose }: { onSave: (r: { type: string; size: st
   const [meter, setMeter] = useState('');
   const [avg, setAvg] = useState('');
   function submit() {
+    if (!rollNo.trim()) { toast.error('Roll No is required'); return; }
     if (!size.trim()) { toast.error('Size is required'); return; }
     rememberTypeAhead(ROLL_SIZEGM_KEY, size, DEFAULT_ROLL_SIZEGM);
-    onSave({ type, size: size.trim(), gm: num(gm) || undefined, gWt: num(gWt), nWt: num(nWt), meter: num(meter), avg: num(avg) || undefined });
+    if (gm.trim()) rememberTypeAhead(ROLL_GM_KEY, gm, DEFAULT_ROLL_GM);
+    onSave({ rollNo: rollNo.trim(), type, size: size.trim(), gm: num(gm) || undefined, gWt: num(gWt), nWt: num(nWt), meter: num(meter), avg: num(avg) || undefined });
   }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div><label className="label">Roll No *</label><input className="input-field font-mono" value={rollNo} onChange={(e) => setRollNo(e.target.value)} placeholder="type roll no" autoFocus /></div>
         <div><label className="label">Type</label><ListSelect value={type} onChange={setType} listKey={ROLL_TYPES_KEY} defaults={DEFAULT_ROLL_TYPES} placeholder="Select type…" /></div>
         <div><label className="label">Size *</label><TypeAhead value={size} onChange={setSize} listKey={ROLL_SIZEGM_KEY} defaults={DEFAULT_ROLL_SIZEGM} placeholder="e.g. 500mm" /></div>
-        <div><label className="label">GM</label><input className="input-field font-mono" type="number" min="0" step="any" value={gm} onChange={(e) => setGm(e.target.value)} /></div>
+        <div><label className="label">GM</label><TypeAhead value={gm} onChange={setGm} listKey={ROLL_GM_KEY} defaults={DEFAULT_ROLL_GM} placeholder="e.g. 12" /></div>
         <div><label className="label">G.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={gWt} onChange={(e) => setGWt(e.target.value)} /></div>
         <div><label className="label">N.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={nWt} onChange={(e) => setNWt(e.target.value)} /></div>
         <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={meter} onChange={(e) => setMeter(e.target.value)} /></div>
@@ -63,7 +68,7 @@ export function RollCountPage() {
   }, [activeUnit]);
   useEffect(() => { reload(); }, [reload]);
 
-  function handleAdd(r: { type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) {
+  function handleAdd(r: { rollNo: string; type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) {
     unitRollsDb.create({ unitId: activeUnit, status: 'in_unit', createdAt: new Date().toISOString(), ...r });
     toast.success('Roll added to unit stock');
     setAddOpen(false); reload();
@@ -120,14 +125,15 @@ export function RollCountPage() {
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
               <th className="table-header w-8"><input type="checkbox" className="w-4 h-4 accent-primary" checked={rolls.length > 0 && selected.size === rolls.length} onChange={toggleAll} /></th>
-              {['Type', 'Size', 'GM', 'G.WT', 'N.WT', 'Meter', 'Avg', 'Added', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Roll No', 'Type', 'Size', 'GM', 'G.WT', 'N.WT', 'Meter', 'Avg', 'Added', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {rolls.length === 0 ? (
-                <tr><td colSpan={10}><EmptyState icon={Scroll} title="No rolls in this unit" action={{ label: 'Add Roll', onClick: () => setAddOpen(true) }} /></td></tr>
+                <tr><td colSpan={11}><EmptyState icon={Scroll} title="No rolls in this unit" action={{ label: 'Add Roll', onClick: () => setAddOpen(true) }} /></td></tr>
               ) : rolls.map((r) => (
                 <tr key={r.id} className="table-row">
                   <td className="table-cell"><input type="checkbox" className="w-4 h-4 accent-primary" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
+                  <td className="table-cell font-mono text-accent whitespace-nowrap">{r.rollNo || '—'}</td>
                   <td className="table-cell text-white/80">{r.type || '—'}</td>
                   <td className="table-cell text-white/70">{r.size || '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.gm ?? '—'}</td>
@@ -157,10 +163,11 @@ export function RollCountPage() {
             <p className="text-muted text-sm">These {selectedRolls.length} roll{selectedRolls.length === 1 ? '' : 's'} will leave <span className="text-white/80">{unitName(activeUnit)}</span> stock and appear in Inventory Rolls as <span className="text-orange-300">In Transit</span> until someone Receives them.</p>
             <div className="rounded-lg border border-white/10 overflow-hidden max-h-64 overflow-y-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-muted bg-navy/40"><th className="text-left px-3 py-1.5">Type</th><th className="text-left px-3 py-1.5">Size / GM</th><th className="text-left px-3 py-1.5">N.WT</th><th className="text-left px-3 py-1.5">Meter</th></tr></thead>
+                <thead><tr className="text-muted bg-navy/40"><th className="text-left px-3 py-1.5">Roll No</th><th className="text-left px-3 py-1.5">Type</th><th className="text-left px-3 py-1.5">Size / GM</th><th className="text-left px-3 py-1.5">N.WT</th><th className="text-left px-3 py-1.5">Meter</th></tr></thead>
                 <tbody>
                   {selectedRolls.map((r) => (
                     <tr key={r.id} className="border-t border-white/5">
+                      <td className="px-3 py-1.5 font-mono text-accent">{r.rollNo || '—'}</td>
                       <td className="px-3 py-1.5 text-white/80">{r.type || '—'}</td>
                       <td className="px-3 py-1.5 font-mono text-white/70">{r.size || '—'} / {r.gm ?? '—'}</td>
                       <td className="px-3 py-1.5 font-mono text-white/80">{r.nWt || '—'}</td>

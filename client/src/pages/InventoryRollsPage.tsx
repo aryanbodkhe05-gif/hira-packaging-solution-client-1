@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { invRollsDb } from '../lib/db';
 import {
   DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY, DEFAULT_PARTIES, PARTIES_KEY,
-  DEFAULT_ROLL_SIZEGM, ROLL_SIZEGM_KEY,
+  DEFAULT_ROLL_SIZEGM, ROLL_SIZEGM_KEY, DEFAULT_ROLL_GM, ROLL_GM_KEY,
 } from '../config';
 import type { InvRoll } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -21,12 +21,11 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 // Second grouping component: GM (new) with legacy `quality` fallback for old rolls.
 const gmVal = (r: Pick<InvRoll, 'gm' | 'quality'>) => (r.gm ?? r.quality) || '';
 
-// ── Bulk add: shared Type/Size/GM/Party, then N per-roll rows (G.WT/N.WT/Meter/Avg).
-// Roll nos auto-sequence per size+GM group. Size is a reusable type-ahead (same fixed
-// pattern as raw materials — no list bug).
-interface BulkRow { gWt: string; nWt: string; meter: string; avg: string; }
-function BulkRollForm({ nextNo, onSave, onClose }: {
-  nextNo: (size: string, gm: number) => number;   // next running number for a size+GM group
+// ── Bulk add: shared Type/Size/GM/Party, then N per-roll rows. Roll No is typed by
+// hand per row (no auto-numbering). Size + GM are reusable type-aheads (fixed list
+// pattern — no list bug).
+interface BulkRow { rollNo: string; gWt: string; nWt: string; meter: string; avg: string; }
+function BulkRollForm({ onSave, onClose }: {
   onSave: (rolls: Omit<InvRoll, 'id'>[]) => void; onClose: () => void;
 }) {
   const [type, setType] = useState('');
@@ -42,7 +41,7 @@ function BulkRollForm({ nextNo, onSave, onClose }: {
     if (!size.trim()) { toast.error('Enter Size first'); return; }
     const n = Math.max(0, Math.min(50, Math.floor(parseFloat(countText) || 0)));
     if (n <= 0) { toast.error('Enter how many rolls (1–50)'); return; }
-    setRows(Array.from({ length: n }, () => ({ gWt: '', nWt: '', meter: '', avg: '' })));
+    setRows(Array.from({ length: n }, () => ({ rollNo: '', gWt: '', nWt: '', meter: '', avg: '' })));
   }
   const setRow = (i: number, k: keyof BulkRow, v: string) =>
     setRows((p) => p.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
@@ -51,11 +50,12 @@ function BulkRollForm({ nextNo, onSave, onClose }: {
     if (!type) { toast.error('Type is required'); return; }
     if (!size.trim()) { toast.error('Size is required'); return; }
     if (rows.length === 0) { toast.error('Choose how many rolls and press Generate'); return; }
+    if (rows.some((r) => !r.rollNo.trim())) { toast.error('Enter a Roll No for every row'); return; }
     rememberTypeAhead(ROLL_SIZEGM_KEY, size, DEFAULT_ROLL_SIZEGM);
+    if (gmText.trim()) rememberTypeAhead(ROLL_GM_KEY, gmText, DEFAULT_ROLL_GM);
     if (party.trim()) rememberTypeAhead(PARTIES_KEY, party, DEFAULT_PARTIES);
-    const base = nextNo(size.trim(), gm);
-    const rolls: Omit<InvRoll, 'id'>[] = rows.map((r, i) => ({
-      rollNo: `R-${size.trim()}-${gm || '0'}-${base + i}`.replace(/\s/g, ''),
+    const rolls: Omit<InvRoll, 'id'>[] = rows.map((r) => ({
+      rollNo: r.rollNo.trim(),
       type, size: size.trim(), gm: gm || undefined, quality: 0,
       gWt: num(r.gWt), nWt: num(r.nWt), meter: num(r.meter), avg: num(r.avg) || undefined,
       rate: null, party: party.trim() || undefined, dateAdded: date,
@@ -68,7 +68,7 @@ function BulkRollForm({ nextNo, onSave, onClose }: {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div><label className="label">Type *</label><ListSelect value={type} onChange={setType} listKey={ROLL_TYPES_KEY} defaults={DEFAULT_ROLL_TYPES} placeholder="Select type…" /></div>
         <div><label className="label">Size *</label><TypeAhead value={size} onChange={setSize} listKey={ROLL_SIZEGM_KEY} defaults={DEFAULT_ROLL_SIZEGM} placeholder="e.g. 500mm" /></div>
-        <div><label className="label">GM</label><input className="input-field font-mono" type="number" min="0" step="any" value={gmText} onChange={(e) => setGmText(e.target.value)} placeholder="12" /></div>
+        <div><label className="label">GM</label><TypeAhead value={gmText} onChange={setGmText} listKey={ROLL_GM_KEY} defaults={DEFAULT_ROLL_GM} placeholder="e.g. 12" /></div>
         <div><label className="label">Party Name</label><TypeAhead value={party} onChange={setParty} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="outside party" /></div>
         <div><label className="label">Date</label><input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
         <div>
@@ -83,15 +83,16 @@ function BulkRollForm({ nextNo, onSave, onClose }: {
       {rows.length > 0 && (
         <div className="rounded-lg border border-accent/10 overflow-hidden">
           <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide">
-            {rows.length} roll{rows.length === 1 ? '' : 's'} · {size || '—'} / {gm || '—'} GM · nos R-{size || '—'}-{gm || '0'}-{nextNo(size.trim(), gm)}…
+            {rows.length} roll{rows.length === 1 ? '' : 's'} · {size || '—'} / {gm || '—'} GM · type each Roll No by hand
           </div>
           <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
-            <div className="grid grid-cols-[2rem_1fr_1fr_1fr_1fr] gap-2 text-[11px] text-muted uppercase tracking-wide px-1">
-              <span>#</span><span>G.WT</span><span>N.WT</span><span>Meter</span><span>Avg</span>
+            <div className="grid grid-cols-[2rem_1.4fr_1fr_1fr_1fr_1fr] gap-2 text-[11px] text-muted uppercase tracking-wide px-1">
+              <span>#</span><span>Roll No *</span><span>G.WT</span><span>N.WT</span><span>Meter</span><span>Avg</span>
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-[2rem_1fr_1fr_1fr_1fr] gap-2 items-center">
+              <div key={i} className="grid grid-cols-[2rem_1.4fr_1fr_1fr_1fr_1fr] gap-2 items-center">
                 <span className="text-muted text-xs font-mono">{i + 1}</span>
+                <input className="input-field font-mono py-1 text-sm" value={r.rollNo} onChange={(e) => setRow(i, 'rollNo', e.target.value)} placeholder="Roll No" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.gWt} onChange={(e) => setRow(i, 'gWt', e.target.value)} placeholder="G.WT" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.nWt} onChange={(e) => setRow(i, 'nWt', e.target.value)} placeholder="N.WT" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.meter} onChange={(e) => setRow(i, 'meter', e.target.value)} placeholder="Meter" />
@@ -123,7 +124,7 @@ function EditRollForm({ initial, onSave, onClose }: {
         <div><label className="label">Roll No</label><input className="input-field font-mono bg-white/5 text-white/60" value={f.rollNo} readOnly /></div>
         <div><label className="label">Type</label><ListSelect value={f.type} onChange={(v) => set('type', v)} listKey={ROLL_TYPES_KEY} defaults={DEFAULT_ROLL_TYPES} placeholder="Select type…" /></div>
         <div><label className="label">Size</label><input className="input-field" value={f.size} onChange={(e) => set('size', e.target.value)} /></div>
-        <div><label className="label">GM</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.gm ?? ''} onChange={(e) => set('gm', num(e.target.value) || undefined)} /></div>
+        <div><label className="label">GM</label><TypeAhead value={f.gm != null ? String(f.gm) : ''} onChange={(v) => set('gm', num(v) || undefined)} listKey={ROLL_GM_KEY} defaults={DEFAULT_ROLL_GM} placeholder="e.g. 12" /></div>
         <div><label className="label">G.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.gWt || ''} onChange={(e) => set('gWt', num(e.target.value))} /></div>
         <div><label className="label">N.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.nWt || ''} onChange={(e) => set('nWt', num(e.target.value))} /></div>
         <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={f.meter || ''} onChange={(e) => set('meter', num(e.target.value))} /></div>
@@ -146,19 +147,13 @@ export function InventoryRollsPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [editRoll, setEditRoll] = useState<InvRoll | null>(null);
+  const [receiveRoll, setReceiveRoll] = useState<InvRoll | null>(null);   // roll being received
+  const [receiveNo, setReceiveNo] = useState('');                         // manual roll no on receive
   const [activeGroup, setActiveGroup] = useState<string>('all');
   const reload = useCallback(() => setRolls(invRollsDb.getAll()), []);
 
   // Group by size + GM (e.g. "500mm / 12").
   const groupKey = (r: InvRoll) => `${r.size || '—'} / ${gmVal(r) || '—'}`;
-
-  // Next running number for a size+GM group — continues past already-received rolls
-  // in that group (in-transit rolls have no number yet, so they don't count).
-  const nextNo = useCallback((size: string, gm: number) => {
-    const key = `${size || '—'} / ${gm || '—'}`;
-    const n = rolls.filter((r) => !r.dispatched && !r.inTransit && groupKey(r) === key).length;
-    return n + 1;
-  }, [rolls]);
 
   function handleBulkSave(newRolls: Omit<InvRoll, 'id'>[]) {
     newRolls.forEach((r) => invRollsDb.create(r));
@@ -171,13 +166,15 @@ export function InventoryRollsPage() {
   }
   function handleDelete(id: string) { invRollsDb.delete(id); toast.success('Roll deleted'); reload(); }
 
-  // Receive an in-transit roll (transferred from a unit) into inventory — with a
-  // confirmation, then assign its running roll no for the size+GM group.
-  function handleReceive(roll: InvRoll) {
-    if (!confirm(`Receive this roll into Inventory?\n\n${roll.size || '—'} / ${gmVal(roll) || '—'} GM · N.WT ${roll.nWt || 0}kg · from ${roll.party || 'unit'}.\nA roll number will be assigned and it leaves "In Transit".`)) return;
-    const rollNo = `R-${roll.size}-${gmVal(roll) || '0'}-${nextNo(roll.size, Number(gmVal(roll)) || 0)}`.replace(/\s/g, '');
-    invRollsDb.update(roll.id, { inTransit: false, rollNo });
-    toast.success(`Received as ${rollNo}`); reload();
+  // Receive an in-transit roll: details auto-filled, but the Inventory person types
+  // the roll no by hand. The stock entry is finalised only on confirm with a roll no.
+  function openReceive(roll: InvRoll) { setReceiveRoll(roll); setReceiveNo(''); }
+  function confirmReceive() {
+    if (!receiveRoll) return;
+    if (!receiveNo.trim()) { toast.error('Enter the roll number'); return; }
+    invRollsDb.update(receiveRoll.id, { inTransit: false, rollNo: receiveNo.trim() });
+    toast.success(`Received as ${receiveNo.trim()}`);
+    setReceiveRoll(null); setReceiveNo(''); reload();
   }
 
   const available = useMemo(() => rolls.filter((r) => !r.dispatched), [rolls]);
@@ -225,7 +222,7 @@ export function InventoryRollsPage() {
                   <td className="table-cell font-mono text-white/80">N.WT {r.nWt || '—'}</td>
                   <td className="table-cell text-white/70">{r.party || '—'}</td>
                   <td className="table-cell text-right">
-                    <button onClick={() => handleReceive(r)} className="btn-primary py-1 text-xs"><PackageCheck className="w-3.5 h-3.5" /> Receive</button>
+                    <button onClick={() => openReceive(r)} className="btn-primary py-1 text-xs"><PackageCheck className="w-3.5 h-3.5" /> Receive</button>
                   </td>
                 </tr>
               ))}
@@ -291,12 +288,36 @@ export function InventoryRollsPage() {
 
       {addOpen && (
         <Modal open onClose={() => setAddOpen(false)} title="Add Rolls (bulk by Size + GM)" size="lg">
-          <BulkRollForm nextNo={nextNo} onSave={handleBulkSave} onClose={() => setAddOpen(false)} />
+          <BulkRollForm onSave={handleBulkSave} onClose={() => setAddOpen(false)} />
         </Modal>
       )}
       {editRoll && (
         <Modal open onClose={() => setEditRoll(null)} title="Edit Roll" size="lg">
           <EditRollForm initial={editRoll} onSave={handleEditSave} onClose={() => setEditRoll(null)} />
+        </Modal>
+      )}
+      {/* Receive in-transit roll — details auto-filled, roll no typed by hand */}
+      {receiveRoll && (
+        <Modal open onClose={() => setReceiveRoll(null)} title="Receive roll into Inventory" size="md">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+              <span className="text-muted">Type</span><span className="text-white/85">{receiveRoll.type || '—'}</span>
+              <span className="text-muted">Size / GM</span><span className="font-mono text-white/85">{receiveRoll.size || '—'} / {gmVal(receiveRoll) || '—'}</span>
+              <span className="text-muted">G.WT / N.WT</span><span className="font-mono text-white/85">{receiveRoll.gWt || '—'} / {receiveRoll.nWt || '—'} kg</span>
+              <span className="text-muted">Meter / Avg</span><span className="font-mono text-white/85">{receiveRoll.meter || '—'} / {receiveRoll.avg ?? '—'}</span>
+              <span className="text-muted">Party</span><span className="text-white/85">{receiveRoll.party || '—'}</span>
+            </div>
+            <p className="text-muted text-xs">Details auto-filled from the transfer. Type the Roll No by hand — the stock entry is created only after you confirm.</p>
+            <div>
+              <label className="label">Roll No *</label>
+              <input className="input-field font-mono" autoFocus value={receiveNo} onChange={(e) => setReceiveNo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmReceive(); }} placeholder="type the roll number" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setReceiveRoll(null)} className="btn-secondary flex-1 justify-center">Cancel</button>
+              <button onClick={confirmReceive} className="btn-primary flex-1 justify-center"><PackageCheck className="w-4 h-4" /> Confirm &amp; Receive</button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

@@ -133,6 +133,10 @@ export const DEFAULT_ROLL_SIZEGM: string[] = [];
 export const FILM_SIZES_KEY = 'list_film_sizes';
 export const DEFAULT_FILM_SIZES: string[] = [];
 
+// Roll GM values — reusable type-ahead (Rolls + Roll Count), mirrors Size.
+export const ROLL_GM_KEY = 'list_roll_gm';
+export const DEFAULT_ROLL_GM: string[] = [];
+
 // P.P. Granule stock — named items are typed as one of these (extensible).
 // "Master Batch" was formerly "RP". Enhancer added per the shop-floor list.
 export const GRANULE_TYPES = ['P.P.', 'Filler', 'Master Batch', 'Colour', 'Enhancer'] as const;

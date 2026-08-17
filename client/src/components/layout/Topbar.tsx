@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Menu, LogOut } from 'lucide-react';
+import { Bell, Menu, LogOut, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { hydrateFromServer } from '../../lib/db';
 import { useBranding } from '../../lib/branding';
 import { timeAgo, ALERT_TYPE_COLORS, ALERT_TYPE_LABELS, cn } from '../../lib/utils';
 import { useAlerts } from '../../context/AlertContext';
@@ -18,7 +19,17 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const branding = useBranding();
   const clock = useLiveClock();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  // Re-fetch the latest data (pull from server if reachable) and reload the current
+  // page — no need to log out/in. Session stays; only the data view refreshes.
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await hydrateFromServer(); } catch { /* offline — reload uses local data */ }
+    window.location.reload();
+  }
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -36,6 +47,10 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
           <Menu className="w-5 h-5" />
         </button>
         <span className="text-white/60 text-sm font-medium truncate">{branding.companyName}</span>
+        <button onClick={refresh} disabled={refreshing} title="Refresh data"
+          className="p-1.5 rounded-lg hover:bg-white/10 text-muted hover:text-accent transition-colors disabled:opacity-60">
+          <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+        </button>
       </div>
 
       <div className="flex items-center gap-4">

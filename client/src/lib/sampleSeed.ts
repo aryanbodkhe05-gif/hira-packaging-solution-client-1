@@ -4,9 +4,11 @@
 import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
-  jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb,
+  jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
 } from './db';
-import { RATE_MASTER_SEED } from '../config';
+import {
+  RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
+} from '../config';
 import { saveUnits, getUnits } from './units';
 
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -45,12 +47,15 @@ export function seedSampleData(): void {
     fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 900,  status: 'Open',   createdAt: iso(), updatedAt: iso() });
   }
 
-  // Roll Count: rolls sitting in Unit 1 stock, ready to transfer to Inventory (Part 5).
+  // Roll Count: rolls sitting in Unit 1 stock (manual roll nos), ready to transfer.
   if (unitRollsDb.getAll().length === 0) {
-    const ur = (size: string, gm: number, nWt: number, meter: number, avg: number) =>
-      unitRollsDb.create({ unitId: 'unit-1', type: 'Milky', size, gm, gWt: nWt + 2, nWt, meter, avg, status: 'in_unit', createdAt: iso() });
-    ur('500mm', 12, 45, 4200, 10.5); ur('500mm', 12, 47, 4300, 10.9); ur('600mm', 14, 60, 5000, 12.0);
+    const ur = (rollNo: string, size: string, gm: number, nWt: number, meter: number, avg: number) =>
+      unitRollsDb.create({ unitId: 'unit-1', rollNo, type: 'Milky', size, gm, gWt: nWt + 2, nWt, meter, avg, status: 'in_unit', createdAt: iso() });
+    ur('U1-A-101', '500mm', 12, 45, 4200, 10.5); ur('U1-A-102', '500mm', 12, 47, 4300, 10.9); ur('U1-A-103', '600mm', 14, 60, 5000, 12.0);
   }
+  // Seed the reusable Size + GM lists so they can be picked from the type-ahead.
+  ['500mm', '600mm'].forEach((s) => addToList(ROLL_SIZEGM_KEY, s, DEFAULT_ROLL_SIZEGM));
+  ['12', '14'].forEach((g) => addToList(ROLL_GM_KEY, g, DEFAULT_ROLL_GM));
 
   if (invRollsDb.getAll().length === 0) {
     // Bulk-added rolls, grouped by size+GM, each with its own weights/avg/party.

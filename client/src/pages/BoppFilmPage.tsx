@@ -19,11 +19,10 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 const netWt = (f: BoppFilm) => f.nWt ?? f.kg ?? 0;
 
-// ── Bulk add: shared Size/Finish/Party, then N per-film rows (G.WT/N.WT/Meter/Rate).
-// Film nos auto-sequence per size group; Size is a reusable type-ahead (no list bug).
-interface BulkRow { gWt: string; nWt: string; meter: string; rate: string; }
-function BulkFilmForm({ nextNo, onSave, onClose }: {
-  nextNo: (size: string) => number;
+// ── Bulk add: shared Size/Finish/Party, then N per-film rows. Film No is typed by
+// hand per row (no auto-numbering). Size is a reusable type-ahead (no list bug).
+interface BulkRow { filmNo: string; gWt: string; nWt: string; meter: string; rate: string; }
+function BulkFilmForm({ onSave, onClose }: {
   onSave: (films: Omit<BoppFilm, 'id'>[]) => void; onClose: () => void;
 }) {
   const [size, setSize] = useState('');
@@ -37,7 +36,7 @@ function BulkFilmForm({ nextNo, onSave, onClose }: {
     if (!size.trim()) { toast.error('Enter Size first'); return; }
     const n = Math.max(0, Math.min(50, Math.floor(parseFloat(countText) || 0)));
     if (n <= 0) { toast.error('Enter how many films (1–50)'); return; }
-    setRows(Array.from({ length: n }, () => ({ gWt: '', nWt: '', meter: '', rate: '' })));
+    setRows(Array.from({ length: n }, () => ({ filmNo: '', gWt: '', nWt: '', meter: '', rate: '' })));
   }
   const setRow = (i: number, k: keyof BulkRow, v: string) =>
     setRows((p) => p.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
@@ -45,13 +44,13 @@ function BulkFilmForm({ nextNo, onSave, onClose }: {
   function submit() {
     if (!size.trim()) { toast.error('Size is required'); return; }
     if (rows.length === 0) { toast.error('Choose how many films and press Generate'); return; }
+    if (rows.some((r) => !r.filmNo.trim())) { toast.error('Enter a Film No for every row'); return; }
     rememberTypeAhead(FILM_SIZES_KEY, size, DEFAULT_FILM_SIZES);
     if (party.trim()) rememberTypeAhead(PARTIES_KEY, party, DEFAULT_PARTIES);
-    const base = nextNo(size.trim());
-    const films: Omit<BoppFilm, 'id'>[] = rows.map((r, i) => {
+    const films: Omit<BoppFilm, 'id'>[] = rows.map((r) => {
       const nWt = num(r.nWt);
       return {
-        filmNo: `F-${size.trim()}-${base + i}`.replace(/\s/g, ''),
+        filmNo: r.filmNo.trim(),
         size: size.trim(), finish: finish || undefined, gWt: num(r.gWt), nWt, kg: nWt,
         meter: num(r.meter), rate: r.rate.trim() === '' ? null : num(r.rate),
         party: party.trim() || undefined, dateAdded: date,
@@ -83,15 +82,16 @@ function BulkFilmForm({ nextNo, onSave, onClose }: {
       {rows.length > 0 && (
         <div className="rounded-lg border border-accent/10 overflow-hidden">
           <div className="px-3 py-2 bg-navy/40 text-xs text-muted uppercase tracking-wide">
-            {rows.length} film{rows.length === 1 ? '' : 's'} · {size || '—'} · nos F-{size || '—'}-{nextNo(size.trim())}…
+            {rows.length} film{rows.length === 1 ? '' : 's'} · {size || '—'} · type each Film No by hand
           </div>
           <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
-            <div className="grid grid-cols-[2rem_1fr_1fr_1fr_1fr] gap-2 text-[11px] text-muted uppercase tracking-wide px-1">
-              <span>#</span><span>G.WT</span><span>N.WT</span><span>Meter</span><span>Rate ₹/kg</span>
+            <div className="grid grid-cols-[2rem_1.4fr_1fr_1fr_1fr_1fr] gap-2 text-[11px] text-muted uppercase tracking-wide px-1">
+              <span>#</span><span>Film No *</span><span>G.WT</span><span>N.WT</span><span>Meter</span><span>Rate ₹/kg</span>
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-[2rem_1fr_1fr_1fr_1fr] gap-2 items-center">
+              <div key={i} className="grid grid-cols-[2rem_1.4fr_1fr_1fr_1fr_1fr] gap-2 items-center">
                 <span className="text-muted text-xs font-mono">{i + 1}</span>
+                <input className="input-field font-mono py-1 text-sm" value={r.filmNo} onChange={(e) => setRow(i, 'filmNo', e.target.value)} placeholder="Film No" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.gWt} onChange={(e) => setRow(i, 'gWt', e.target.value)} placeholder="G.WT" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.nWt} onChange={(e) => setRow(i, 'nWt', e.target.value)} placeholder="N.WT" />
                 <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any" value={r.meter} onChange={(e) => setRow(i, 'meter', e.target.value)} placeholder="Meter" />
@@ -124,7 +124,7 @@ function EditFilmForm({ initial, onSave, onClose }: {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div><label className="label">Film No</label><input className="input-field font-mono bg-white/5 text-white/60" value={f.filmNo} readOnly /></div>
+        <div><label className="label">Film No</label><input className="input-field font-mono" value={f.filmNo} onChange={(e) => set('filmNo', e.target.value)} placeholder="film no" /></div>
         <div><label className="label">Size</label><input className="input-field" value={f.size ?? ''} onChange={(e) => set('size', e.target.value)} /></div>
         <div><label className="label">Finish</label>
           <select className="input-field" value={f.finish ?? ''} onChange={(e) => set('finish', (e.target.value || undefined) as Finish | undefined)}>
@@ -157,7 +157,6 @@ export function BoppFilmPage() {
 
   // Group by size (e.g. "520mm").
   const groupKey = (f: BoppFilm) => `${f.size || '—'}`;
-  const nextNo = useCallback((size: string) => films.filter((f) => groupKey(f) === (size || '—')).length + 1, [films]);
 
   function handleBulkSave(newFilms: Omit<BoppFilm, 'id'>[]) {
     newFilms.forEach((f) => boppFilmsDb.create(f));
@@ -251,7 +250,7 @@ export function BoppFilmPage() {
 
       {addOpen && (
         <Modal open onClose={() => setAddOpen(false)} title="Add BOPP Films (bulk by Size)" size="lg">
-          <BulkFilmForm nextNo={nextNo} onSave={handleBulkSave} onClose={() => setAddOpen(false)} />
+          <BulkFilmForm onSave={handleBulkSave} onClose={() => setAddOpen(false)} />
         </Modal>
       )}
       {editFilm && (
