@@ -5,7 +5,7 @@ import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAcc
 import { useAuth } from '../../context/AuthContext';
 import { useUnit } from '../../context/UnitContext';
 import { useBranding } from '../../lib/branding';
-import { TAPE_UNIT_ID } from '../../config';
+import { TAPE_UNIT_ID, unitMakesTape } from '../../config';
 import type { UserRole } from '../../types';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
@@ -76,9 +76,20 @@ export function Sidebar({ collapsed, onToggle, mobile = false, onNavigate }: Pro
     { label: 'Tape Stock', icon: Rows3,  to: '/loom-unit/tape-stock', access: loomOrPP },
     { label: 'Roll Count', icon: Scroll, to: '/loom-unit/roll-count', access: loomOrPP },
   ];
+  // Unit 2 (Navkar) makes its own tape: Tape Plant (granules → tape) → Tape Log → loom.
+  const makeTapeItems: NavItem[] = [
+    { label: 'Loom Log',           icon: Gauge,  to: '/loom-unit/loom',       access: canAccessLoom },
+    { label: 'Tape Plant',         icon: Layers, to: '/loom-unit/pp-fabric',  access: canAccessPPUnit },
+    { label: 'P.P. Granule Stock', icon: Boxes,  to: '/loom-unit/pp-granule', access: canAccessPPUnit },
+    { label: 'Tape Log',           icon: Rows3,  to: '/loom-unit/tape-stock', access: loomOrPP },
+    { label: 'Roll Count',         icon: Scroll, to: '/loom-unit/roll-count', access: loomOrPP },
+  ];
+
+  const loomItemsForUnit = (unit: string): NavItem[] | null =>
+    unit === TAPE_UNIT_ID ? tapeLoomItems : unitMakesTape(unit) ? makeTapeItems : null;
 
   const visibleSections = NAV
-    .map((s) => (s.section === 'Loom / P.P. Unit' && activeUnit === TAPE_UNIT_ID ? { ...s, items: tapeLoomItems } : s))
+    .map((s) => (s.section === 'Loom / P.P. Unit' && loomItemsForUnit(activeUnit) ? { ...s, items: loomItemsForUnit(activeUnit)! } : s))
     .map((s) => ({ ...s, items: s.items.filter((i) => !i.access || (role != null && i.access(role))) }))
     .filter((s) => s.items.length > 0);
 

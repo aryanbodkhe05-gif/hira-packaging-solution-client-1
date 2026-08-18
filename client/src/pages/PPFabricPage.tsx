@@ -2,14 +2,15 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Pencil, Trash2, Search, Download, Layers, Recycle,
-  Boxes, Percent, FolderOpen, Trash,
+  Boxes, Percent, FolderOpen, Trash, ArrowRightLeft, Undo2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, applyGranuleUses } from '../lib/db';
+import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, applyGranuleUses, tapeReceiptsDb } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
-import { getActiveUnit } from '../lib/units';
+import { getActiveUnit, unitName } from '../lib/units';
 import {
   SHIFTS, BATCH_STATUSES, WASTAGE_TYPES, WASTAGE_ACTIONS, granuleTypeHex,
+  unitMakesTape, TAPE_SIZES_KEY, DEFAULT_TAPE_SIZES, PARTIES_KEY, DEFAULT_PARTIES, COMPANY,
 } from '../config';
 import type {
   Shift, BatchStatus, WastageType, WastageAction,
@@ -18,6 +19,7 @@ import type { FabricBatch, FabricWastage, GranuleUse, PPGranuleItem } from '../t
 import { canViewCosts } from '../lib/roles';
 import { formatINR } from '../lib/jobcard';
 import { tapePrice, granuleTypeRates } from '../lib/granules';
+import { TypeAhead, rememberTypeAhead } from '../components/ui/TypeAhead';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatCard } from '../components/ui/StatCard';
@@ -280,6 +282,71 @@ function WastageForm({ initial, batches, onSave, onClose }: {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// TAPE LOG TRANSFER (Unit 2 / Navkar) — book a Tape Plant run's tape into the
+// Tape Log (tape stock). Party defaults to Hira Packaging; rate auto-fills from the
+// run's computed cost/kg (granules + labour ÷ tape kg), and is editable.
+// ═════════════════════════════════════════════════════════════════════════════
+function TapeTransferForm({ batch, granuleItems, onSave, onClose }: {
+  batch: FabricBatch;
+  granuleItems: PPGranuleItem[];
+  onSave: (d: { size: string; qty: number; rate: number | null; party: string; billNo: string }) => void;
+  onClose: () => void;
+}) {
+  const showCosts = canViewCosts();
+  const tapeKg = batch.outputKg || batchInput(batch);
+  const price = useMemo(
+    () => tapePrice((batch.uses ?? []).filter((u) => u.itemId && u.qtyKg > 0), tapeKg, granuleItems),
+    [batch, tapeKg, granuleItems],
+  );
+  const [size, setSize] = useState('');
+  const [qtyText, setQtyText] = useState(tapeKg ? String(tapeKg) : '');
+  const [rateText, setRateText] = useState(price.pricePerKg ? String(price.pricePerKg) : '');
+  const [party, setParty] = useState<string>(COMPANY.shortName);   // "Hira Packaging"
+  const [billNo, setBillNo] = useState('');
+
+  function submit() {
+    if (!size.trim()) { toast.error('Tape size is required'); return; }
+    const qty = parseFloat(qtyText);
+    if (!Number.isFinite(qty) || qty <= 0) { toast.error('Enter the tape quantity (kg)'); return; }
+    rememberTypeAhead(TAPE_SIZES_KEY, size, DEFAULT_TAPE_SIZES);
+    if (party.trim()) rememberTypeAhead(PARTIES_KEY, party, DEFAULT_PARTIES);
+    onSave({
+      size: size.trim(), qty,
+      rate: rateText.trim() === '' ? null : Math.max(0, parseFloat(rateText) || 0),
+      party: party.trim() || COMPANY.shortName, billNo: billNo.trim(),
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-muted text-sm">
+        Book <span className="text-white/85 font-mono">{tapeKg.toLocaleString('en-IN')} kg</span> of tape from run
+        <span className="text-accent font-mono"> {batch.batchId}</span> into the Tape Log. This adds a tape-stock lot
+        (by size, moving-average) that the loom can then consume.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Tape Size *</label>
+          <TypeAhead value={size} onChange={setSize} listKey={TAPE_SIZES_KEY} defaults={DEFAULT_TAPE_SIZES} placeholder="e.g. 2.5 inch" />
+        </div>
+        <div><label className="label">Qty (kg) *</label><input className="input-field font-mono" type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} /></div>
+        <div>
+          <label className="label">Rate (₹/kg)</label>
+          <input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="auto from cost/kg" />
+          {showCosts && price.pricePerKg > 0 && <p className="text-[10px] mt-0.5 text-muted">plant cost/kg ≈ {formatINR(price.pricePerKg)}{price.granuleUnrated || price.labourUnset ? ' (some inputs unpriced)' : ''}</p>}
+        </div>
+        <div><label className="label">Party Name</label><TypeAhead value={party} onChange={setParty} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="party" /></div>
+        <div className="col-span-2"><label className="label">Bill No.</label><input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="optional" /></div>
+      </div>
+      <div className="flex gap-3 pt-1">
+        <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center"><ArrowRightLeft className="w-4 h-4" /> Transfer to Tape Log</button>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // BATCHES TAB — list view (2C)
 // ═════════════════════════════════════════════════════════════════════════════
 function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
@@ -293,7 +360,9 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
   const [shiftFilter, setShiftFilter] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; batch?: FabricBatch } | null>(null);
+  const [transferBatch, setTransferBatch] = useState<FabricBatch | null>(null);
   const { activeUnit } = useUnit();
+  const makeTape = unitMakesTape(activeUnit);   // Unit 2 (Navkar) — offer Tape Log transfer
   const byUnit = (arr: PPGranuleItem[]) => arr.filter((g) => (g.unitId ?? 'unit-1') === getActiveUnit());
   const [granuleItems, setGranuleItems] = useState<PPGranuleItem[]>(() => byUnit(ppGranulesDb.getAll()));
   // Refresh the granule list when the active unit changes (so the batch form's
@@ -326,6 +395,30 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
     fabricWastageDb.getAll().filter((w) => w.batchRef === b.id).forEach((w) => fabricWastageDb.delete(w.id));
     setGranuleItems(byUnit(ppGranulesDb.getAll()));
     toast.success('Batch deleted — granule stock restored');
+    onChanged();
+  }
+  // Transfer a run's tape into the Tape Log — creates one tape-stock lot (party
+  // defaults to Hira Packaging, rate from the run's cost/kg) and links it to the run.
+  function handleTransfer(batch: FabricBatch, d: { size: string; qty: number; rate: number | null; party: string; billNo: string }) {
+    const now = new Date().toISOString();
+    const rec = tapeReceiptsDb.create({
+      unitId: getActiveUnit(), size: d.size, qty: d.qty, rate: d.rate,
+      party: d.party, billNo: d.billNo || undefined, date: batch.date, createdAt: now,
+    });
+    fabricBatchesDb.update(batch.id, {
+      tapeLogReceiptId: rec.id, tapeLogSize: d.size, tapeLogQtyKg: d.qty, tapeTransferredAt: now, updatedAt: now,
+    });
+    toast.success(`${d.qty.toLocaleString('en-IN')} kg tape → Tape Log (${d.size})`);
+    setTransferBatch(null);
+    onChanged();
+  }
+  function handleUndoTransfer(batch: FabricBatch) {
+    if (batch.tapeLogReceiptId) tapeReceiptsDb.delete(batch.tapeLogReceiptId);
+    fabricBatchesDb.update(batch.id, {
+      tapeLogReceiptId: undefined, tapeLogSize: undefined, tapeLogQtyKg: undefined,
+      tapeTransferredAt: undefined, updatedAt: new Date().toISOString(),
+    });
+    toast.success('Tape Log lot removed');
     onChanged();
   }
 
@@ -374,7 +467,7 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
           {BATCH_STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
         <button onClick={handleExport} className="btn-secondary"><Download className="w-4 h-4" /> Export</button>
-        <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> New Batch</button>
+        <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> {makeTape ? 'New Run' : 'New Batch'}</button>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -382,17 +475,17 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Batch ID', 'Date', 'Shift', 'Line', 'Total Input', 'Wastage', 'Wastage %', 'Status', ''].map((h) => (
+                {['Batch ID', 'Date', 'Shift', 'Line', 'Total Input', 'Wastage', 'Wastage %', 'Status', ...(makeTape ? ['Tape Log'] : []), ''].map((h) => (
                   <th key={h} className="table-header whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={9}>
-                  <EmptyState icon={Layers} title="No batch entries yet"
-                    description="Log the raw materials used to produce a batch of PP tape/fabric."
-                    action={{ label: 'New Batch Entry', onClick: () => setModal({ type: 'add' }) }} />
+                <tr><td colSpan={makeTape ? 10 : 9}>
+                  <EmptyState icon={Layers} title={makeTape ? 'No tape runs yet' : 'No batch entries yet'}
+                    description={makeTape ? 'Log the granules consumed to extrude a run of tape, then transfer it to the Tape Log.' : 'Log the raw materials used to produce a batch of PP tape/fabric.'}
+                    action={{ label: makeTape ? 'New Tape Run' : 'New Batch Entry', onClick: () => setModal({ type: 'add' }) }} />
                 </td></tr>
               ) : pageRows.map((b) => {
                 const input = batchInput(b);
@@ -408,6 +501,22 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
                     <td className="table-cell font-mono text-white/70 whitespace-nowrap">{waste.toLocaleString('en-IN')} kg</td>
                     <td className={cn('table-cell font-mono', pct > 5 ? 'text-red-300' : 'text-white/80')}>{pct.toFixed(1)}%</td>
                     <td className="table-cell"><span className={cn('badge border text-xs', BATCH_STATUS_COLORS[b.status])}>{b.status}</span></td>
+                    {makeTape && (
+                      <td className="table-cell whitespace-nowrap">
+                        {b.tapeLogReceiptId ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="badge bg-green-500/15 text-green-300 border border-green-500/30 text-[10px]" title={`Transferred ${(b.tapeLogQtyKg ?? 0).toLocaleString('en-IN')} kg`}>
+                              In Tape Log · {b.tapeLogSize}
+                            </span>
+                            <button onClick={() => handleUndoTransfer(b)} title="Undo transfer (remove the Tape Log lot)" className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Undo2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setTransferBatch(b)} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-primary/15 border border-primary/30 text-accent hover:bg-primary/25 transition-colors">
+                            <ArrowRightLeft className="w-3.5 h-3.5" /> Tape Log
+                          </button>
+                        )}
+                      </td>
+                    )}
                     <td className="table-cell">
                       <div className="flex gap-1.5">
                         <button onClick={() => setModal({ type: 'edit', batch: b })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
@@ -424,12 +533,22 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
       </div>
 
       {modal && (
-        <Modal open onClose={() => setModal(null)} title={modal.type === 'add' ? 'New PP Fabric Batch' : 'Edit Batch'} size="lg">
+        <Modal open onClose={() => setModal(null)} title={modal.type === 'add' ? (makeTape ? 'New Tape Plant Run' : 'New PP Fabric Batch') : (makeTape ? 'Edit Tape Run' : 'Edit Batch')} size="lg">
           <BatchForm
             initial={modal.batch ?? { ...emptyBatch, date: today() }}
             granuleItems={granuleItems}
             onSave={handleSave}
             onClose={() => setModal(null)}
+          />
+        </Modal>
+      )}
+      {transferBatch && (
+        <Modal open onClose={() => setTransferBatch(null)} title="Transfer to Tape Log" size="md">
+          <TapeTransferForm
+            batch={transferBatch}
+            granuleItems={granuleItems}
+            onSave={(d) => handleTransfer(transferBatch, d)}
+            onClose={() => setTransferBatch(null)}
           />
         </Modal>
       )}
@@ -612,11 +731,14 @@ export function PPFabricPage() {
     };
   }, [batches, wastage, wastageByBatch]);
 
+  const makeTape = unitMakesTape(activeUnit);
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="page-header">PP Fabric Production</h1>
-        <p className="text-muted text-sm mt-1">Log raw material batches and track wastage for PP tape / fabric</p>
+        <h1 className="page-header">{makeTape ? `Tape Plant — ${unitName(activeUnit)}` : 'PP Fabric Production'}</h1>
+        <p className="text-muted text-sm mt-1">{makeTape
+          ? 'Extrude tape from granules (moving-average cost), then transfer each run into the Tape Log for the loom.'
+          : 'Log raw material batches and track wastage for PP tape / fabric'}</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

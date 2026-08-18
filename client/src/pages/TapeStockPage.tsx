@@ -7,7 +7,7 @@ import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
 import { canViewCosts } from '../lib/roles';
 import {
-  DEFAULT_TAPE_SIZES, TAPE_SIZES_KEY, DEFAULT_PARTIES, PARTIES_KEY,
+  DEFAULT_TAPE_SIZES, TAPE_SIZES_KEY, DEFAULT_PARTIES, PARTIES_KEY, unitMakesTape,
 } from '../config';
 import type { TapeReceipt } from '../types/models';
 import { Modal } from '../components/ui/Modal';
@@ -72,6 +72,7 @@ export function TapeStockPage() {
   const [receiveSize, setReceiveSize] = useState<string | null>(null);   // add lot to a size
   const [editReceipt, setEditReceipt] = useState<TapeReceipt | null>(null);
   const showCosts = canViewCosts();
+  const label = unitMakesTape(activeUnit) ? 'Tape Log' : 'Tape Stock';
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => { reload(); }, [activeUnit, reload]);
@@ -105,8 +106,10 @@ export function TapeStockPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="page-header">Tape Stock — {unitName(activeUnit)}</h1>
-          <p className="text-muted text-sm mt-1">Purchased tape, stocked by size — moving-average rate per size, consumed by the loom.</p>
+          <h1 className="page-header">{label} — {unitName(activeUnit)}</h1>
+          <p className="text-muted text-sm mt-1">{unitMakesTape(activeUnit)
+            ? 'Tape made in the Tape Plant, stocked by size — moving-average rate per size, consumed by the loom.'
+            : 'Purchased tape, stocked by size — moving-average rate per size, consumed by the loom.'}</p>
         </div>
         <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Tape</button>
       </div>

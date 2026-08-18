@@ -75,6 +75,11 @@ export interface FabricBatch {
   outputKg?: number;        // tape produced (kg) — drives the tape price/kg
   status: BatchStatus;      // Open | Closed
   notes?: string;
+  // ── Tape Plant → Tape Log transfer (Unit 2 / Navkar) ──
+  tapeLogReceiptId?: string;   // the Tape Log (TapeReceipt) lot this batch was transferred into
+  tapeLogSize?: string;        // tape size it was booked under
+  tapeLogQtyKg?: number;       // kg transferred
+  tapeTransferredAt?: string;  // when the transfer happened
   createdAt: string;
   updatedAt: string;
 }
@@ -135,8 +140,10 @@ export interface LoomEntry {
   shift: Shift;
   loomNo: string;
   operator?: string;
-  width: number;            // fabric width / size
+  width: number;            // fabric width — becomes the produced roll's Size in Roll Count
   widthUnit: WidthUnit;     // inches | mm
+  gm?: number;              // fabric GM — becomes the produced roll's GM in Roll Count
+  rollType?: string;        // produced roll's Type (reusable roll-types list; default 'Fabric')
   meters: number;           // total meters woven
   quality: number;          // numeric grade (e.g. 2.5), matching Order quality format
   weightKg: number;         // weight of produced roll/batch

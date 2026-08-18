@@ -6,9 +6,10 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  jobCardsDb, dispatchesDb, ordersDb,
+  jobCardsDb, dispatchesDb, ordersDb, rawMaterialsDb,
   syncMaterialPools, applyRollUse, factoryMachinesDb, getList, saveSettings,
 } from '../lib/db';
+import { previewMaterial } from '../lib/materials';
 import {
   FINISHES, JOB_STAGES, JOBCARD_STATUSES, FABRIC_TYPES, COATING_SIDES,
   BAG_TYPES_KEY, DEFAULT_BAG_TYPES, CUTTING_METHODS,
@@ -249,6 +250,28 @@ export function JobCardDetailPage() {
     return () => clearTimeout(t);
   }, [card, persist]);
 
+  // ── Ink auto-calc from consumed film (Part 1) ────────────────────────────────
+  // On a BOPP card, the printing ink line is driven by the TOTAL BOPP film actually
+  // consumed (Σ printing film rollUses) × the sticky ink %. Whenever the film
+  // consumption or the % changes, the ink line's qty re-calculates to match. Only an
+  // EXISTING ink line is synced (add it once via the chip; remove it to opt out).
+  useEffect(() => {
+    if (!card || card.cardType !== 'BOPP') return;
+    const inkMat = rawMaterialsDb.getAll().find((m) => m.name.trim().toLowerCase() === PRINTING_INK.trim().toLowerCase());
+    if (!inkMat) return;
+    const mats = card.printing.materials ?? [];
+    const idx = mats.findIndex((m) => m.materialId === inkMat.id);
+    if (idx < 0) return;   // no ink line to drive
+    const pct = autoPct(card.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT);
+    const filmKg = (card.printing.rollUses ?? []).filter((u) => u.kind === 'film').reduce((s, u) => s + (u.qtyKg || 0), 0);
+    const target = autoQty(filmKg, pct);
+    if (Math.abs((mats[idx].qty || 0) - target) < 1e-6) return;   // already in sync → avoid a loop
+    let savedInk: MaterialUse | undefined;
+    try { savedInk = (JSON.parse(lastSavedRef.current) as JobCard).printing?.materials?.find((m) => m.materialId === inkMat.id); } catch { /* ignore */ }
+    const next = previewMaterial(inkMat.id, target, savedInk);
+    setCard((p) => p && ({ ...p, printing: { ...p.printing, materials: (p.printing.materials ?? []).map((m, i) => (i === idx ? next : m)) } }));
+  }, [card]);
+
   if (!card) return <Navigate to="/job-card" replace />;
 
   // ── update helpers ──
@@ -355,9 +378,13 @@ export function JobCardDetailPage() {
   const h = card.header;
   const brand = h.brand;
 
-  // Ink auto-calc: % of BOPP input kg. Default from Settings, editable per card.
+  // Ink auto-calc: % of the BOPP FILM actually consumed in Printing (Σ film rollUses),
+  // not the input box (Part 1). The Other/Flexo card has no film step, so it falls
+  // back to its printing input kg. Default % from Settings, editable per card.
   const inkPct = autoPct(card.printing.inkPct, INK_PCT_KEY, DEFAULT_INK_PCT);
-  const inkQty = autoQty(card.printing.inputKg, inkPct);
+  const printingFilmKg = +(card.printing.rollUses ?? []).filter((u) => u.kind === 'film').reduce((s, u) => s + (u.qtyKg || 0), 0).toFixed(3);
+  const inkBaseKg = card.cardType === 'Other' ? cnum(card.printing.inputKg) : printingFilmKg;
+  const inkQty = autoQty(inkBaseKg, inkPct);
   const threadPct = autoPct(card.cutting.threadPct, THREAD_PCT_KEY, DEFAULT_THREAD_PCT);
   const threadQty = autoQty(stagePrimary(card, 'cutting').input, threadPct);
   // Effective cutting method — forced for a Cutting-BCS / Back Seal scoped staffer.
@@ -536,7 +563,7 @@ export function JobCardDetailPage() {
               <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" step="any"
                 value={card.printing.inkPct ?? inkPct}
                 onChange={(e) => setInkPct(e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} />
-              <span className="text-muted">% of BOPP input ({card.printing.inputKg ?? 0} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span> · new % becomes the global default</span>
+              <span className="text-muted">% of consumed film ({printingFilmKg} kg) = <span className="text-white/80 font-mono">{inkQty} kg</span> · auto-tracks film · new % becomes the global default</span>
             </div>
             {/* Manual batch-pick material consumption */}
             <StageMaterials stageKey="printing" />

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Gauge, Layers, Boxes, Scroll, Lock, Rows3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUnit } from '../../context/UnitContext';
-import { TAPE_UNIT_ID } from '../../config';
+import { TAPE_UNIT_ID, unitMakesTape } from '../../config';
 
 // Unit 1 (Umay) buys tape → shows Tape Stock instead of the granule-based P.P.
 // Fabric / Granule Stock. Every other unit keeps the original granule flow.
@@ -11,6 +11,15 @@ const TAPE_TABS = [
   { label: 'Loom Log',   icon: Gauge,  to: '/loom-unit/loom' },
   { label: 'Tape Stock', icon: Rows3,  to: '/loom-unit/tape-stock' },
   { label: 'Roll Count', icon: Scroll, to: '/loom-unit/roll-count' },
+];
+// Unit 2 (Navkar) MAKES tape from granules: the Tape Plant (granule flow) extrudes
+// tape → transferred into the Tape Log (tape stock) → woven on the tape loom.
+const MAKE_TAPE_TABS = [
+  { label: 'Loom Log',           icon: Gauge,  to: '/loom-unit/loom' },
+  { label: 'Tape Plant',         icon: Layers, to: '/loom-unit/pp-fabric' },
+  { label: 'P.P. Granule Stock', icon: Boxes,  to: '/loom-unit/pp-granule' },
+  { label: 'Tape Log',           icon: Rows3,  to: '/loom-unit/tape-stock' },
+  { label: 'Roll Count',         icon: Scroll, to: '/loom-unit/roll-count' },
 ];
 const GRANULE_TABS = [
   { label: 'Loom Log',           icon: Gauge,  to: '/loom-unit/loom' },
@@ -24,7 +33,7 @@ const GRANULE_TABS = [
 // Owner / Manager / Developer switch freely.
 export function LoomUnitLayout({ children }: { children: ReactNode }) {
   const { activeUnit, setActiveUnit, units, locked } = useUnit();
-  const TABS = activeUnit === TAPE_UNIT_ID ? TAPE_TABS : GRANULE_TABS;
+  const TABS = activeUnit === TAPE_UNIT_ID ? TAPE_TABS : unitMakesTape(activeUnit) ? MAKE_TAPE_TABS : GRANULE_TABS;
 
   return (
     <div className="space-y-5">

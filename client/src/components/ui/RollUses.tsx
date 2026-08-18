@@ -4,7 +4,17 @@ import toast from 'react-hot-toast';
 import { invRollsDb, boppFilmsDb } from '../../lib/db';
 import { canViewCosts } from '../../lib/roles';
 import { formatINR } from '../../lib/jobcard';
+import { CommitNumberInput } from './CommitNumberInput';
 import type { RollUse } from '../../types/models';
+
+// Size shown as digits + unit (never the word "size"). A bare number gets "mm"
+// (roll/film sizes are in mm); sizes that already carry a unit (e.g. "2.5 inch")
+// are left as-is.
+function fmtSize(size?: string): string {
+  const s = (size ?? '').trim();
+  if (!s) return '—';
+  return /^\d+(\.\d+)?$/.test(s) ? `${s}mm` : s;
+}
 
 // Per-roll consumption. Every roll used gets its OWN line showing its roll no,
 // its own rate and whether it was finished or left with a balance — two rolls
@@ -20,15 +30,15 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
 
   // Rolls already committed by this card stay selectable so the line can be edited.
   const stock = useMemo(() => {
-    const out: { key: string; kind: 'roll' | 'film'; id: string; label: string; available: number; rate: number | null; type?: string; size?: string; gm?: number }[] = [];
+    const out: { key: string; kind: 'roll' | 'film'; id: string; no: string; label: string; available: number; rate: number | null; type?: string; size?: string; gm?: number }[] = [];
     if (kinds.includes('roll')) {
       for (const r of invRollsDb.getAll().filter((x) => !x.dispatched && !x.inTransit)) {
-        out.push({ key: `roll:${r.id}`, kind: 'roll', id: r.id, label: `${r.rollNo} · ${r.type}`, available: r.nWt, rate: r.rate ?? null, type: r.type, size: r.size, gm: r.gm });
+        out.push({ key: `roll:${r.id}`, kind: 'roll', id: r.id, no: r.rollNo, label: `${r.rollNo} · ${r.type}`, available: r.nWt, rate: r.rate ?? null, type: r.type, size: r.size, gm: r.gm });
       }
     }
     if (kinds.includes('film')) {
       for (const f of boppFilmsDb.getAll().filter((x) => !x.balanceUsed || (x.nWt ?? x.kg) > 0)) {
-        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size, gm: f.gm });
+        out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, no: f.filmNo, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size, gm: f.gm });
       }
     }
     return out;
@@ -39,7 +49,7 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
     if (!s) return;
     if (value.some((u) => u.rollId === s.id)) { toast.error(`${s.label} is already on this stage`); return; }
     onChange([...value, {
-      rollId: s.id, rollNo: s.label.split(' · ')[0], kind: s.kind, type: s.type, size: s.size, gm: s.gm,
+      rollId: s.id, rollNo: s.no, kind: s.kind, type: s.type, size: s.size, gm: s.gm,
       qtyKg: 0, rate: s.rate, lineCost: 0, finished: false, balanceKg: s.available,
     }]);
     setPicking('');
@@ -66,12 +76,15 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
           const over = u.qtyKg > available + 0.001;
           return (
             <div key={u.rollId + i} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-accent text-sm">{u.rollNo}</span>
+              {/* Compact identity — BOPP: size · type · roll no · qty · rate;
+                  Roll: size · gm · type · roll no · qty · rate. (digits+unit, no "size" word) */}
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                <span className="font-mono text-white/90">{fmtSize(u.size)}</span>
+                {u.kind === 'roll' && <span className="text-muted text-xs">{u.gm ?? '—'} GM</span>}
                 {u.type && <span className="text-muted text-xs">{u.type}</span>}
-                <span className="text-muted text-xs">· Size {u.size || '—'}</span>
-                <span className="text-muted text-xs">· GM {u.gm ?? '—'}</span>
-                <span className="text-muted text-xs">· {available.toLocaleString('en-IN')} kg in stock</span>
+                <span className="font-mono text-accent">{u.rollNo}</span>
+                <span className="text-muted text-xs">{available.toLocaleString('en-IN')}kg</span>
+                <span className="text-muted text-xs">{u.rate == null ? '—' : `₹${u.rate.toLocaleString('en-IN')}`}</span>
                 <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
                   className="ml-auto p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400">
                   <Trash2 className="w-3.5 h-3.5" />
@@ -81,8 +94,8 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
                 <div>
                   <label className="label !text-[10px]">Used (kg)</label>
-                  <input className="input-field font-mono py-1 text-sm" type="number" min="0" step="any"
-                    value={u.qtyKg || ''} onChange={(e) => patch(i, { qtyKg: Math.max(0, parseFloat(e.target.value) || 0) })} />
+                  <CommitNumberInput className="input-field font-mono py-1 text-sm"
+                    value={u.qtyKg} onCommit={(v) => patch(i, { qtyKg: v })} />
                 </div>
                 <div>
                   <label className="label !text-[10px]">Rate (₹/kg)</label>
@@ -141,7 +154,8 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
             <option value="">Add a roll…</option>
             {stock.filter((s) => !value.some((u) => u.rollId === s.id)).map((s) => (
               <option key={s.key} value={s.key}>
-                {s.label} · Size {s.size || '—'} · GM {s.gm ?? '—'} — {s.available}kg{s.rate == null ? ' (no rate)' : ` @ ₹${s.rate}`}
+                {/* BOPP: size type rollno qty rate · Roll: size gm type rollno qty rate */}
+                {fmtSize(s.size)} {s.kind === 'roll' ? `${s.gm ?? '—'}GM ` : ''}{s.type ?? (s.kind === 'film' ? 'film' : '')} {s.no} · {s.available}kg{s.rate == null ? ' (no rate)' : ` @ ₹${s.rate}`}
               </option>
             ))}
           </select>

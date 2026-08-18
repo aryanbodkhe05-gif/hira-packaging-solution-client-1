@@ -4,6 +4,7 @@ import { rawMaterialsDb } from '../../lib/db';
 import { previewMaterial, materialPoolAvailable } from '../../lib/materials';
 import { canViewCosts } from '../../lib/roles';
 import { formatINR } from '../../lib/jobcard';
+import { CommitNumberInput } from './CommitNumberInput';
 import type { MaterialUse } from '../../types/models';
 
 // A quick-add suggestion: a material this stage typically uses, optionally with a
@@ -30,7 +31,11 @@ export function MaterialUsePanel({ value, saved = [], onChange, suggestions = []
 
   function setQty(materialId: string, qty: number) {
     const next = previewMaterial(materialId, qty, savedOf(materialId));
-    onChange([...value.filter((m) => m.materialId !== materialId), next]);
+    // Preserve the row's position (replace in place); appending on every keystroke
+    // re-ordered the list and cost the qty input its focus after one digit.
+    onChange(value.some((m) => m.materialId === materialId)
+      ? value.map((m) => (m.materialId === materialId ? next : m))
+      : [...value, next]);
   }
   function addMaterial(materialId: string) {
     if (value.some((m) => m.materialId === materialId)) return;
@@ -49,8 +54,8 @@ export function MaterialUsePanel({ value, saved = [], onChange, suggestions = []
       <div key={m.materialId} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-white/85 text-sm font-medium flex-1 min-w-28">{m.materialName}</span>
-          <input className="input-field font-mono w-24 py-1 text-sm" type="number" min="0" step="any"
-            value={m.qty || ''} onChange={(e) => setQty(m.materialId, Math.max(0, parseFloat(e.target.value) || 0))} />
+          <CommitNumberInput className="input-field font-mono w-24 py-1 text-sm"
+            value={m.qty} onCommit={(v) => setQty(m.materialId, v)} />
           <span className="text-muted text-xs w-8">{m.unit}</span>
           {showCosts && <span className="font-mono text-sm w-24 text-right">{m.cost > 0 ? formatINR(m.cost) : <span className="text-muted">—</span>}</span>}
           <button type="button" onClick={() => removeMaterial(m.materialId)} className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400">

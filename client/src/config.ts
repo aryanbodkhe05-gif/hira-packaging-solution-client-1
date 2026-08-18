@@ -141,8 +141,21 @@ export const DEFAULT_ROLL_GM: string[] = [];
 export const TAPE_SIZES_KEY = 'list_tape_sizes';
 export const DEFAULT_TAPE_SIZES: string[] = [];
 
-// The unit id that is tape-based (Umay) — buys tape instead of extruding from granules.
+// The unit id that BUYS tape (Umay) — stocks purchased tape, no granule extrusion.
 export const TAPE_UNIT_ID = 'unit-1';
+// The unit that MAKES its own tape from granules (Navkar) — a Tape Plant consumes
+// granules → tape, transferred into its Tape Log (tape stock), then woven on the loom.
+export const TAPE_MAKE_UNIT_ID = 'unit-2';
+
+// Does this unit's loom consume TAPE (vs granules)? True for both the tape-buying
+// unit (Unit 1) and the tape-making unit (Unit 2 — from its Tape Log).
+export function unitConsumesTape(unitId: string | undefined): boolean {
+  return unitId === TAPE_UNIT_ID || unitId === TAPE_MAKE_UNIT_ID;
+}
+// Does this unit MAKE tape from granules (Tape Plant → Tape Log)? Unit 2 only.
+export function unitMakesTape(unitId: string | undefined): boolean {
+  return unitId === TAPE_MAKE_UNIT_ID;
+}
 
 // P.P. Granule stock — named items are typed as one of these (extensible).
 // "Master Batch" was formerly "RP". Enhancer added per the shop-floor list.
