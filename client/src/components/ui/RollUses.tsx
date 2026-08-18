@@ -140,7 +140,9 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
           <select className="input-field py-1 text-sm w-auto" value={picking} onChange={(e) => addRoll(e.target.value)}>
             <option value="">Add a roll…</option>
             {stock.filter((s) => !value.some((u) => u.rollId === s.id)).map((s) => (
-              <option key={s.key} value={s.key}>{s.label} — {s.available}kg{s.rate == null ? ' (no rate)' : ` @ ₹${s.rate}`}</option>
+              <option key={s.key} value={s.key}>
+                {s.label} · Size {s.size || '—'} · GM {s.gm ?? '—'} — {s.available}kg{s.rate == null ? ' (no rate)' : ` @ ₹${s.rate}`}
+              </option>
             ))}
           </select>
         </div>
