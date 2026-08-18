@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine, UnitRoll } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine, UnitRoll, TapeReceipt } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -519,6 +519,14 @@ export const grnsDb = {
   getAll:  () => dbGetAll<GRN>('grns'),
   create:  (r: Omit<GRN, 'id'>) => dbCreate<GRN>('grns', r),
   delete:  (id: string) => dbDelete('grns', id),
+};
+
+// Purchased tape lots (Unit 1). Stocked + moving-average costed per tape size.
+export const tapeReceiptsDb = {
+  getAll:  () => dbGetAll<TapeReceipt>('tape_receipts'),
+  create:  (r: Omit<TapeReceipt, 'id'>) => dbCreate<TapeReceipt>('tape_receipts', r),
+  update:  (id: string, p: Partial<TapeReceipt>) => dbUpdate<TapeReceipt>('tape_receipts', id, p),
+  delete:  (id: string) => dbDelete('tape_receipts', id),
 };
 
 // Rolls made inside a Loom/P.P. unit (per-unit stock), transferred to Inventory

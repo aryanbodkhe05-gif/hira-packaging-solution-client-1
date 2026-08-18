@@ -7,6 +7,7 @@ import { UnitProvider } from './context/UnitContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoomUnitLayout } from './components/layout/LoomUnitLayout';
 import { RollCountPage } from './pages/RollCountPage';
+import { TapeStockPage } from './pages/TapeStockPage';
 import { LoginPage }        from './pages/LoginPage';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/MaterialsPage';
@@ -84,6 +85,7 @@ function AppRoutes() {
         <Route path="loom-unit/pp-fabric"  element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPFabricPage /></LoomUnitLayout></Guard>} />
         <Route path="loom-unit/pp-granule" element={<Guard allow={canAccessPPUnit(role)} home={home}><LoomUnitLayout><PPGranuleStockPage /></LoomUnitLayout></Guard>} />
         <Route path="loom-unit/roll-count" element={<Guard allow={canAccessLoom(role) || canAccessPPUnit(role)} home={home}><LoomUnitLayout><RollCountPage /></LoomUnitLayout></Guard>} />
+        <Route path="loom-unit/tape-stock" element={<Guard allow={canAccessLoom(role) || canAccessPPUnit(role)} home={home}><LoomUnitLayout><TapeStockPage /></LoomUnitLayout></Guard>} />
         {/* Old paths kept as redirects so existing links/bookmarks still work */}
         <Route path="loom"                 element={<Navigate to="/loom-unit/loom" replace />} />
         <Route path="pp-fabric"            element={<Navigate to="/loom-unit/pp-fabric" replace />} />

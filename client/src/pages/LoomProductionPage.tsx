@@ -5,9 +5,13 @@ import {
   Ruler, Settings2, ListChecks, CheckCircle2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, applyGranuleUses } from '../lib/db';
+import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, applyGranuleUses, unitRollsDb } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
 import { getActiveUnit } from '../lib/units';
+import { tapePool, tapeAvailable, tapeSizes } from '../lib/tape';
+import { TAPE_UNIT_ID } from '../config';
+import { canViewCosts } from '../lib/roles';
+import { formatINR } from '../lib/jobcard';
 import { GranuleUsesEditor } from '../components/ui/GranuleUsesEditor';
 import {
   SHIFTS, LOOM_STATUSES, WIDTH_UNITS,
@@ -63,14 +67,25 @@ const emptyEntry: Omit<LoomEntry, 'id'> = {
   downtimeReason: '', notes: '', createdAt: '', updatedAt: '',
 };
 
-function EntryForm({ initial, looms, onSave, onClose }: {
+function EntryForm({ initial, looms, editId, onSave, onClose }: {
   initial: Omit<LoomEntry, 'id'>;
   looms: Loom[];
+  editId?: string;                 // db id when editing — excluded from tape availability
   onSave: (d: Omit<LoomEntry, 'id'>) => void;
   onClose: () => void;
 }) {
   const [f, setF] = useState(initial);
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
+  const { activeUnit } = useUnit();
+  const tapeMode = activeUnit === TAPE_UNIT_ID;   // Unit 1 (Umay) consumes tape, not granules
+  const showCosts = canViewCosts();
+  const tSizes = useMemo(() => tapeSizes(activeUnit), [activeUnit]);
+  const tPool = tapeMode && f.tapeSize ? tapePool(activeUnit, f.tapeSize, editId) : null;
+  const tAvail = tapeMode && f.tapeSize ? tapeAvailable(activeUnit, f.tapeSize, editId) : 0;
+  const autoFabric = Math.max(0, +(((f.tapeUsedKg || 0) - (f.wastageKg || 0))).toFixed(3));
+  const fabricShown = f.fabricMadeKg != null ? f.fabricMadeKg : autoFabric;
+  const tapeOver = !!(tapeMode && f.tapeSize && (f.tapeUsedKg || 0) > tAvail + 1e-6);
+  const tapeCost = tPool?.avgRate != null ? +(((f.tapeUsedKg || 0) * tPool.avgRate)).toFixed(2) : 0;
 
   // Loom options come from the Machines master (type Loom), merged with any
   // legacy Looms-tab entries so nothing disappears.
@@ -90,9 +105,26 @@ function EntryForm({ initial, looms, onSave, onClose }: {
 
   function submit() {
     if (!f.loomNo) { toast.error('Select a loom'); return; }
+    if (f.downtimeMin > 0 && !f.downtimeReason?.trim()) { toast.error('Downtime reason is required when downtime > 0'); return; }
+    if (tapeMode) {
+      if (!f.tapeSize) { toast.error('Select the tape size used'); return; }
+      if (!f.tapeUsedKg || f.tapeUsedKg <= 0) { toast.error('Enter tape used (kg)'); return; }
+      if (tapeOver) { toast.error(`Not enough ${f.tapeSize} tape — available ${tAvail.toLocaleString('en-IN')} kg`); return; }
+      if (fabricShown <= 0) { toast.error('Fabric made must be greater than 0'); return; }
+      if (!f.rollNo?.trim()) { toast.error('Enter a Roll No for the produced roll'); return; }
+      onSave({
+        ...f,
+        operator: f.operator?.trim() || '',
+        downtimeReason: f.downtimeMin > 0 ? f.downtimeReason?.trim() : '',
+        reedCount: f.reedCount || undefined, rpm: f.rpm || undefined,
+        fabricMadeKg: fabricShown, weightKg: fabricShown,   // fabric made = the produced roll's weight
+        tapeRate: tPool?.avgRate ?? null, tapeCost, rollNo: f.rollNo.trim(),
+        granuleUses: [],
+      });
+      return;
+    }
     if (!f.meters || f.meters <= 0) { toast.error('Production (meters) must be greater than 0'); return; }
     if (!f.weightKg || f.weightKg <= 0) { toast.error('Weight (kg) must be greater than 0'); return; }
-    if (f.downtimeMin > 0 && !f.downtimeReason?.trim()) { toast.error('Downtime reason is required when downtime > 0'); return; }
     onSave({
       ...f,
       operator: f.operator?.trim() || '',
@@ -188,7 +220,52 @@ function EntryForm({ initial, looms, onSave, onClose }: {
         </div>
       )}
 
-      <GranuleUsesEditor value={f.granuleUses ?? []} onChange={(u) => set('granuleUses', u)} origByItem={granuleOrig} />
+      {tapeMode ? (
+        <div className="rounded-xl border border-accent/10 p-3 space-y-3">
+          <p className="label !mb-1">Tape consumed → fabric made</p>
+          {tSizes.length === 0 && <p className="text-red-300 text-xs">No tape in stock — add tape in the Tape Stock tab first.</p>}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label className="label">Tape size *</label>
+              <select className="input-field" value={f.tapeSize ?? ''} onChange={(e) => set('tapeSize', e.target.value || undefined)}>
+                <option value="">Select…</option>
+                {tSizes.map((s) => <option key={s} value={s}>{s}</option>)}
+                {f.tapeSize && !tSizes.includes(f.tapeSize) && <option>{f.tapeSize}</option>}
+              </select>
+              {f.tapeSize && <p className="text-[10px] mt-0.5 text-muted">avail {tAvail.toLocaleString('en-IN')} kg{tPool?.avgRate != null ? ` @ ₹${tPool.avgRate}/kg` : ''}</p>}
+            </div>
+            <div>
+              <label className="label">Tape used (kg) *</label>
+              <input className={'input-field font-mono ' + (tapeOver ? 'border-red-500/60' : '')} type="number" min="0" step="any" value={f.tapeUsedKg || ''} onChange={(e) => set('tapeUsedKg', toNum(e.target.value))} />
+              {tapeOver && <p className="text-[10px] mt-0.5 text-red-300">over stock ({tAvail.toLocaleString('en-IN')} kg)</p>}
+            </div>
+            <div>
+              <label className="label">Wastage (kg)</label>
+              <input className="input-field font-mono" type="number" min="0" step="any" value={f.wastageKg || ''} onChange={(e) => set('wastageKg', toNum(e.target.value))} placeholder="0" />
+            </div>
+            <div>
+              <label className="label">Fabric made (kg)</label>
+              <input className="input-field font-mono" type="number" min="0" step="any" value={fabricShown || ''} onChange={(e) => set('fabricMadeKg', toNum(e.target.value))} placeholder={String(autoFabric)} />
+              <p className="text-[10px] mt-0.5 text-muted">= used − wastage ({autoFabric} kg), overridable</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Roll No * <span className="text-muted font-normal">(→ Roll Count)</span></label>
+              <input className="input-field font-mono" value={f.rollNo ?? ''} onChange={(e) => set('rollNo', e.target.value)} placeholder="type roll no" />
+            </div>
+            {showCosts && (
+              <div>
+                <label className="label">Tape cost</label>
+                <div className="input-field font-mono flex items-center">{tPool?.avgRate != null ? formatINR(tapeCost) : <span className="text-yellow-300 text-xs">rate not set</span>}</div>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] text-muted">Tape stock deducts the full <span className="text-white/80">{(f.tapeUsedKg || 0).toLocaleString('en-IN')} kg</span> used; the produced roll ({fabricShown.toLocaleString('en-IN')} kg) lands in Roll Count.</p>
+        </div>
+      ) : (
+        <GranuleUsesEditor value={f.granuleUses ?? []} onChange={(u) => set('granuleUses', u)} origByItem={granuleOrig} />
+      )}
 
       <div>
         <label className="label">Notes</label>
@@ -243,23 +320,41 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
 
   function handleSave(data: Omit<LoomEntry, 'id'>) {
     const now = new Date().toISOString();
-    // Granule consumption → decrement P.P. Granule stock (restore old on edit).
-    if (modal?.type === 'edit' && modal.entry?.granuleUses?.length) applyGranuleUses(modal.entry.granuleUses, 1);
-    const gUses = (data.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
-    if (gUses.length) applyGranuleUses(gUses, -1);
+    const isTape = !!data.tapeSize;   // Unit-1 tape entry — no granules; feeds Roll Count.
+    // Granule consumption (Unit 2) → decrement P.P. Granule stock (restore old on edit).
+    if (!isTape) {
+      if (modal?.type === 'edit' && modal.entry?.granuleUses?.length) applyGranuleUses(modal.entry.granuleUses, 1);
+      const gUses = (data.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
+      if (gUses.length) applyGranuleUses(gUses, -1);
+    }
+    let saved: LoomEntry;
     if (modal?.type === 'edit' && modal.entry) {
       loomEntriesDb.update(modal.entry.id, { ...data, updatedAt: now });
+      saved = { ...modal.entry, ...data } as LoomEntry;
       toast.success('Entry updated');
     } else {
       const ids = loomEntriesDb.getAll().map((e) => e.entryId);
-      loomEntriesDb.create({ ...data, unitId: getActiveUnit(), entryId: genDailyId('LM', ids, data.date), createdAt: now, updatedAt: now });
+      saved = loomEntriesDb.create({ ...data, unitId: getActiveUnit(), entryId: genDailyId('LM', ids, data.date), createdAt: now, updatedAt: now });
       toast.success('Entry saved');
     }
+    if (isTape) upsertLoomRoll(saved);   // produce/update the roll in Roll Count
     setModal(null);
     onChanged();
   }
+  // Keep the Roll Count roll produced by a tape loom entry in sync (only while it is
+  // still in the unit — once transferred/received it is left alone).
+  function upsertLoomRoll(entry: LoomEntry) {
+    const fabric = entry.fabricMadeKg || 0;
+    const roll = unitRollsDb.getAll().find((r) => r.loomEntryId === entry.id);
+    const patch = { rollNo: entry.rollNo, size: entry.tapeSize ?? '', nWt: fabric, gWt: fabric, meter: entry.meters || 0 };
+    if (roll) { if (roll.status === 'in_unit') unitRollsDb.update(roll.id, patch); }
+    else if (fabric > 0) unitRollsDb.create({ unitId: entry.unitId ?? getActiveUnit(), loomEntryId: entry.id, type: 'Fabric', status: 'in_unit', createdAt: new Date().toISOString(), ...patch });
+  }
   function handleDelete(id: string) {
     loomEntriesDb.delete(id);
+    // Remove the Roll Count roll this tape entry produced (only if still in the unit).
+    const roll = unitRollsDb.getAll().find((r) => r.loomEntryId === id);
+    if (roll && roll.status === 'in_unit') unitRollsDb.delete(roll.id);
     toast.success('Entry deleted');
     onChanged();
   }
@@ -387,6 +482,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
           <EntryForm
             initial={modal.entry ?? { ...emptyEntry, date: today() }}
             looms={looms}
+            editId={modal.type === 'edit' ? modal.entry?.id : undefined}
             onSave={handleSave}
             onClose={() => setModal(null)}
           />

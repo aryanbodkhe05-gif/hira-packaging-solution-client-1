@@ -3,13 +3,15 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { canEditRates, canAccessSales, canAccessSupplier, canManageUsers, canAccessSettings, canAccessJobCards, canAccessLoom, canAccessPPUnit, canAccessGeneral } from '../../lib/roles';
 import { useAuth } from '../../context/AuthContext';
+import { useUnit } from '../../context/UnitContext';
 import { useBranding } from '../../lib/branding';
+import { TAPE_UNIT_ID } from '../../config';
 import type { UserRole } from '../../types';
 import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Building2, Bell, Settings, UserCog, Cog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
-  ClipboardList, IndianRupee, Boxes, FileText, Archive,
+  ClipboardList, IndianRupee, Boxes, FileText, Archive, Rows3, Scroll,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -63,9 +65,20 @@ export function Sidebar({ collapsed, onToggle, mobile = false, onNavigate }: Pro
   const location = useLocation();
   const branding = useBranding();
   const { user } = useAuth();
+  const { activeUnit } = useUnit();
   const role = user?.role;
 
+  // Unit 1 (Umay) is tape-based: its Loom section shows Tape Stock + Roll Count
+  // instead of the granule-based P.P. Fabric / P.P. Granule Stock. Unit 2 unchanged.
+  const loomOrPP: AccessFn = (r) => canAccessLoom(r) || canAccessPPUnit(r);
+  const tapeLoomItems: NavItem[] = [
+    { label: 'Loom Log',   icon: Gauge,  to: '/loom-unit/loom',       access: canAccessLoom },
+    { label: 'Tape Stock', icon: Rows3,  to: '/loom-unit/tape-stock', access: loomOrPP },
+    { label: 'Roll Count', icon: Scroll, to: '/loom-unit/roll-count', access: loomOrPP },
+  ];
+
   const visibleSections = NAV
+    .map((s) => (s.section === 'Loom / P.P. Unit' && activeUnit === TAPE_UNIT_ID ? { ...s, items: tapeLoomItems } : s))
     .map((s) => ({ ...s, items: s.items.filter((i) => !i.access || (role != null && i.access(role))) }))
     .filter((s) => s.items.length > 0);
 

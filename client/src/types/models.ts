@@ -104,11 +104,34 @@ export interface Loom {
   updatedAt: string;
 }
 
+// A purchased tape lot (Unit 1 / Umay buys tape rather than extruding it). Tape is
+// stocked by size, moving-average costed per size (like raw materials).
+export interface TapeReceipt {
+  id: string;
+  unitId: string;           // owning unit (Unit 1)
+  size: string;             // tape size — the stock/costing key
+  qty: number;              // kg received
+  rate: number | null;      // ₹/kg at purchase; null => "rate not set"
+  party?: string;
+  billNo?: string;
+  date: string;             // yyyy-mm-dd
+  note?: string;
+  createdAt: string;
+}
+
 export interface LoomEntry {
   id: string;
   unitId?: string;          // which Loom/P.P. unit this belongs to (default 'unit-1')
   entryId: string;          // LM-YYYYMMDD-NNN
   date: string;             // yyyy-mm-dd
+  // ── Unit 1 (tape-based): tape consumed → fabric made ──
+  tapeSize?: string;        // tape size consumed (from Tape Stock)
+  tapeUsedKg?: number;      // tape used (kg) — deducted in full from the size's pool
+  wastageKg?: number;       // tape wasted (reduces fabric-out only)
+  fabricMadeKg?: number;    // fabric made = tapeUsed − wastage (overridable)
+  tapeRate?: number | null; // ₹/kg — the size's moving-average rate snapshotted at entry
+  tapeCost?: number;        // tapeUsed × tapeRate
+  rollNo?: string;          // manual roll no for the roll this produces in Roll Count
   shift: Shift;
   loomNo: string;
   operator?: string;
@@ -462,6 +485,7 @@ export interface RawMaterialBatch {
 export interface UnitRoll {
   id: string;
   unitId: string;          // which unit made/holds this roll
+  loomEntryId?: string;    // set when this roll was produced by a Unit-1 loom entry
   rollNo?: string;         // manual roll no typed by the worker
   type?: string;
   size: string;

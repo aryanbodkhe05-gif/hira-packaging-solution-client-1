@@ -1,10 +1,18 @@
 import { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Gauge, Layers, Boxes, Scroll, Lock } from 'lucide-react';
+import { Gauge, Layers, Boxes, Scroll, Lock, Rows3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUnit } from '../../context/UnitContext';
+import { TAPE_UNIT_ID } from '../../config';
 
-const TABS = [
+// Unit 1 (Umay) buys tape → shows Tape Stock instead of the granule-based P.P.
+// Fabric / Granule Stock. Every other unit keeps the original granule flow.
+const TAPE_TABS = [
+  { label: 'Loom Log',   icon: Gauge,  to: '/loom-unit/loom' },
+  { label: 'Tape Stock', icon: Rows3,  to: '/loom-unit/tape-stock' },
+  { label: 'Roll Count', icon: Scroll, to: '/loom-unit/roll-count' },
+];
+const GRANULE_TABS = [
   { label: 'Loom Log',           icon: Gauge,  to: '/loom-unit/loom' },
   { label: 'P.P. Fabric',        icon: Layers, to: '/loom-unit/pp-fabric' },
   { label: 'P.P. Granule Stock', icon: Boxes,  to: '/loom-unit/pp-granule' },
@@ -16,6 +24,7 @@ const TABS = [
 // Owner / Manager / Developer switch freely.
 export function LoomUnitLayout({ children }: { children: ReactNode }) {
   const { activeUnit, setActiveUnit, units, locked } = useUnit();
+  const TABS = activeUnit === TAPE_UNIT_ID ? TAPE_TABS : GRANULE_TABS;
 
   return (
     <div className="space-y-5">

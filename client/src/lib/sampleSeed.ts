@@ -5,7 +5,7 @@ import {
   factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
   jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
-  loomsDb, applyGranuleUses,
+  loomsDb, applyGranuleUses, tapeReceiptsDb,
 } from './db';
 import {
   RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
@@ -24,9 +24,10 @@ export function seedSampleData(): void {
     factoryMachinesDb.create({ name: 'Lam-1', type: 'Lamination', active: true, createdAt: iso() });
   }
 
-  // Two named units with fully separate data (Part 4). Names editable in Settings.
+  // Two named units with fully separate data. Unit 1 (Umay) is tape-based; Unit 2 is
+  // granule-based. Names editable in Settings.
   if (getUnits().every((u) => /^Unit \d+$/.test(u.name))) {
-    saveUnits([{ id: 'unit-1', name: 'Weaving Unit A' }, { id: 'unit-2', name: 'Unit 2' }]);
+    saveUnits([{ id: 'unit-1', name: 'Umay' }, { id: 'unit-2', name: 'Unit 2' }]);
   }
 
   let ppU1: { id: string; name: string } | undefined;
@@ -47,10 +48,23 @@ export function seedSampleData(): void {
     loomsDb.create({ unitId: 'unit-1', loomNo: 'Loom A1', maxRpm: 180, status: 'Active', createdAt: iso(), updatedAt: iso() });
   }
 
-  // Per-unit Loom Log + P.P. Fabric entries (separate data per unit).
+  // Unit 1 (Umay) buys tape — stocked by size, moving-average per size (Part 1).
+  if (tapeReceiptsDb.getAll().length === 0) {
+    const tr = (size: string, qty: number, rate: number | null, party: string, bill: string) =>
+      tapeReceiptsDb.create({ unitId: 'unit-1', size, qty, rate, party, billNo: bill, date: daysAgo(6), createdAt: iso() });
+    tr('2.5 inch', 500, 85, 'Balaji Tapes', 'BT-101');
+    tr('2.5 inch', 400, 92, 'Balaji Tapes', 'BT-140');    // blends to ~₹88.11/kg avg
+    tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22');
+  }
+
+  // Loom Log — Unit 1 consumes tape → fabric → Roll Count; Unit 2 is granule-based.
   if (loomEntriesDb.getAll().length === 0) {
-    loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom A1', width: 24, widthUnit: 'inches', meters: 1800, quality: 2.5, weightKg: 240, rollCount: 6, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
-    loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom B1', width: 20, widthUnit: 'inches', meters: 1200, quality: 3,   weightKg: 160, rollCount: 4, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
+    // Unit 1 (Umay): 200 kg of 2.5-inch tape used, 10 kg wasted → 190 kg fabric;
+    // deducts tape stock and produces roll UMY-T-001 in Roll Count.
+    const tapeEntry = loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom A1', width: 24, widthUnit: 'inches', meters: 1500, quality: 2.5, weightKg: 190, rollCount: 1, downtimeMin: 0, tapeSize: '2.5 inch', tapeUsedKg: 200, wastageKg: 10, fabricMadeKg: 190, tapeRate: 88.11, tapeCost: 17622, rollNo: 'UMY-T-001', createdAt: iso(), updatedAt: iso() });
+    unitRollsDb.create({ unitId: 'unit-1', loomEntryId: tapeEntry.id, rollNo: 'UMY-T-001', type: 'Fabric', size: '2.5 inch', gWt: 190, nWt: 190, meter: 1500, status: 'in_unit', createdAt: iso() });
+    // Unit 2 (granule-based) — unchanged.
+    loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom B1', width: 20, widthUnit: 'inches', meters: 1200, quality: 3, weightKg: 160, rollCount: 4, downtimeMin: 0, createdAt: iso(), updatedAt: iso() });
   }
   if (fabricBatchesDb.getAll().length === 0) {
     // Unit 1 batch consumes granules → the tape price calculator prices it from
@@ -63,8 +77,9 @@ export function seedSampleData(): void {
     fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: [], outputMeters: 900, status: 'Open', createdAt: iso(), updatedAt: iso() });
   }
 
-  // Roll Count: rolls sitting in Unit 1 stock (manual roll nos), ready to transfer.
-  if (unitRollsDb.getAll().length === 0) {
+  // Roll Count: extra rolls sitting in Unit 1 stock (manual roll nos), ready to
+  // transfer — seeded alongside the loom-produced roll above.
+  if (!unitRollsDb.getAll().some((r) => r.rollNo === 'U1-A-101')) {
     const ur = (rollNo: string, size: string, gm: number, nWt: number, meter: number, avg: number) =>
       unitRollsDb.create({ unitId: 'unit-1', rollNo, type: 'Milky', size, gm, gWt: nWt + 2, nWt, meter, avg, status: 'in_unit', createdAt: iso() });
     ur('U1-A-101', '500mm', 12, 45, 4200, 10.5); ur('U1-A-102', '500mm', 12, 47, 4300, 10.9); ur('U1-A-103', '600mm', 14, 60, 5000, 12.0);
