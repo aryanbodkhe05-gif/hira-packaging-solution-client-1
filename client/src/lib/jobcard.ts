@@ -107,28 +107,82 @@ export function genJobNo(existing: string[]): string {
   return `${stem}${String(next).padStart(4, '0')}`;
 }
 
+// ── Lamination Total KG (full laminated weight) + cutting carry-in ──────────────
+// BOPP carried in for lamination = the boppInKg on its rows (fallback: inputKg).
+function laminationBoppIn(j: JobCard): number {
+  return sum(j.lamination.rows.map((r) => num(r.boppInKg))) || num(j.lamination.inputKg);
+}
+// Total KG (auto) = BOPP carried in + fabric/roll kg consumed + material kg consumed.
+export function laminationAutoTotalKg(j: JobCard): number {
+  const s = j.lamination;
+  const rollKg = sum((s.rollUses ?? []).map((r) => num(r.qtyKg)));
+  const matKg = sum((s.materials ?? []).map((m) => num(m.qty)));
+  return +(laminationBoppIn(j) + rollKg + matKg).toFixed(3);
+}
+// Lamination OUTPUT (kg) = Total KG — the operator's override when set, else the auto
+// sum. This full laminated weight is what carries forward into Cutting.
+export function laminationOutputKg(j: JobCard): number {
+  const t = j.lamination.totalKg;
+  return t != null && isFinite(t) ? t : laminationAutoTotalKg(j);
+}
+// Amount of Total KG the operator passes to Cutting. Defaults to the full Total KG
+// (whole batch goes to cutting); clamped so it can never exceed Total KG.
+export function laminationSentToCuttingKg(j: JobCard): number {
+  const total = laminationOutputKg(j);
+  const s = j.lamination.sentToCuttingKg;
+  const sent = s != null && isFinite(s) ? s : total;   // default = full Total KG
+  return Math.min(Math.max(0, sent), total);
+}
+// kg fed into this card's Cutting from OTHER jobs' lamination leftover (carried in).
+export function cuttingCarriedInKg(j: JobCard): number {
+  return sum((j.cutting.carriedIn ?? []).map((c) => num(c.kg)));
+}
+// This card's OWN cutting input (excludes carried-in material). When Lamination
+// directly feeds Cutting, it is exactly the Lamination "Sent to Cutting" value; on
+// cards where Lamination doesn't precede Cutting, it falls back to the cutting rows.
+export function cuttingOwnInputKg(j: JobCard): number {
+  if (prevActiveStage(j, 'cutting') === 'lamination') return laminationSentToCuttingKg(j);
+  const s = j.cutting;
+  return s.method === 'Back Seal' ? num(s.bsInputKg) : sum(s.rows.map((r) => num(r.inputKg)));
+}
+// Lamination Balance = Total KG − Sent to Cutting (never negative). The gross leftover
+// shown next to the field; the sibling carry-offer nets out what's already moved out.
+export function laminationBalanceKg(j: JobCard): number {
+  if (j.lamination.na) return 0;
+  return Math.max(0, +(laminationOutputKg(j) - laminationSentToCuttingKg(j)).toFixed(3));
+}
+
 // ── Per-stage primary input / output (kg) for balance + carry-forward ──────────
+// Output is ALWAYS CALCULATED — input minus this stage's rejection/wastage — never
+// the separately-typed output field. This calculated value is what flows into the
+// next stage's input and drives balance/yield. (This app has one loss field per
+// stage, labelled "Wastage" and stored as rejectionKg; when none is entered the
+// carried output equals the input.) Dispatch is terminal: its "output" is shipped qty.
 export function stagePrimary(j: JobCard, key: StageKey): { input: number; output: number; rejection: number } {
+  const calc = (input: number, rejection: number) => ({ input, output: Math.max(0, +(input - rejection).toFixed(3)), rejection });
   switch (key) {
-    case 'printing': { const s = j.printing; return { input: num(s.inputKg), output: num(s.outputKg), rejection: num(s.rejectionKg) }; }
-    case 'metalize': { const s = j.metalize; return { input: num(s.metalizeInputKg), output: num(s.outputKg), rejection: num(s.rejectionKg) }; }
-    case 'slitting': {
-      const s = j.slitting;
-      return {
-        input: num(s.inputKg) || num(s.grossInputKg),
-        output: num(s.outputKg) || sum(s.rolls.map((r) => num(r.outputKg))),
-        rejection: num(s.rejectionKg),
-      };
-    }
-    case 'lamination': { const s = j.lamination; return { input: sum(s.rows.map((r) => num(r.boppInKg))) || num(s.inputKg), output: sum(s.rows.map((r) => num(r.outKg))) || num(s.outputKg), rejection: 0 }; }
+    case 'printing': { const s = j.printing; return calc(num(s.inputKg), num(s.rejectionKg)); }
+    case 'metalize': { const s = j.metalize; return calc(num(s.boppInputKg) || num(s.metalizeInputKg), num(s.rejectionKg)); }
+    case 'slitting': { const s = j.slitting; return calc(num(s.inputKg) || num(s.grossInputKg), num(s.rejectionKg)); }
+    // Lamination ADDS mass (fabric + LD/granule), so its output is the Total KG (full
+    // laminated weight), not input − wastage.
+    case 'lamination': { const s = j.lamination; return { input: laminationBoppIn(j), output: laminationOutputKg(j), rejection: num(s.rejectionKg) }; }
     case 'cutting': {
       const s = j.cutting;
-      // Back Seal uses its own single input; BCS sums its rows.
-      const input = s.method === 'Back Seal' ? num(s.bsInputKg) : sum(s.rows.map((r) => num(r.inputKg)));
-      return { input, output: 0, rejection: num(s.rejectionKg) };
+      // Input = own rows/Back-Seal input + any lamination leftover carried in from a
+      // sibling job of the same order.
+      const input = cuttingOwnInputKg(j) + cuttingCarriedInKg(j);
+      return calc(input, num(s.rejectionKg));
     }
     case 'dispatch': { const s = j.dispatch; return { input: 0, output: sum(s.lines.map((l) => num(l.quantityKg))), rejection: 0 }; }
   }
+}
+
+// True when a stage has entered a rejection/wastage OR a leftover balance — i.e. a
+// smaller carried output is explained, so no cross-stage reconciliation warning is due.
+export function stageLossAccounted(j: JobCard, key: StageKey): boolean {
+  const s = j[key] as { rejectionKg?: number; balanceKg?: number; balance?: number; bsBalanceKg?: number };
+  return num(s.rejectionKg) > 0 || num(s.balanceKg) > 0 || num(s.balance) > 0 || num(s.bsBalanceKg) > 0;
 }
 
 export interface StageMetrics { input: number; output: number; rejection: number; balance: number; yieldPct: number; }

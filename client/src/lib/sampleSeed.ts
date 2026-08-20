@@ -205,7 +205,7 @@ export function seedSampleData(): void {
       jobNo: 'HPS-2026-9001', cardType: 'BOPP', makingType: 'Bag',
       orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Balance Demo',
       header: { brand: 'Balance Demo', qty: 12000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['520'] },
-      printing: { na: false, consumption: [], materials: inkUse, rollUses: filmUse, inputKg: 400, outputKg: 380, meter: 5000, boppSize: '520mm' },
+      printing: { na: false, consumption: [], materials: inkUse, rollUses: filmUse, inputKg: 400, rejectionKg: 20, outputKg: 380, meter: 5000, boppSize: '520mm' },
       metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] }, lamination: { ...emptyStage, rows: [{}] },
       cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 380, noOfBags: 6000, machine: 'Cutting-1' }] },
       dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{ pieces: 5000, quantityKg: 380, dispatchDate: today() }], bagsPerBale: 100 },
@@ -220,6 +220,70 @@ export function seedSampleData(): void {
       cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{}] },
       dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], carriedIn: [], bagsPerBale: 100 },
       status: 'In Progress', currentStage: 'Printing', ratesAsOf: now, createdAt: iso(), updatedAt: now,
+    });
+    ordersDb.update(order.id, { jobCardId: jc1.id });
+  }
+
+  // Carry-forward demo (Part 1): Printing 46 − 1 wastage → 45 carries to Slitting;
+  // Slitting 45 − 1.4 wastage → 43.6 carries to Lamination (input 43.6). Metalize N/A
+  // (Glossy). Every input equals the previous stage's calculated output, so no false
+  // mismatch error, and balance/yield reflect the calculated 43.6.
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9003')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9003', cardType: 'BOPP', makingType: 'Bag', client: 'Carry Demo',
+      header: { brand: 'Carry Demo', qty: 5000, size: '25 × 30', finish: 'Glossy', date: today() },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 46, rejectionKg: 1, meter: 3000 },
+      metalize: { ...emptyStage },   // N/A — Glossy finish
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 45, rejectionKg: 1.4, outputMeter: 2900 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 43.6 }] },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 43.6, noOfBags: 5000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+  }
+
+  // Lamination Total-KG + "Sent to Cutting" + leftover-carry demo: one order, two jobs.
+  //  JC-1: Total KG = 450 BOPP + 40 fabric roll + 10 LD = 500. Sent to Cutting = 400
+  //        (Cutting input = 400), Balance = 100.
+  //  JC-2: same order — that 100 kg is carried into its Cutting (cutting.carriedIn),
+  //        so JC-1's leftover nets to 0 (deducted on carry, never double-counted).
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9004')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    const fabricRoll = invRollsDb.getAll().find((r) => r.rollNo === 'R-500-12-1');
+    const ldMat = rawMaterialsDb.getAll().find((m) => m.name === 'LD');
+    const rollUse = fabricRoll ? [{
+      rollId: fabricRoll.id, rollNo: fabricRoll.rollNo, kind: 'roll' as const, type: fabricRoll.type,
+      size: fabricRoll.size, gm: fabricRoll.gm, qtyKg: 40, rate: fabricRoll.rate ?? null,
+      lineCost: +(40 * (fabricRoll.rate ?? 0)).toFixed(2), finished: false, balanceKg: (fabricRoll.nWt ?? 0) - 40,
+    }] : [];
+    const ldUse = ldMat ? [{ materialId: ldMat.id, materialName: 'LD', unit: 'kg', qty: 10, avgRate: null, cost: 0 }] : [];
+
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0004', brandName: 'Lam Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Laminated', boppFilmSizes: ['500'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 40000, quantityKg: 900, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
+    const jc1 = jobCardsDb.create({
+      jobNo: 'HPS-2026-9004', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Lam Demo',
+      header: { brand: 'Lam Demo', qty: 30000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['500'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 450, meter: 6000 },
+      metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] },
+      // Total KG = 450 (BOPP row) + 40 (fabric roll) + 10 (LD) = 500. Sent 400 → Balance 100.
+      lamination: { na: false, consumption: [], materials: ldUse, rollUses: rollUse, rows: [{ boppInKg: 450 }], totalMeter: 5800, sentToCuttingKg: 400 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 30000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Lamination', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9005', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 2, client: 'Lam Demo',
+      header: { brand: 'Lam Demo', qty: 10000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['500'] },
+      printing: { ...emptyStage, na: false, inputKg: 120 }, metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 120 }] },
+      // JC-1's 100 kg lamination leftover carried into this job's cutting.
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 8000, machine: 'Cutting-1' }], carriedIn: [{ id: 'lamcarry-1', fromCardId: jc1.id, fromLabel: 'JC-1', pieces: 0, kg: 100, movedAt: now }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Cutting', ratesAsOf: now, createdAt: iso(), updatedAt: now,
     });
     ordersDb.update(order.id, { jobCardId: jc1.id });
   }

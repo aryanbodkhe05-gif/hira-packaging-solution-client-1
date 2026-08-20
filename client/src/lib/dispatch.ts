@@ -1,7 +1,7 @@
 // Partial-dispatch progress — COMPUTED, never stored. Pending = order total −
 // Σ dispatched across ALL dispatch records linked to the order (any job card).
 import type { Order, DispatchRecord, JobCard, CarriedIn } from '../types/models';
-import { jobCardMade, jobCardLabel } from './jobcard';
+import { jobCardMade, jobCardLabel, laminationOutputKg, cuttingOwnInputKg } from './jobcard';
 
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -100,6 +100,48 @@ export function moveCarriedBalance(sibling: JobCard, allCards: JobCard[]): Carri
     id: genId(), fromCardId: sibling.id,
     fromLabel: jobCardLabel(sibling).split(' / ').pop() || `JC-${sibling.orderJobSeq ?? ''}`,
     pieces: bal.readyPcs, kg: bal.readyKg || undefined, movedAt: new Date().toISOString(),
+  };
+}
+
+// ── Lamination leftover balance — carries to the SAME ORDER's next job at Cutting ──
+// Mirrors the ready-to-dispatch bag flow: a card's lamination output (Total KG) minus
+// what its own cutting used is the leftover; it can be moved onto a sibling card's
+// cutting (cutting.carriedIn), which nets it out here so it is never counted twice.
+export interface LamBalance { producedKg: number; sentKg: number; transferredOutKg: number; leftoverKg: number; }
+export function cardLaminationBalance(card: JobCard, allCards: JobCard[]): LamBalance {
+  if (card.lamination.na) return { producedKg: 0, sentKg: 0, transferredOutKg: 0, leftoverKg: 0 };
+  const producedKg = laminationOutputKg(card);
+  const sentKg = cuttingOwnInputKg(card);   // this card's own cutting consumed from its lamination
+  let transferredOutKg = 0;
+  for (const c of allCards) {
+    if (c.id === card.id) continue;
+    for (const ci of c.cutting.carriedIn ?? []) {
+      if (ci.fromCardId === card.id) transferredOutKg += num(ci.kg);
+    }
+  }
+  const leftoverKg = Math.max(0, +(producedKg - sentKg - transferredOutKg).toFixed(2));
+  return { producedKg, sentKg, transferredOutKg, leftoverKg };
+}
+
+// Sibling cards of the same order that still hold a lamination leftover and haven't
+// already been carried onto `card`'s cutting — the cutting carry-in options.
+export function siblingsWithLaminationBalance(card: JobCard, allCards: JobCard[]): { card: JobCard; label: string; bal: LamBalance }[] {
+  if (!card.orderRef) return [];
+  const already = new Set((card.cutting.carriedIn ?? []).map((c) => c.fromCardId));
+  return allCards
+    .filter((c) => c.id !== card.id && c.orderRef === card.orderRef && !already.has(c.id))
+    .map((c) => ({ card: c, label: jobCardLabel(c).split(' / ').pop() || `JC-${c.orderJobSeq ?? ''}`, bal: cardLaminationBalance(c, allCards) }))
+    .filter(({ bal }) => bal.leftoverKg > 0);
+}
+
+// Build the carriedIn entry that moves a sibling's lamination leftover onto a card's cutting.
+export function moveLaminationBalance(sibling: JobCard, allCards: JobCard[]): CarriedIn | null {
+  const bal = cardLaminationBalance(sibling, allCards);
+  if (bal.leftoverKg <= 0) return null;
+  return {
+    id: genId(), fromCardId: sibling.id,
+    fromLabel: jobCardLabel(sibling).split(' / ').pop() || `JC-${sibling.orderJobSeq ?? ''}`,
+    pieces: 0, kg: bal.leftoverKg, movedAt: new Date().toISOString(),
   };
 }
 

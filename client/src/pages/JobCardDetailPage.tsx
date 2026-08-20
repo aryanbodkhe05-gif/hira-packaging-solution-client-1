@@ -21,13 +21,18 @@ import type { Finish, JobStage, JobCardStatus, FabricType, CoatingSide, CuttingM
 import type { JobCard, DispatchRecord, RollUse, MaterialUse, CarriedIn } from '../types/models';
 import { MaterialUsePanel, type Suggestion } from '../components/ui/MaterialUsePanel';
 import { RollUsesPanel } from '../components/ui/RollUses';
+import { CommitNumberInput } from '../components/ui/CommitNumberInput';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, formatINR,
-  prevActiveStage, nextActiveStage, stagePrimary, visibleStageKeys, totalBags,
+  prevActiveStage, nextActiveStage, stagePrimary, stageLossAccounted, visibleStageKeys, totalBags,
   autoPct, autoQty, jobCardLabel, firstMaterialShortfall,
+  laminationAutoTotalKg, laminationOutputKg, laminationSentToCuttingKg, laminationBalanceKg, cuttingCarriedInKg,
 } from '../lib/jobcard';
-import { cardReadyToDispatch, siblingsWithReady, moveCarriedBalance } from '../lib/dispatch';
+import {
+  cardReadyToDispatch, siblingsWithReady, moveCarriedBalance,
+  siblingsWithLaminationBalance, moveLaminationBalance,
+} from '../lib/dispatch';
 import type { StageKey } from '../lib/jobcard';
 import { canViewCosts, staffScope } from '../lib/roles';
 import { useBranding } from '../lib/branding';
@@ -64,16 +69,19 @@ function StageWho({ brand, operator, onOperator }: { brand: string; operator?: s
 // ── Carry-forward: a stage's forward output {kg, meter} + how to land it as the
 // next stage's input, mapped to each stage's ACTUAL current fields. ─────────────
 const cnum = (v?: number) => (typeof v === 'number' && isFinite(v) ? v : 0);
-const csum = (arr: (number | undefined)[]) => arr.reduce((a: number, b) => a + cnum(b), 0);
 
+// Carry the CALCULATED output (input − rejection/wastage, from stagePrimary) into the
+// next stage — never a separately-typed output figure. Meters carry from the stage's
+// own meter fields (they have no wastage deduction).
 function stageForward(j: JobCard, key: StageKey): { kg: number; meter: number } {
+  const kg = stagePrimary(j, key).output;
   switch (key) {
-    case 'printing': return { kg: cnum(j.printing.outputKg) || cnum(j.printing.inputKg), meter: cnum(j.printing.meter) };
-    case 'metalize': return { kg: cnum(j.metalize.outputKg) || cnum(j.metalize.boppInputKg), meter: cnum(j.metalize.outputMtr) };
-    case 'slitting': return { kg: cnum(j.slitting.outputKg) || cnum(j.slitting.inputKg), meter: cnum(j.slitting.outputMeter) || cnum(j.slitting.inputMeter) };
-    case 'lamination': return { kg: cnum(j.lamination.outputKg) || csum(j.lamination.rows.map((r) => r.outKg)) || cnum(j.lamination.inputKg), meter: 0 };
-    case 'cutting': return { kg: j.cutting.method === 'Back Seal' ? cnum(j.cutting.bsInputKg) : csum(j.cutting.rows.map((r) => r.inputKg)), meter: 0 };
-    case 'dispatch': return { kg: csum(j.dispatch.lines.map((l) => l.quantityKg)), meter: 0 };
+    case 'printing': return { kg, meter: cnum(j.printing.meter) };
+    case 'metalize': return { kg, meter: cnum(j.metalize.outputMtr) };
+    case 'slitting': return { kg, meter: cnum(j.slitting.outputMeter) || cnum(j.slitting.inputMeter) };
+    case 'lamination': return { kg, meter: 0 };
+    case 'cutting': return { kg, meter: 0 };
+    case 'dispatch': return { kg, meter: 0 };
   }
 }
 
@@ -118,8 +126,18 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label,
   const m = stageMetrics(card, jobKey);
   const prevKey = prevActiveStage(card, jobKey);
   const prevOut = prevKey ? stagePrimary(card, prevKey).output : 0;
-  const myIn = m.input;
-  const mismatch = !stage.na && prevKey && prevOut > 0 && myIn > 0 && Math.abs(prevOut - myIn) > 0.001;
+  // Cutting may include lamination leftover carried in from a sibling job — that
+  // material isn't from THIS chain's previous stage, so exclude it from the check.
+  const externalIn = jobKey === 'cutting' ? cuttingCarriedInKg(card) : 0;
+  const myIn = Math.max(0, +(m.input - externalIn).toFixed(3));
+  // Warn only on an UNEXPLAINED gap between the previous stage's calculated output and
+  // this stage's (own) input. If either stage has entered rejection/wastage or a
+  // leftover balance, the difference is accounted for — no warning (validation rule).
+  const accounted = (prevKey ? stageLossAccounted(card, prevKey) : false) || stageLossAccounted(card, jobKey);
+  // A shortfall after Lamination is the expected leftover (Total KG − amount sent to
+  // Cutting) that carries to the next job — not an error.
+  const leftoverOk = prevKey === 'lamination' && prevOut - myIn >= -0.001;
+  const mismatch = !stage.na && !!prevKey && prevOut > 0 && myIn > 0 && Math.abs(prevOut - myIn) > 0.001 && !accounted && !leftoverOk;
 
   return (
     <div className={cn('glass-card overflow-hidden', stage.na && 'opacity-60')}>
@@ -128,7 +146,13 @@ function StageCard({ jobKey, card, expanded, onToggle, onSetNA, children, label,
           {expanded ? <ChevronDown className="w-4 h-4 text-accent" /> : <ChevronRight className="w-4 h-4 text-muted" />}
           <span className="text-white font-semibold">{label ?? STAGE_LABEL[jobKey]}</span>
           {!stage.na && (myIn > 0 || m.output > 0) && (
-            <span className="text-xs text-muted font-mono ml-2">bal {m.balance.toFixed(1)} kg · yield {m.yieldPct.toFixed(0)}%</span>
+            // Lamination adds mass (fabric + LD), so bal/yield are meaningless there —
+            // show the Total KG (its output) instead.
+            <span className="text-xs text-muted font-mono ml-2">
+              {jobKey === 'lamination'
+                ? `total ${m.output.toLocaleString('en-IN')} kg`
+                : `bal ${m.balance.toFixed(1)} kg · yield ${m.yieldPct.toFixed(0)}%`}
+            </span>
           )}
         </button>
         <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
@@ -307,6 +331,29 @@ export function JobCardDetailPage() {
       const dispatch = { ...p.dispatch, carriedIn: (p.dispatch.carriedIn ?? []).filter((c) => c.id !== id) };
       if (p.id) jobCardsDb.update(p.id, { dispatch, updatedAt: new Date().toISOString() });
       return { ...p, dispatch };
+    });
+  }
+
+  // Lamination leftover carry — mirrors the ready-bag flow, but into this card's
+  // Cutting. Persists immediately so it leaves the source at that moment.
+  function carryLamFromSibling(sibling: JobCard) {
+    if (!card?.id) { toast.error('Save the job card first'); return; }
+    const ci = moveLaminationBalance(sibling, jobCardsDb.getAll());
+    if (!ci) return;
+    setCard((p) => {
+      if (!p) return p;
+      const cutting = { ...p.cutting, carriedIn: [...(p.cutting.carriedIn ?? []), ci] };
+      jobCardsDb.update(p.id, { cutting, updatedAt: new Date().toISOString() });
+      return { ...p, cutting };
+    });
+    toast.success(`Moved ${(ci.kg ?? 0).toLocaleString('en-IN')} kg lamination balance from ${ci.fromLabel} into Cutting`);
+  }
+  function removeLamCarried(id: string) {
+    setCard((p) => {
+      if (!p) return p;
+      const cutting = { ...p.cutting, carriedIn: (p.cutting.carriedIn ?? []).filter((c) => c.id !== id) };
+      if (p.id) jobCardsDb.update(p.id, { cutting, updatedAt: new Date().toISOString() });
+      return { ...p, cutting };
     });
   }
   function setPrintingInput(v: number | undefined) { patchStage('printing', { inputKg: v }); }
@@ -580,6 +627,7 @@ export function JobCardDetailPage() {
               <Field label="Size"><Txt value={card.metalize.size} onChange={(v) => patchStage('metalize', { size: v })} /></Field>
               <Field label="Balance (roll)"><Txt value={card.metalize.rollBalance} onChange={(v) => patchStage('metalize', { rollBalance: v })} placeholder="balance roll no" /></Field>
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
+              <Field label="Wastage (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             <StageMaterials stageKey="metalize" />
@@ -642,7 +690,33 @@ export function JobCardDetailPage() {
             {/* P.P. / Filler / LD come from RAW MATERIALS (manual batch-pick), not P.P. Granule Stock */}
             <StageMaterials stageKey="lamination" />
             <p className="text-muted text-[11px]">P.P., Filler and LD are drawn from Raw Materials — this stage no longer touches P.P. Granule Stock.</p>
-            <CarryBtn from="lamination" />
+
+            {/* Total KG (auto = BOPP in + fabric/roll kg + material kg, editable) ·
+                Total Meter (manual) · Sent to Cutting (defaults to full Total KG,
+                editable, ≤ Total KG) · Balance (= Total KG − Sent to Cutting) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Field label="Total KG (auto)">
+                <input className="input-field font-mono" type="number" min="0" step="any"
+                  value={card.lamination.totalKg ?? ''} placeholder={String(laminationAutoTotalKg(card))}
+                  onChange={(e) => patchStage('lamination', { totalKg: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+              </Field>
+              <Field label="Total Meter (manual)"><Num value={card.lamination.totalMeter} onChange={(v) => patchStage('lamination', { totalMeter: v })} /></Field>
+              <Field label="Sent to Cutting (kg)">
+                {/* Blur-commit so you can clear and re-type freely; clamped ≤ Total KG on commit. */}
+                <CommitNumberInput className="input-field font-mono"
+                  value={card.lamination.sentToCuttingKg ?? laminationOutputKg(card)}
+                  onCommit={(v) => patchStage('lamination', { sentToCuttingKg: Math.min(v, laminationOutputKg(card)) })} />
+              </Field>
+              <Field label="Balance (kg)">
+                <input className="input-field font-mono bg-white/5" readOnly value={laminationBalanceKg(card).toLocaleString('en-IN')}
+                  title="Total KG − Sent to Cutting. This leftover carries to the same order's next job at Cutting." />
+              </Field>
+            </div>
+            <p className="text-muted text-[11px]">
+              Total KG = BOPP in + fabric/roll kg + material kg = <span className="text-white/80 font-mono">{laminationOutputKg(card).toLocaleString('en-IN')} kg</span>.
+              <span className="text-white/80 font-mono"> {laminationSentToCuttingKg(card).toLocaleString('en-IN')} kg</span> is sent to Cutting (its input);
+              balance <span className="text-white/80 font-mono">{laminationBalanceKg(card).toLocaleString('en-IN')} kg</span> carries to this order's next job at Cutting.
+            </p>
           </StageCard>
 
           {/* C5 — Cutting: BCS or Back Seal */}
@@ -662,6 +736,42 @@ export function JobCardDetailPage() {
                   ))}
                 </div>
               </Field>
+            )}
+
+            {/* Lamination leftover carried in from a sibling job of the SAME order —
+                same pop-up/add flow as ready-to-dispatch bags. Extra laminated material
+                fed into this job's cutting; deducted from the source so it isn't double-counted. */}
+            {(card.cutting.carriedIn ?? []).length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 space-y-2">
+                <p className="text-amber-300 text-xs font-semibold uppercase tracking-wide">Lamination balance carried into cutting</p>
+                {(card.cutting.carriedIn ?? []).map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 text-sm">
+                    <span className="text-white/85 font-mono">{(c.kg ?? 0).toLocaleString('en-IN')} kg</span>
+                    <span className="text-muted text-xs">from {c.fromLabel}</span>
+                    <button type="button" onClick={() => removeLamCarried(c.id)}
+                      className="ml-auto p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Return to source card">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <p className="text-[11px] text-amber-300/70">Added to this job's cutting input (extra laminated material to cut).</p>
+              </div>
+            )}
+            {!isScoped && siblingsWithLaminationBalance(card, jobCardsDb.getAll()).map(({ card: sib, label, bal }) => (
+              <button key={sib.id} type="button" onClick={() => carryLamFromSibling(sib)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200 font-medium text-sm hover:bg-amber-500/25 transition-colors">
+                <Plus className="w-4 h-4" /> Add lamination balance from {label} ({bal.leftoverKg.toLocaleString('en-IN')} kg)
+              </button>
+            ))}
+
+            {/* Cutting is fed from the Lamination "Sent to Cutting" value (plus any
+                carried-in leftover) — not the per-row inputs. */}
+            {!card.lamination.na && (
+              <div className="rounded-lg bg-navy/40 border border-white/10 px-3 py-2 text-sm">
+                <span className="text-muted">Cutting input: </span>
+                <span className="font-mono text-white">{stagePrimary(card, 'cutting').input.toLocaleString('en-IN')} kg</span>
+                <span className="text-muted text-xs"> — sent from Lamination {laminationSentToCuttingKg(card).toLocaleString('en-IN')} kg{cuttingCarriedInKg(card) > 0 ? ` + carried ${cuttingCarriedInKg(card).toLocaleString('en-IN')} kg` : ''}</span>
+              </div>
             )}
 
             {cutMethod === 'BCS' ? (<>

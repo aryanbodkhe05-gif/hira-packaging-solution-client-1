@@ -33,7 +33,10 @@ export function TypeAhead({ value, onChange, listKey, defaults, placeholder, aut
       <input
         className="input-field" value={value} autoFocus={autoFocus} placeholder={placeholder ?? 'Type to search…'}
         onChange={(e) => { onChange(e.target.value); setTouched(true); setOpen(true); }}
-        onFocus={() => setOpen(true)}
+        // Open the suggestion list only once there's something to match — so an
+        // autofocused empty field (e.g. the Add-Item modal) doesn't drop a popup over
+        // the fields below it and swallow the next click.
+        onFocus={() => { if (value.trim()) setOpen(true); }}
         onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 150); }}
       />
       {open && matches.length > 0 && (

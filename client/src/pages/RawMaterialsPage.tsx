@@ -20,9 +20,9 @@ const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) 
 // ── Add-material form: name, unit, qty, rate, date. The qty/rate become the item's
 // first receipt into its moving-average pool. (Edit mode changes only name/unit.)
 export interface ItemFormData { name: string; unit: string; dateAdded: string; qty: number; rate: number | null; party: string; billNo: string; }
-function ItemForm({ initial, editing, onSave, onClose }: {
+function ItemForm({ initial, editing, onSave, onSaveAndNew, onClose }: {
   initial: RawMaterial | null; editing?: boolean;
-  onSave: (d: ItemFormData) => void; onClose: () => void;
+  onSave: (d: ItemFormData) => void; onSaveAndNew?: (d: ItemFormData) => void; onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [unit, setUnit] = useState(initial?.unit ?? 'kg');
@@ -31,13 +31,18 @@ function ItemForm({ initial, editing, onSave, onClose }: {
   const [rateText, setRateText] = useState('');
   const [party, setParty] = useState('');
   const [billNo, setBillNo] = useState('');
-  function submit() {
-    if (!name.trim()) { toast.error('Item name is required'); return; }
-    if (!editing && num(qtyText) <= 0) { toast.error('Quantity is required'); return; }
+  // Validate + build the payload; returns null (and toasts) if invalid.
+  function build(): ItemFormData | null {
+    if (!name.trim()) { toast.error('Item name is required'); return null; }
+    if (!editing && num(qtyText) <= 0) { toast.error('Quantity is required'); return null; }
     rememberTypeAhead(RAW_MATERIALS_KEY, name, DEFAULT_RAW_MATERIALS);
     if (party.trim()) rememberTypeAhead(PARTIES_KEY, party, DEFAULT_PARTIES);
-    onSave({ name: name.trim(), unit: unit.trim() || 'kg', dateAdded: date, qty: num(qtyText), rate: rateText.trim() === '' ? null : num(rateText), party: party.trim(), billNo: billNo.trim() });
+    return { name: name.trim(), unit: unit.trim() || 'kg', dateAdded: date, qty: num(qtyText), rate: rateText.trim() === '' ? null : num(rateText), party: party.trim(), billNo: billNo.trim() };
   }
+  // Clear the per-item fields (keep unit + date) so the next material can be typed.
+  function resetForNext() { setName(''); setQtyText(''); setRateText(''); setParty(''); setBillNo(''); }
+  function submitClose() { const d = build(); if (d) onSave(d); }
+  function submitAnother() { const d = build(); if (d) { (onSaveAndNew ?? onSave)(d); resetForNext(); } }
   return (
     <div className="space-y-4">
       <div>
@@ -63,8 +68,11 @@ function ItemForm({ initial, editing, onSave, onClose }: {
         </p>
       )}
       <div className="flex gap-3 pt-1">
-        <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} className="btn-primary flex-1 justify-center">{editing ? 'Save Item' : 'Add Material'}</button>
+        <button onClick={onClose} className="btn-secondary flex-1 justify-center">{editing ? 'Cancel' : 'Done'}</button>
+        {!editing && onSaveAndNew && (
+          <button onClick={submitAnother} className="btn-secondary flex-1 justify-center"><Plus className="w-4 h-4" /> Save &amp; Add Another</button>
+        )}
+        <button onClick={submitClose} className="btn-primary flex-1 justify-center">{editing ? 'Save Item' : 'Add Material'}</button>
       </div>
     </div>
   );
@@ -143,19 +151,22 @@ export function RawMaterialsPage() {
     setReceipts(rawMaterialReceiptsDb.getAll());
   }, []);
 
-  function handleSave(data: ItemFormData) {
+  function createItem(data: ItemFormData) {
     if (modal?.type === 'edit' && modal.item) {
       rawMaterialsDb.update(modal.item.id, { name: data.name, unit: data.unit });
       toast.success('Item updated');
-    } else {
-      // Find-or-create the item by name, then log this receipt into its pool.
-      const existing = rawMaterialsDb.getAll().find((m) => m.name.trim().toLowerCase() === data.name.toLowerCase());
-      const materialId = existing ? existing.id : rawMaterialsDb.create({ name: data.name, unit: data.unit, quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: data.dateAdded }).id;
-      rawMaterialReceiptsDb.create({ materialId, qty: data.qty, rate: data.rate, date: data.dateAdded, party: data.party || undefined, billNo: data.billNo || undefined, createdAt: new Date().toISOString() });
-      toast.success(existing ? `Stock received into ${data.name}` : `${data.name} added`);
+      return;
     }
-    setModal(null); reload();
+    // Find-or-create the item by name, then log this receipt into its pool.
+    const existing = rawMaterialsDb.getAll().find((m) => m.name.trim().toLowerCase() === data.name.toLowerCase());
+    const materialId = existing ? existing.id : rawMaterialsDb.create({ name: data.name, unit: data.unit, quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, dateAdded: data.dateAdded }).id;
+    rawMaterialReceiptsDb.create({ materialId, qty: data.qty, rate: data.rate, date: data.dateAdded, party: data.party || undefined, billNo: data.billNo || undefined, createdAt: new Date().toISOString() });
+    toast.success(existing ? `Stock received into ${data.name}` : `${data.name} added`);
   }
+  // Save & close.
+  function handleSave(data: ItemFormData) { createItem(data); setModal(null); reload(); }
+  // Save & keep the modal open so several new materials can be added in a row.
+  function handleSaveAndNew(data: ItemFormData) { createItem(data); reload(); }
   function handleDelete(id: string) {
     rawMaterialReceiptsDb.getAll().filter((r) => r.materialId === id).forEach((r) => rawMaterialReceiptsDb.delete(r.id));
     rawMaterialsDb.delete(id); toast.success('Item and its receipts deleted'); reload();
@@ -303,7 +314,7 @@ export function RawMaterialsPage() {
 
       {modal && (
         <Modal open onClose={() => setModal(null)} title={modal.type === 'add' ? 'Add Raw Material' : 'Edit Item'} size="md">
-          <ItemForm initial={modal.item ?? null} editing={modal.type === 'edit'} onSave={handleSave} onClose={() => setModal(null)} />
+          <ItemForm initial={modal.item ?? null} editing={modal.type === 'edit'} onSave={handleSave} onSaveAndNew={handleSaveAndNew} onClose={() => setModal(null)} />
         </Modal>
       )}
 

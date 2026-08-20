@@ -307,6 +307,15 @@ export interface LaminationStage extends StageBase {
   balanceRoll?: number;
   rejectionKg?: number;
   balanceKg?: number;
+  // Full laminated weight = BOPP carried in + fabric/roll kg + material kg. Auto-
+  // calculated (laminationAutoTotalKg) but stored/overridable here; it is the
+  // lamination OUTPUT. Total Meter is a manual free field.
+  totalKg?: number;
+  totalMeter?: number;
+  // How much of Total KG is passed to Cutting. Defaults to the full Total KG; the
+  // operator edits it down to hold stock back. It becomes the Cutting stage's input;
+  // Balance (Total KG − this) is the leftover that carries to the next same-order job.
+  sentToCuttingKg?: number;
   // Other/Flexo card lamination extras
   inputKg?: number;
   outputKg?: number;
@@ -323,6 +332,9 @@ export interface CuttingStage extends StageBase {
   rejectionKg?: number;         // Wastage
   threadPct?: number;           // BCS: thread auto-calc %, overrides the Settings default
   threadManual?: boolean;       // true once the operator types over the auto thread qty
+  // Lamination leftover (kg) moved in from a sibling job of the SAME order — extra
+  // laminated material fed into this job's cutting (mirrors dispatch.carriedIn).
+  carriedIn?: CarriedIn[];
   // Back Seal
   bsInputKg?: number;
   bsBalanceKg?: number;
