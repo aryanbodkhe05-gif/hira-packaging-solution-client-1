@@ -144,9 +144,13 @@ export function DispatchRegisterPage({ type }: { type: DispatchType }) {
   }
   function startBillEdit(r: DispatchRecord) { setEditId(r.id); setBillDraft(r.billNo ?? ''); }
   function saveBill(id: string) {
-    dispatchesDb.update(id, { billNo: billDraft.trim() || undefined });
+    const bill = billDraft.trim() || undefined;
+    dispatchesDb.update(id, { billNo: bill });
+    // Auto-fill the linked order's Bill No (Part 4) — stays editable on the order.
+    const rec = records.find((r) => r.id === id);
+    if (rec?.orderRef && bill) ordersDb.update(rec.orderRef, { billNo: bill });
     setEditId(null);
-    toast.success('Bill No updated');
+    toast.success(bill ? 'Bill No saved — also filled on the order' : 'Bill No cleared');
     reload();
   }
 

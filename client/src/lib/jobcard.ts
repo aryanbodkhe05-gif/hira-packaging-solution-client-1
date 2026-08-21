@@ -424,5 +424,26 @@ export function jobCardMade(card: JobCard): { pieces: number; kg: number } {
   return { pieces: totalBags(card), kg: finalOutputKg(card) };
 }
 
+// ── Dispatch: bale groups + shipped totals ──────────────────────────────────────
+// Bales are grouped by pieces-per-bale, each group carrying its own total weight.
+export function baleTotals(stage: DispatchStage): { pieces: number; count: number; weight: number; autoWeight: number } {
+  const groups = stage.bales ?? [];
+  const pieces = groups.reduce((s, g) => s + num(g.piecesPerBale) * num(g.bales), 0);
+  const count = groups.reduce((s, g) => s + num(g.bales), 0);
+  const autoWeight = +groups.reduce((s, g) => s + num(g.weightKg), 0).toFixed(3);
+  // Total Bale Weight box: the operator's override when set, else the auto sum.
+  const weight = stage.baleWeightKg != null && isFinite(stage.baleWeightKg) ? stage.baleWeightKg : autoWeight;
+  return { pieces, count, weight, autoWeight };
+}
+// What this card actually ships — pieces + kg. Bales are the primary source
+// (pieces = Σ piecesPerBale × bales, kg = Total Bale Weight); the older dispatch
+// lines are the fallback when no bales are entered.
+export function dispatchShipped(card: JobCard): { pcs: number; kg: number } {
+  const bt = baleTotals(card.dispatch);
+  const linePcs = sum((card.dispatch.lines ?? []).map((l) => num(l.pieces)));
+  const lineKg = sum((card.dispatch.lines ?? []).map((l) => num(l.quantityKg)));
+  return { pcs: bt.pieces || linePcs, kg: bt.weight || lineKg };
+}
+
 // Stage label list in floor order (re-exported for convenience)
 export const STAGE_ORDER = JOB_STAGES;

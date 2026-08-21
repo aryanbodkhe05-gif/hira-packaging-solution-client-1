@@ -287,4 +287,32 @@ export function seedSampleData(): void {
     });
     ordersDb.update(order.id, { jobCardId: jc1.id });
   }
+
+  // Bales + dispatch nos/kg + bill-no demo (Parts 1–4). Made 10,000 pcs / 420 kg;
+  // dispatched as mixed bale groups 500×15, 400×4, 300×1 = 9,400 pcs / 376 kg
+  // (weights 300 + 64 + 12); leftover ready 600 pcs / 44 kg. Bill HPB-9001 is on the
+  // dispatch record AND auto-filled onto the order.
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9006')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0005', brandName: 'Bale Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['500'], length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 10000, quantityKg: 420, quantityUnit: 'Both', status: 'Dispatched', billNo: 'HPB-9001', createdAt: iso() });
+    const jc = jobCardsDb.create({
+      jobNo: 'HPS-2026-9006', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Bale Demo',
+      header: { brand: 'Bale Demo', qty: 10000, size: '25 × 30', finish: 'Glossy', date: today(), boppFilmSizes: ['500'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 420, meter: 5000 },
+      metalize: { ...emptyStage }, slitting: { ...emptyStage, rolls: [] },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 420 }], sentToCuttingKg: 420 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 420, noOfBags: 10000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [], bales: [
+        { id: 'bale-1', piecesPerBale: 500, bales: 15, weightKg: 300 },
+        { id: 'bale-2', piecesPerBale: 400, bales: 4, weightKg: 64 },
+        { id: 'bale-3', piecesPerBale: 300, bales: 1, weightKg: 12 },
+      ] },
+      status: 'Dispatched', currentStage: 'Dispatch', bagDispatchedAt: now, ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    // Dispatch record mirrors the job-card dispatch: 9,400 pcs / 376 kg + bill no.
+    dispatchesDb.create({ type: 'Bag', jobCardId: jc.id, jobNo: jc.jobNo, orderRef: order.id, orderNo: order.orderId, party: 'Bale Demo', brand: 'BOPP', qtyPieces: 9400, qtyKg: 376, billNo: 'HPB-9001', date: today(), createdAt: now });
+    ordersDb.update(order.id, { jobCardId: jc.id });
+  }
 }

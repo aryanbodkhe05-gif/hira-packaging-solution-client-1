@@ -359,13 +359,23 @@ export interface CarriedIn {
   kg?: number;
   movedAt: string;
 }
+// One bale group = a batch of bales that all hold the same pieces-per-bale, with the
+// group's total weight. Modelled on the multi-roll add: pieces × count + weight.
+export interface BaleGroup {
+  id: string;
+  piecesPerBale?: number;       // nos per bale, e.g. 500
+  bales?: number;               // number of bales in this group, e.g. 15
+  weightKg?: number;            // this group's total weight (subtotal of its bales)
+}
 export interface DispatchStage extends StageBase {
   pendingKg?: number;
   pendingPcs?: number;
   lines: DispatchLine[];
   carriedIn?: CarriedIn[];      // balances moved in from sibling cards
-  bagsPerBale?: number;
-  noOfBales?: number;
+  bales?: BaleGroup[];          // grouped bale packing (pieces × count, with weight)
+  baleWeightKg?: number;        // Total Bale Weight override; default = Σ group weights
+  bagsPerBale?: number;         // legacy simple field (superseded by `bales`)
+  noOfBales?: number;           // legacy simple field (superseded by `bales`)
   balanceKg?: number;
 }
 

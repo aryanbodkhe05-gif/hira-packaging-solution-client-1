@@ -28,6 +28,7 @@ import {
   prevActiveStage, nextActiveStage, stagePrimary, stageLossAccounted, visibleStageKeys, totalBags,
   autoPct, autoQty, jobCardLabel, firstMaterialShortfall,
   laminationAutoTotalKg, laminationOutputKg, laminationSentToCuttingKg, laminationBalanceKg, cuttingCarriedInKg,
+  baleTotals, dispatchShipped,
 } from '../lib/jobcard';
 import {
   cardReadyToDispatch, siblingsWithReady, moveCarriedBalance,
@@ -358,6 +359,23 @@ export function JobCardDetailPage() {
   }
   function setPrintingInput(v: number | undefined) { patchStage('printing', { inputKg: v }); }
 
+  // ── Bale groups (dispatch) — pieces-per-bale × count, each with its weight ──────
+  const genBaleId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  function addBaleGroup() {
+    setCard((p) => p && ({ ...p, dispatch: { ...p.dispatch, bales: [...(p.dispatch.bales ?? []), { id: genBaleId() }] } }));
+  }
+  function patchBaleGroup(i: number, patch: Partial<{ piecesPerBale: number; bales: number; weightKg: number }>) {
+    setCard((p) => {
+      if (!p) return p;
+      const bales = [...(p.dispatch.bales ?? [])];
+      bales[i] = { ...bales[i], ...patch };
+      return { ...p, dispatch: { ...p.dispatch, bales } };
+    });
+  }
+  function removeBaleGroup(i: number) {
+    setCard((p) => p && ({ ...p, dispatch: { ...p.dispatch, bales: (p.dispatch.bales ?? []).filter((_, j) => j !== i) } }));
+  }
+
   // Sticky % — the value becomes the global default (Settings) and drives only the
   // "suggested qty" quick-add chip; it no longer auto-consumes (manual pick now).
   function setInkPct(v: number | undefined) {
@@ -401,12 +419,11 @@ export function JobCardDetailPage() {
         date: now.slice(0, 10), createdAt: now,
       };
     } else {
-      // Dispatched = only what's actually entered in the dispatch lines (NOT the
-      // made qty) — this is the fix for the double-count / 6,000-not-5,000 bug.
-      const lines = card.dispatch.lines ?? [];
-      const shippedPcs = lines.reduce((s, l) => s + (l.pieces || 0), 0);
-      const shippedKg = lines.reduce((s, l) => s + (l.quantityKg || 0), 0);
-      if (shippedPcs <= 0 && shippedKg <= 0) { toast.error('Enter a dispatch line (qty) first'); return; }
+      // Dispatched = what's actually packed — the bale groups (pieces + weight), or
+      // the dispatch lines when no bales are entered. The record MIRRORS this, so the
+      // register always shows the same nos + kg (Part 3 fix).
+      const { pcs: shippedPcs, kg: shippedKg } = dispatchShipped(card);
+      if (shippedPcs <= 0 && shippedKg <= 0) { toast.error('Enter bales (or a dispatch line qty) first'); return; }
       rec = {
         type: 'Bag', jobCardId: card.id, jobNo: card.jobNo, orderRef: card.orderRef, orderNo: card.orderNo,
         party: card.client || card.header.brand, brand: card.header.brand,
@@ -507,9 +524,9 @@ export function JobCardDetailPage() {
         if (p.madePcs <= 0 && p.dispatchedPcs <= 0) return null;
         return (
           <div className="grid grid-cols-3 gap-3 no-print">
-            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Made</p><p className="font-mono text-white text-lg">{p.madePcs.toLocaleString('en-IN')}</p></div>
-            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Dispatched</p><p className="font-mono text-white text-lg">{p.dispatchedPcs.toLocaleString('en-IN')}</p></div>
-            <div className={cn('glass-card p-3 text-center', p.readyPcs > 0 && 'border-amber-500/30')}><p className={cn('text-xs', p.readyPcs > 0 ? 'text-amber-300/80' : 'text-muted')}>Ready to Dispatch</p><p className={cn('font-mono text-lg', p.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{p.readyPcs.toLocaleString('en-IN')}</p></div>
+            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Made</p><p className="font-mono text-white text-lg">{p.madePcs.toLocaleString('en-IN')} <span className="text-xs text-muted">pcs</span></p><p className="font-mono text-white/70 text-xs">{p.madeKg.toLocaleString('en-IN')} kg</p></div>
+            <div className="glass-card p-3 text-center"><p className="text-muted text-xs">Dispatched</p><p className="font-mono text-white text-lg">{p.dispatchedPcs.toLocaleString('en-IN')} <span className="text-xs text-muted">pcs</span></p><p className="font-mono text-white/70 text-xs">{p.dispatchedKg.toLocaleString('en-IN')} kg</p></div>
+            <div className={cn('glass-card p-3 text-center', p.readyPcs > 0 && 'border-amber-500/30')}><p className={cn('text-xs', p.readyPcs > 0 ? 'text-amber-300/80' : 'text-muted')}>Ready to Dispatch</p><p className={cn('font-mono text-lg', p.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{p.readyPcs.toLocaleString('en-IN')} <span className="text-xs text-muted">pcs</span></p><p className={cn('font-mono text-xs', p.readyPcs > 0 ? 'text-amber-300/80' : 'text-white/70')}>{p.readyKg.toLocaleString('en-IN')} kg</p></div>
           </div>
         );
       })()}
@@ -948,15 +965,15 @@ export function JobCardDetailPage() {
             {/* Summary — Made / Dispatched / Ready, all from real entries */}
             {(() => { const b = cardReadyToDispatch(card, jobCardsDb.getAll()); return (
               <div className="rounded-lg bg-navy/40 border border-white/10 px-3 py-2 text-sm flex flex-wrap gap-x-5 gap-y-1">
-                <span className="text-muted">Made: <span className="font-mono text-white">{b.madePcs.toLocaleString('en-IN')}</span>{b.isEstimate && <span className="text-yellow-300 text-[10px] ml-1">est.</span>}</span>
-                <span className="text-muted">Dispatched: <span className="font-mono text-white">{b.dispatchedPcs.toLocaleString('en-IN')}</span></span>
-                <span className="text-muted">Ready to dispatch: <span className={cn('font-mono', b.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{b.readyPcs.toLocaleString('en-IN')}</span></span>
+                <span className="text-muted">Made: <span className="font-mono text-white">{b.madePcs.toLocaleString('en-IN')} pcs / {b.madeKg.toLocaleString('en-IN')} kg</span>{b.isEstimate && <span className="text-yellow-300 text-[10px] ml-1">est.</span>}</span>
+                <span className="text-muted">Dispatched: <span className="font-mono text-white">{b.dispatchedPcs.toLocaleString('en-IN')} pcs / {b.dispatchedKg.toLocaleString('en-IN')} kg</span></span>
+                <span className="text-muted">Ready to dispatch: <span className={cn('font-mono', b.readyPcs > 0 ? 'text-amber-300' : 'text-white')}>{b.readyPcs.toLocaleString('en-IN')} pcs / {b.readyKg.toLocaleString('en-IN')} kg</span></span>
               </div>
             ); })()}
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Date"><DateInput value={card.dispatch.date} onChange={(v) => patchStage('dispatch', { date: v })} /></Field>
-              <Field label="No. of Bales"><Num value={card.dispatch.noOfBales} onChange={(v) => patchStage('dispatch', { noOfBales: v })} /></Field>
+              {card.makingType === 'Roll' && <Field label="No. of Rolls"><Num value={card.dispatch.noOfBales} onChange={(v) => patchStage('dispatch', { noOfBales: v })} /></Field>}
               <Field label="Balance in kg"><Num value={card.dispatch.balanceKg} onChange={(v) => patchStage('dispatch', { balanceKg: v })} /></Field>
               {/* Balance in Nos — computed ready-to-dispatch bag balance (Made − Dispatched) */}
               <Field label="Balance in Nos">
@@ -965,8 +982,42 @@ export function JobCardDetailPage() {
                     value={b.readyPcs.toLocaleString('en-IN')} title="Bags still ready to dispatch (Made − Dispatched)" />
                 ); })()}
               </Field>
-              <Field label="Bags per bale"><Num value={card.dispatch.bagsPerBale} onChange={(v) => patchStage('dispatch', { bagsPerBale: v })} placeholder="100" /></Field>
             </div>
+
+            {/* Bales — grouped by pieces per bale, each group with its weight (Part 1). Bag cards only. */}
+            {card.makingType !== 'Roll' && (
+            <div className="rounded-lg border border-accent/10 overflow-hidden">
+              <div className="px-3 py-2 bg-navy/40 flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs text-muted uppercase tracking-wide">Bales — pieces per bale × count, with weight</span>
+                {(() => { const bt = baleTotals(card.dispatch); return <span className="text-xs font-mono text-white/80">{bt.count.toLocaleString('en-IN')} bales · {bt.pieces.toLocaleString('en-IN')} pcs</span>; })()}
+              </div>
+              <div className="p-3 space-y-2">
+                {(card.dispatch.bales ?? []).length === 0 && <p className="text-muted text-xs">No bales yet. Add a group — e.g. 500 × 15 for fifteen 500-piece bales.</p>}
+                {(card.dispatch.bales ?? []).map((g, i) => (
+                  <div key={g.id} className="flex items-center gap-2 flex-wrap">
+                    <input className="input-field font-mono w-24 py-1 text-sm" type="number" min="0" placeholder="pcs/bale"
+                      value={g.piecesPerBale ?? ''} onChange={(e) => patchBaleGroup(i, { piecesPerBale: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value) || 0) })} />
+                    <span className="text-muted">×</span>
+                    <input className="input-field font-mono w-20 py-1 text-sm" type="number" min="0" placeholder="bales"
+                      value={g.bales ?? ''} onChange={(e) => patchBaleGroup(i, { bales: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value) || 0) })} />
+                    <span className="text-muted text-xs">= {((g.piecesPerBale || 0) * (g.bales || 0)).toLocaleString('en-IN')} pcs</span>
+                    <span className="text-muted text-xs ml-auto">wt</span>
+                    <CommitNumberInput className="input-field font-mono w-24 py-1 text-sm" value={g.weightKg} onCommit={(v) => patchBaleGroup(i, { weightKg: v })} placeholder="kg" />
+                    <button type="button" onClick={() => removeBaleGroup(i)} className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                <button type="button" onClick={addBaleGroup} className="text-xs text-accent hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add bale group</button>
+                {/* Total Bale Weight — auto-sums group weights; editable override */}
+                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                  <span className="text-xs text-muted flex-1">Total Bale Weight <span className="text-muted/70">(auto-sum, editable)</span></span>
+                  <input className="input-field font-mono w-28 py-1 text-sm" type="number" min="0" step="any"
+                    value={card.dispatch.baleWeightKg ?? ''} placeholder={String(baleTotals(card.dispatch).autoWeight)}
+                    onChange={(e) => patchStage('dispatch', { baleWeightKg: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+                  <span className="text-xs text-muted">kg</span>
+                </div>
+              </div>
+            </div>
+            )}
 
             {/* Carried ready-to-dispatch balance — a DISTINCT block, moved in from a
                 sibling card via the button, separate from the newly-made dispatch. */}

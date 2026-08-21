@@ -304,6 +304,13 @@ function OrderForm({ initial, onSave, onClose }: {
       </div>
 
       <div>
+        <label className="label">Bill No.</label>
+        <input className="input-field font-mono" value={f.billNo ?? ''}
+          onChange={(e) => set('billNo', e.target.value || undefined)}
+          placeholder="auto-filled from dispatch; editable" />
+      </div>
+
+      <div>
         <label className="label">Notes</label>
         <textarea className="input-field resize-none" rows={2} value={f.notes}
           onChange={(e) => set('notes', e.target.value)}

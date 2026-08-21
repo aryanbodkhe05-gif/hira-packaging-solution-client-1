@@ -1,7 +1,7 @@
 // Partial-dispatch progress — COMPUTED, never stored. Pending = order total −
 // Σ dispatched across ALL dispatch records linked to the order (any job card).
 import type { Order, DispatchRecord, JobCard, CarriedIn } from '../types/models';
-import { jobCardMade, jobCardLabel, laminationOutputKg, cuttingOwnInputKg } from './jobcard';
+import { jobCardMade, jobCardLabel, laminationOutputKg, cuttingOwnInputKg, dispatchShipped } from './jobcard';
 
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -53,9 +53,10 @@ export interface CardBalance {
 }
 export function cardReadyToDispatch(card: JobCard, allCards: JobCard[]): CardBalance {
   const made = jobCardMade(card);   // actual produced (0 until Cutting bags entered)
-  const lines = card.dispatch.lines ?? [];
-  const dPcs = lines.reduce((s, l) => s + num(l.pieces), 0);
-  const dKg = lines.reduce((s, l) => s + num(l.quantityKg), 0);
+  // Shipped = the bale groups (pieces + weight), or the dispatch lines when no bales.
+  const shipped = dispatchShipped(card);
+  const dPcs = shipped.pcs;
+  const dKg = shipped.kg;
   const cIn = card.dispatch.carriedIn ?? [];
   const carriedInPcs = cIn.reduce((s, c) => s + num(c.pieces), 0);
   const carriedInKg = cIn.reduce((s, c) => s + num(c.kg), 0);
