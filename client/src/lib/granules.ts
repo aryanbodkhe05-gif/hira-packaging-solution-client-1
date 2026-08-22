@@ -22,11 +22,14 @@ export function blendGranuleRate(oldStock: number, oldRate: number | null | unde
 export function granuleTypeRates(items: PPGranuleItem[] = ppGranulesDb.getAll()): Record<string, number | null> {
   const acc: Record<string, { qty: number; val: number }> = {};
   for (const it of items) {
-    if (it.costPerKg == null) continue;
-    const a = acc[it.type] ?? { qty: 0, val: 0 };
-    a.qty += it.currentStockKg || 0;
-    a.val += (it.currentStockKg || 0) * it.costPerKg;
-    acc[it.type] = a;
+    const rate = it.avgRate ?? it.costPerKg;
+    if (rate == null) continue;
+    const key = it.type ?? it.name;
+    const qty = it.quantity ?? it.currentStockKg ?? 0;
+    const a = acc[key] ?? { qty: 0, val: 0 };
+    a.qty += qty;
+    a.val += qty * rate;
+    acc[key] = a;
   }
   const out: Record<string, number | null> = {};
   for (const [t, a] of Object.entries(acc)) out[t] = a.qty > 0 ? money(a.val / a.qty) : null;
@@ -40,7 +43,7 @@ export function granuleUsesCost(uses: GranuleUse[], items: PPGranuleItem[] = ppG
   for (const u of uses) {
     if (!u.qtyKg) continue;
     const it = items.find((g) => g.id === u.itemId);
-    const rate = it?.costPerKg ?? null;
+    const rate = it?.avgRate ?? it?.costPerKg ?? null;   // moving-average from the pool
     if (rate == null) { hasUnrated = true; continue; }
     const c = money(u.qtyKg * rate);
     total = money(total + c);

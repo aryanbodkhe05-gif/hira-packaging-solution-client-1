@@ -617,9 +617,9 @@ export function JobCardDetailPage() {
               <Field label="Output (meter)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
-            {/* Printing consumes BOPP FILM only — normal rolls are not selectable here */}
+            {/* Printing consumes BOPP FILM only — Matte/Glossy films (Metalized is used at Metalize) */}
             <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
-              kinds={['film']} title="BOPP film consumed — one line per film" />
+              kinds={['film']} filmFinishes={['Matte', 'Glossy']} title="BOPP film consumed — one line per film (Matte / Glossy)" />
 
             {/* Ink suggestion % (sticky global default) → drives the ink quick-add chip */}
             <div className="flex items-center gap-2 flex-wrap text-xs">
@@ -647,6 +647,10 @@ export function JobCardDetailPage() {
               <Field label="Wastage (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
+            {/* Metalize consumes METALIZED BOPP film — same consume/finished-balance/costing
+                as Printing, but no ink auto-calc (ink is Printing-only). */}
+            <RollUsesPanel value={card.metalize.rollUses ?? []} onChange={(u) => patchStage('metalize', { rollUses: u })}
+              kinds={['film']} filmFinishes={['Metalized']} title="Metalized BOPP film consumed — one line per film" />
             <StageMaterials stageKey="metalize" />
             <CarryBtn from="metalize" />
           </StageCard>

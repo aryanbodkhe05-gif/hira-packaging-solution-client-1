@@ -5,7 +5,7 @@ import {
   Ruler, Settings2, ListChecks, CheckCircle2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, applyGranuleUses, unitRollsDb } from '../lib/db';
+import { loomsDb, loomEntriesDb, getSettings, saveSettings, factoryMachinesDb, syncGranulePools, unitRollsDb } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
 import { getActiveUnit } from '../lib/units';
 import { tapePool, tapeAvailable, tapeSizes } from '../lib/tape';
@@ -121,6 +121,8 @@ function EntryForm({ initial, looms, editId, onSave, onClose }: {
         reedCount: f.reedCount || undefined, rpm: f.rpm || undefined,
         fabricMadeKg: fabricShown, weightKg: fabricShown,   // fabric made = the produced roll's weight
         tapeRate: tPool?.avgRate ?? null, tapeCost, rollNo: f.rollNo.trim(),
+        // Roll's ₹/kg carried straight from the tape rate (editable); Avg overridable.
+        rollRateKg: f.rollRateKg ?? tPool?.avgRate ?? null, rollAvg: f.rollAvg,
         granuleUses: [],
       });
       return;
@@ -251,7 +253,7 @@ function EntryForm({ initial, looms, editId, onSave, onClose }: {
               <p className="text-[10px] mt-0.5 text-muted">= used − wastage ({autoFabric} kg), overridable</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">Roll No * <span className="text-muted font-normal">(→ Roll Count)</span></label>
               <input className="input-field font-mono" value={f.rollNo ?? ''} onChange={(e) => set('rollNo', e.target.value)} placeholder="type roll no" />
@@ -263,6 +265,19 @@ function EntryForm({ initial, looms, editId, onSave, onClose }: {
             <div>
               <label className="label">Fabric GM <span className="text-muted font-normal">(roll GM)</span></label>
               <input className="input-field font-mono" type="number" min="0" step="any" value={f.gm ?? ''} onChange={(e) => set('gm', toNum(e.target.value) || undefined)} placeholder="e.g. 12" />
+            </div>
+            <div>
+              <label className="label">Rate per kg (₹/kg) <span className="text-muted font-normal">(→ Roll)</span></label>
+              <input className="input-field font-mono" type="number" min="0" step="any"
+                value={f.rollRateKg ?? (tPool?.avgRate ?? '')}
+                onChange={(e) => set('rollRateKg', e.target.value === '' ? undefined : toNum(e.target.value))}
+                placeholder={tPool?.avgRate != null ? String(tPool.avgRate) : 'auto from tape'} />
+              <p className="text-[10px] mt-0.5 text-muted">auto from tape rate, editable</p>
+            </div>
+            <div>
+              <label className="label">Avg <span className="text-muted font-normal">(→ Roll)</span></label>
+              <input className="input-field font-mono" type="number" min="0" step="any"
+                value={f.rollAvg ?? ''} onChange={(e) => set('rollAvg', e.target.value === '' ? undefined : toNum(e.target.value))} placeholder="optional" />
             </div>
             {showCosts && (
               <div>
@@ -331,12 +346,6 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
   function handleSave(data: Omit<LoomEntry, 'id'>) {
     const now = new Date().toISOString();
     const isTape = !!data.tapeSize;   // Unit-1 tape entry — no granules; feeds Roll Count.
-    // Granule consumption (Unit 2) → decrement P.P. Granule stock (restore old on edit).
-    if (!isTape) {
-      if (modal?.type === 'edit' && modal.entry?.granuleUses?.length) applyGranuleUses(modal.entry.granuleUses, 1);
-      const gUses = (data.granuleUses ?? []).filter((u) => u.itemId && u.qtyKg > 0);
-      if (gUses.length) applyGranuleUses(gUses, -1);
-    }
     let saved: LoomEntry;
     if (modal?.type === 'edit' && modal.entry) {
       loomEntriesDb.update(modal.entry.id, { ...data, updatedAt: now });
@@ -348,6 +357,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
       toast.success('Entry saved');
     }
     if (isTape) upsertLoomRoll(saved);   // produce/update the roll in Roll Count
+    else syncGranulePools();             // granule consumption → re-derive granule pools
     setModal(null);
     onChanged();
   }
@@ -359,7 +369,8 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
     // The produced roll's Size + GM come from the FABRIC (width + gm entered on the
     // loom log), not the tape size — tape size only drives which tape pool is consumed.
     const size = entry.width ? `${entry.width} ${entry.widthUnit}` : '';
-    const patch = { rollNo: entry.rollNo, type: entry.rollType || 'Fabric', size, gm: entry.gm, nWt: fabric, gWt: fabric, meter: entry.meters || 0 };
+    // Rate (₹/kg) carried from the tape rate, and Avg — both flow to Roll Count → inventory.
+    const patch = { rollNo: entry.rollNo, type: entry.rollType || 'Fabric', size, gm: entry.gm, nWt: fabric, gWt: fabric, meter: entry.meters || 0, rate: entry.rollRateKg ?? entry.tapeRate ?? null, avg: entry.rollAvg };
     if (roll) { if (roll.status === 'in_unit') unitRollsDb.update(roll.id, patch); }
     else if (fabric > 0) unitRollsDb.create({ unitId: entry.unitId ?? getActiveUnit(), loomEntryId: entry.id, status: 'in_unit', createdAt: new Date().toISOString(), ...patch });
   }
@@ -368,6 +379,7 @@ function EntriesSection({ entries, looms, openNew, onChanged }: {
     // Remove the Roll Count roll this tape entry produced (only if still in the unit).
     const roll = unitRollsDb.getAll().find((r) => r.loomEntryId === id);
     if (roll && roll.status === 'in_unit') unitRollsDb.delete(roll.id);
+    syncGranulePools();   // if it consumed granules, restore the pool
     toast.success('Entry deleted');
     onChanged();
   }

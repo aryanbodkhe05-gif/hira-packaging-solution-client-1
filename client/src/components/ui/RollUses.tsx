@@ -6,6 +6,7 @@ import { canViewCosts } from '../../lib/roles';
 import { formatINR } from '../../lib/jobcard';
 import { CommitNumberInput } from './CommitNumberInput';
 import type { RollUse } from '../../types/models';
+import type { Finish } from '../../config';
 
 // Size shown as digits + unit (never the word "size"). A bare number gets "mm"
 // (roll/film sizes are in mm); sizes that already carry a unit (e.g. "2.5 inch")
@@ -19,10 +20,11 @@ function fmtSize(size?: string): string {
 // Per-roll consumption. Every roll used gets its OWN line showing its roll no,
 // its own rate and whether it was finished or left with a balance — two rolls
 // never share a line. Stock is committed on save.
-export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title = 'Roll consumption' }: {
+export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmFinishes, title = 'Roll consumption' }: {
   value: RollUse[];
   onChange: (next: RollUse[]) => void;
   kinds?: ('roll' | 'film')[];
+  filmFinishes?: Finish[];   // when set, only films with these finishes are selectable (e.g. Metalize → Metalized, Printing → Matte/Glossy)
   title?: string;
 }) {
   const showCosts = canViewCosts();
@@ -37,12 +39,14 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], title
       }
     }
     if (kinds.includes('film')) {
-      for (const f of boppFilmsDb.getAll().filter((x) => !x.balanceUsed || (x.nWt ?? x.kg) > 0)) {
+      for (const f of boppFilmsDb.getAll().filter((x) =>
+        (!x.balanceUsed || (x.nWt ?? x.kg) > 0) &&
+        (!filmFinishes || (x.finish != null && filmFinishes.includes(x.finish))))) {
         out.push({ key: `film:${f.id}`, kind: 'film', id: f.id, no: f.filmNo, label: `${f.filmNo} · ${f.finish ?? 'film'}`, available: f.nWt ?? f.kg, rate: f.rate ?? null, type: f.finish, size: f.size, gm: f.gm });
       }
     }
     return out;
-  }, [kinds]);
+  }, [kinds, filmFinishes]);
 
   function addRoll(key: string) {
     const s = stock.find((x) => x.key === key);

@@ -124,6 +124,19 @@ export interface TapeReceipt {
   createdAt: string;
 }
 
+// Manually-recorded tape wastage (Unit 1 / Umay) — ~1% is lost after making. For now
+// this is RECORD-ONLY (shown with a running total per size); it does NOT auto-deduct
+// from Tape Stock — the deduction rule (next batch / monthly) is undecided.
+export interface TapeWastage {
+  id: string;
+  unitId: string;
+  size: string;             // tape size the wastage belongs to
+  qty: number;              // kg wasted
+  date: string;             // yyyy-mm-dd
+  note?: string;
+  createdAt: string;
+}
+
 export interface LoomEntry {
   id: string;
   unitId?: string;          // which Loom/P.P. unit this belongs to (default 'unit-1')
@@ -144,6 +157,8 @@ export interface LoomEntry {
   widthUnit: WidthUnit;     // inches | mm
   gm?: number;              // fabric GM — becomes the produced roll's GM in Roll Count
   rollType?: string;        // produced roll's Type (reusable roll-types list; default 'Fabric')
+  rollRateKg?: number | null; // produced roll's ₹/kg — auto-fills from the tape rate, editable
+  rollAvg?: number;         // produced roll's Avg — editable here / Roll Count / Roll edit
   meters: number;           // total meters woven
   quality: number;          // numeric grade (e.g. 2.5), matching Order quality format
   weightKg: number;         // weight of produced roll/batch
@@ -523,6 +538,7 @@ export interface UnitRoll {
   nWt: number;
   meter: number;
   avg?: number;
+  rate?: number | null;    // ₹/kg — carried from the loom (tape rate); flows to inventory on transfer
   status: 'in_unit' | 'in_transit';   // in_transit = sent out, awaiting Inventory Receive
   createdAt: string;
 }
@@ -563,22 +579,49 @@ export interface GRN {
   createdAt: string;
 }
 
-// P.P. Granule stock — named items with a directly-deducted current stock.
-// P.P and Filler (and RP, Colour) are tracked as separate items.
+// P.P. Granule stock — ONE moving-average pool per named granule (P.P., Filler, …),
+// modelled exactly like RawMaterial: everything below `unit` is DERIVED by
+// syncGranulePools() from the receipt log (PPGranuleReceipt) minus consumption
+// (Tape Plant / loom granule uses) — never edited directly.
 export interface PPGranuleItem {
   id: string;
   unitId?: string;         // which Loom/P.P. unit this belongs to (default 'unit-1')
-  name: string;            // e.g. "Virgin PP Grade A", "CaCO3 Filler 80%"
-  type: string;            // reusable, extensible (P.P. | Filler | RP | Colour | …)
+  name: string;            // granule name from the reusable list (P.P. | Filler | …) — pool identity
+  unit?: string;           // 'kg'
+  // ── Derived pool (syncGranulePools) — mirrors RawMaterial ──
+  quantity?: number;       // rated stock on hand = Σ rated receipts − Σ consumed
+  totalValue?: number;     // ₹ value of the rated stock on hand
+  avgRate?: number | null; // totalValue / quantity; null when no rated stock
+  unratedQty?: number;     // received without a rate — excluded from avg/value until priced
+  // ── Legacy / shared (kept in sync for existing consumers) ──
+  type?: string;           // = name (drives the type colour badge)
   supplier?: string;
-  costPerKg?: number;
-  currentStockKg: number;  // running balance (kg) — deducted when used in PP Fabric
-  bagWeightKg?: number;    // avg kg per bag (kg ÷ bags at receipt) — drives bags-remaining
-  dateReceived: string;    // auto-captured receipt date (yyyy-mm-dd)
+  costPerKg?: number;      // kept = avgRate so granuleUsesCost + tape price still read it
+  currentStockKg: number;  // kept = quantity (rated) so shortfall checks still read it
+  bagWeightKg?: number;    // avg kg per bag — drives bags-remaining (optional)
+  dateReceived?: string;   // first receipt date
+  dateAdded?: string;      // item creation date
   minStockAlert?: number;
   grnRef?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// One receipt of a granule into its pool — the audit trail of what came in at what
+// rate. Costing uses the pooled moving average, not individual receipts. Mirrors
+// RawMaterialReceipt.
+export interface PPGranuleReceipt {
+  id: string;
+  granuleItemId: string;
+  unitId?: string;
+  qty: number;             // qty received (kg)
+  rate: number | null;     // ₹/kg at receipt; null => "rate not set"
+  date: string;            // receipt date (yyyy-mm-dd)
+  party?: string;          // supplier / party
+  billNo?: string;         // supplier bill / invoice no.
+  grnRef?: string;
+  note?: string;
+  createdAt: string;
 }
 
 // One granule item consumed by a PP Fabric batch (qty deducted from its stock).

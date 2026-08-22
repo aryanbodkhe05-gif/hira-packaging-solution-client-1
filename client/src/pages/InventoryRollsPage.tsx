@@ -305,6 +305,7 @@ export function InventoryRollsPage() {
               <span className="text-muted">Size / GM</span><span className="font-mono text-white/85">{receiveRoll.size || '—'} / {gmVal(receiveRoll) || '—'}</span>
               <span className="text-muted">G.WT / N.WT</span><span className="font-mono text-white/85">{receiveRoll.gWt || '—'} / {receiveRoll.nWt || '—'} kg</span>
               <span className="text-muted">Meter / Avg</span><span className="font-mono text-white/85">{receiveRoll.meter || '—'} / {receiveRoll.avg ?? '—'}</span>
+              <span className="text-muted">Rate (₹/kg)</span><span className="font-mono text-white/85">{receiveRoll.rate != null ? `₹${receiveRoll.rate.toLocaleString('en-IN')}` : '—'}</span>
               <span className="text-muted">Party</span><span className="text-white/85">{receiveRoll.party || '—'}</span>
             </div>
             <p className="text-muted text-xs">Details auto-filled from the transfer. Type the Roll No by hand — the stock entry is created only after you confirm.</p>

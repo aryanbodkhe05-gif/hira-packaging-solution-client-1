@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Scroll, Truck, AlertTriangle, Send } from 'lucide-react';
+import { Plus, Pencil, Trash2, Scroll, Truck, AlertTriangle, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { unitRollsDb, invRollsDb } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
@@ -18,22 +18,25 @@ import { TypeAhead, rememberTypeAhead } from '../components/ui/TypeAhead';
 const today = () => new Date().toLocaleDateString('en-CA');
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
 
-// Add a roll made in this unit into its own stock. Roll No is typed by hand.
-function AddRollForm({ onSave, onClose }: { onSave: (r: { rollNo: string; type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) => void; onClose: () => void }) {
-  const [rollNo, setRollNo] = useState('');
-  const [type, setType] = useState('');
-  const [size, setSize] = useState('');
-  const [gm, setGm] = useState('');
-  const [gWt, setGWt] = useState('');
-  const [nWt, setNWt] = useState('');
-  const [meter, setMeter] = useState('');
-  const [avg, setAvg] = useState('');
+interface RollFormData { rollNo: string; type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number; rate?: number | null }
+// Add / edit a roll in this unit's stock. Roll No is typed by hand. Rate (₹/kg) and
+// Avg are editable here — they carry downstream to Inventory on transfer.
+function RollForm({ initial, editing, onSave, onClose }: { initial?: UnitRoll; editing?: boolean; onSave: (r: RollFormData) => void; onClose: () => void }) {
+  const [rollNo, setRollNo] = useState(initial?.rollNo ?? '');
+  const [type, setType] = useState(initial?.type ?? '');
+  const [size, setSize] = useState(initial?.size ?? '');
+  const [gm, setGm] = useState(initial?.gm != null ? String(initial.gm) : '');
+  const [gWt, setGWt] = useState(initial?.gWt ? String(initial.gWt) : '');
+  const [nWt, setNWt] = useState(initial?.nWt ? String(initial.nWt) : '');
+  const [meter, setMeter] = useState(initial?.meter ? String(initial.meter) : '');
+  const [avg, setAvg] = useState(initial?.avg != null ? String(initial.avg) : '');
+  const [rate, setRate] = useState(initial?.rate != null ? String(initial.rate) : '');
   function submit() {
     if (!rollNo.trim()) { toast.error('Roll No is required'); return; }
     if (!size.trim()) { toast.error('Size is required'); return; }
     rememberTypeAhead(ROLL_SIZEGM_KEY, size, DEFAULT_ROLL_SIZEGM);
     if (gm.trim()) rememberTypeAhead(ROLL_GM_KEY, gm, DEFAULT_ROLL_GM);
-    onSave({ rollNo: rollNo.trim(), type, size: size.trim(), gm: num(gm) || undefined, gWt: num(gWt), nWt: num(nWt), meter: num(meter), avg: num(avg) || undefined });
+    onSave({ rollNo: rollNo.trim(), type, size: size.trim(), gm: num(gm) || undefined, gWt: num(gWt), nWt: num(nWt), meter: num(meter), avg: num(avg) || undefined, rate: rate.trim() === '' ? null : num(rate) });
   }
   return (
     <div className="space-y-4">
@@ -45,11 +48,12 @@ function AddRollForm({ onSave, onClose }: { onSave: (r: { rollNo: string; type: 
         <div><label className="label">G.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={gWt} onChange={(e) => setGWt(e.target.value)} /></div>
         <div><label className="label">N.WT (kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={nWt} onChange={(e) => setNWt(e.target.value)} /></div>
         <div><label className="label">Meter</label><input className="input-field font-mono" type="number" min="0" step="any" value={meter} onChange={(e) => setMeter(e.target.value)} /></div>
+        <div><label className="label">Rate (₹/kg)</label><input className="input-field font-mono" type="number" min="0" step="any" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="from tape" /></div>
         <div><label className="label">Avg</label><input className="input-field font-mono" type="number" min="0" step="any" value={avg} onChange={(e) => setAvg(e.target.value)} /></div>
       </div>
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} className="btn-primary flex-1 justify-center">Add Roll</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center">{editing ? 'Save Roll' : 'Add Roll'}</button>
       </div>
     </div>
   );
@@ -58,7 +62,7 @@ function AddRollForm({ onSave, onClose }: { onSave: (r: { rollNo: string; type: 
 export function RollCountPage() {
   const { activeUnit } = useUnit();
   const [rolls, setRolls] = useState<UnitRoll[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
+  const [modal, setModal] = useState<{ type: 'add' | 'edit'; roll?: UnitRoll } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [recheck, setRecheck] = useState(false);   // step-1 confirm screen
 
@@ -68,10 +72,15 @@ export function RollCountPage() {
   }, [activeUnit]);
   useEffect(() => { reload(); }, [reload]);
 
-  function handleAdd(r: { rollNo: string; type: string; size: string; gm?: number; gWt: number; nWt: number; meter: number; avg?: number }) {
-    unitRollsDb.create({ unitId: activeUnit, status: 'in_unit', createdAt: new Date().toISOString(), ...r });
-    toast.success('Roll added to unit stock');
-    setAddOpen(false); reload();
+  function handleSave(r: RollFormData) {
+    if (modal?.type === 'edit' && modal.roll) {
+      unitRollsDb.update(modal.roll.id, r);
+      toast.success('Roll updated');
+    } else {
+      unitRollsDb.create({ unitId: activeUnit, status: 'in_unit', createdAt: new Date().toISOString(), ...r });
+      toast.success('Roll added to unit stock');
+    }
+    setModal(null); reload();
   }
   function handleDelete(id: string) { unitRollsDb.delete(id); toast.success('Roll removed'); reload(); }
 
@@ -86,7 +95,7 @@ export function RollCountPage() {
     for (const r of selectedRolls) {
       invRollsDb.create({
         rollNo: '', type: r.type || '', size: r.size, gm: r.gm, quality: 0,
-        gWt: r.gWt, nWt: r.nWt, meter: r.meter, avg: r.avg, rate: null,
+        gWt: r.gWt, nWt: r.nWt, meter: r.meter, avg: r.avg, rate: r.rate ?? null,
         party: 'Hira Packaging', inTransit: true, fromUnitId: activeUnit, dateAdded: now.slice(0, 10),
       });
       unitRollsDb.delete(r.id);
@@ -104,7 +113,7 @@ export function RollCountPage() {
           <h1 className="page-header">Roll Count — {unitName(activeUnit)}</h1>
           <p className="text-muted text-sm mt-1">Rolls made in this unit. Select rolls to transfer into Inventory (two-step: transfer → receive).</p>
         </div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
+        <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -125,11 +134,11 @@ export function RollCountPage() {
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
               <th className="table-header w-8"><input type="checkbox" className="w-4 h-4 accent-primary" checked={rolls.length > 0 && selected.size === rolls.length} onChange={toggleAll} /></th>
-              {['Roll No', 'Type', 'Size', 'GM', 'G.WT', 'N.WT', 'Meter', 'Avg', 'Added', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Roll No', 'Type', 'Size', 'GM', 'G.WT', 'N.WT', 'Meter', 'Rate ₹/kg', 'Avg', 'Added', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {rolls.length === 0 ? (
-                <tr><td colSpan={11}><EmptyState icon={Scroll} title="No rolls in this unit" action={{ label: 'Add Roll', onClick: () => setAddOpen(true) }} /></td></tr>
+                <tr><td colSpan={12}><EmptyState icon={Scroll} title="No rolls in this unit" action={{ label: 'Add Roll', onClick: () => setModal({ type: 'add' }) }} /></td></tr>
               ) : rolls.map((r) => (
                 <tr key={r.id} className="table-row">
                   <td className="table-cell"><input type="checkbox" className="w-4 h-4 accent-primary" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
@@ -140,9 +149,13 @@ export function RollCountPage() {
                   <td className="table-cell font-mono text-white/70">{r.gWt || '—'}</td>
                   <td className="table-cell font-mono text-white/80">{r.nWt || '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.meter || '—'}</td>
+                  <td className="table-cell font-mono text-white/80">{r.rate != null ? `₹${r.rate.toLocaleString('en-IN')}` : '—'}</td>
                   <td className="table-cell font-mono text-white/70">{r.avg ?? '—'}</td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{r.createdAt?.slice(0, 10)}</td>
-                  <td className="table-cell"><button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                  <td className="table-cell"><div className="flex gap-1.5">
+                    <button onClick={() => setModal({ type: 'edit', roll: r })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -150,9 +163,9 @@ export function RollCountPage() {
         </div>
       </div>
 
-      {addOpen && (
-        <Modal open onClose={() => setAddOpen(false)} title={`Add Roll — ${unitName(activeUnit)}`} size="lg">
-          <AddRollForm onSave={handleAdd} onClose={() => setAddOpen(false)} />
+      {modal && (
+        <Modal open onClose={() => setModal(null)} title={`${modal.type === 'edit' ? 'Edit' : 'Add'} Roll — ${unitName(activeUnit)}`} size="lg">
+          <RollForm initial={modal.roll} editing={modal.type === 'edit'} onSave={handleSave} onClose={() => setModal(null)} />
         </Modal>
       )}
 

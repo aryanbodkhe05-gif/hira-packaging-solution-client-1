@@ -2,10 +2,10 @@
 // import.meta.env.DEV in main.tsx, so it never runs in the deployed build (and
 // therefore never pollutes the live shared database).
 import {
-  factoryMachinesDb, ppGranulesDb, invRollsDb, boppFilmsDb, ordersDb,
+  factoryMachinesDb, ppGranulesDb, ppGranuleReceiptsDb, syncGranulePools, invRollsDb, boppFilmsDb, ordersDb,
   rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
   jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
-  loomsDb, applyGranuleUses, tapeReceiptsDb,
+  loomsDb, tapeReceiptsDb, tapeWastageDb,
 } from './db';
 import {
   RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
@@ -35,13 +35,23 @@ export function seedSampleData(): void {
   let ppU2: { id: string; name: string } | undefined;
   let fillerU2: { id: string; name: string } | undefined;
   if (ppGranulesDb.getAll().length === 0) {
-    // costPerKg = the granule's moving-average rate (drives the tape price calculator).
-    const g = (name: string, type: string, kg: number, unitId: string, rate: number) => ppGranulesDb.create({ unitId, name, type, costPerKg: rate, currentStockKg: kg, bagWeightKg: 25, dateReceived: today(), createdAt: iso(), updatedAt: iso() });
-    // Unit 1 stock
-    ppU1 = g('Virgin PP Grade A', 'P.P.', 2000, 'unit-1', 95); fillerU1 = g('CaCO3 Filler 80%', 'Filler', 600, 'unit-1', 42);
-    g('Reprocessed PP', 'Master Batch', 800, 'unit-1', 70); g('Blue Masterbatch', 'Colour', 150, 'unit-1', 180); g('Slip Enhancer', 'Enhancer', 120, 'unit-1', 150);
-    // Unit 2 stock (Navkar makes its own tape — its Tape Plant consumes these).
-    ppU2 = g('Virgin PP Grade B', 'P.P.', 900, 'unit-2', 98); fillerU2 = g('CaCO3 Filler 70%', 'Filler', 300, 'unit-2', 40);
+    // Granules are moving-average pools (like Raw Materials): a named item + a receipt
+    // log; the pool (qty/value/avg) is derived by syncGranulePools.
+    const g = (name: string, unitId: string, receipts: { qty: number; rate: number | null; date?: string }[]) => {
+      const it = ppGranulesDb.create({ unitId, name, type: name, unit: 'kg', quantity: 0, totalValue: 0, avgRate: null, unratedQty: 0, currentStockKg: 0, dateAdded: today(), dateReceived: today(), createdAt: iso(), updatedAt: iso() });
+      receipts.forEach((r) => ppGranuleReceiptsDb.create({ granuleItemId: it.id, unitId, qty: r.qty, rate: r.rate, date: r.date ?? today(), createdAt: iso() }));
+      return { id: it.id, name };
+    };
+    // Unit 1 (kept for the tape-price demo; Unit 1 shows Tape Stock, not this page).
+    ppU1 = g('P.P.', 'unit-1', [{ qty: 2000, rate: 95 }]);
+    fillerU1 = g('Filler', 'unit-1', [{ qty: 600, rate: 42 }]);
+    g('Master Batch', 'unit-1', [{ qty: 800, rate: 70 }]);
+    g('Colour', 'unit-1', [{ qty: 150, rate: 180 }]);
+    g('Enhancer', 'unit-1', [{ qty: 120, rate: 150 }]);
+    // Unit 2 (Navkar) — P.P. has TWO receipts at different rates → 500@98 + 500@102 =
+    // 1000 kg worth ₹100,000 at avg ₹100/kg (proves the moving average).
+    ppU2 = g('P.P.', 'unit-2', [{ qty: 500, rate: 98, date: daysAgo(10) }, { qty: 500, rate: 102, date: daysAgo(3) }]);
+    fillerU2 = g('Filler', 'unit-2', [{ qty: 300, rate: 40 }]);
   }
 
   // Loom machines: one loom per unit (proves per-unit isolation — Unit 1's loom must
@@ -60,14 +70,22 @@ export function seedSampleData(): void {
     tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22');
   }
 
+  // Manual tape wastage (Unit 1) — record-only, ~1% after making. Not deducted.
+  if (tapeWastageDb.getAll().length === 0) {
+    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 5, date: daysAgo(4), note: '~1% after making', createdAt: iso() });
+    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 3, date: daysAgo(1), note: 'edge trim', createdAt: iso() });
+    tapeWastageDb.create({ unitId: 'unit-1', size: '3 inch', qty: 2, date: daysAgo(2), createdAt: iso() });
+  }
+
   // Loom Log — both units weave from TAPE → fabric → Roll Count. Unit 1 (Umay) buys
   // its tape; Unit 2 (Navkar) makes its own in the Tape Plant (see fabric-batch seed).
   if (loomEntriesDb.getAll().length === 0) {
     // Unit 1 (Umay): 200 kg of 2.5-inch tape used, 10 kg wasted → 190 kg fabric;
     // deducts tape stock and produces roll UMY-T-001 in Roll Count.
-    const tapeEntry = loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom A1', width: 24, widthUnit: 'inches', gm: 12, meters: 1500, quality: 2.5, weightKg: 190, rollCount: 1, downtimeMin: 0, tapeSize: '2.5 inch', tapeUsedKg: 200, wastageKg: 10, fabricMadeKg: 190, tapeRate: 88.11, tapeCost: 17622, rollNo: 'UMY-T-001', rollType: 'Milky', createdAt: iso(), updatedAt: iso() });
-    // Produced roll's Type + Size + GM come from the loom log (Milky, 24 inches, 12 GM), not the tape size.
-    unitRollsDb.create({ unitId: 'unit-1', loomEntryId: tapeEntry.id, rollNo: 'UMY-T-001', type: 'Milky', size: '24 inches', gm: 12, gWt: 190, nWt: 190, meter: 1500, status: 'in_unit', createdAt: iso() });
+    const tapeEntry = loomEntriesDb.create({ unitId: 'unit-1', entryId: 'LM-A-001', date: today(), shift: 'Morning', loomNo: 'Loom A1', width: 24, widthUnit: 'inches', gm: 12, meters: 1500, quality: 2.5, weightKg: 190, rollCount: 1, downtimeMin: 0, tapeSize: '2.5 inch', tapeUsedKg: 200, wastageKg: 10, fabricMadeKg: 190, tapeRate: 88.11, tapeCost: 17622, rollNo: 'UMY-T-001', rollType: 'Milky', rollRateKg: 88.11, rollAvg: 12, createdAt: iso(), updatedAt: iso() });
+    // Produced roll carries the tape rate as its ₹/kg (₹88.11) + an editable Avg (12);
+    // Type + Size + GM come from the loom log (Milky, 24 inches, 12 GM), not the tape size.
+    unitRollsDb.create({ unitId: 'unit-1', loomEntryId: tapeEntry.id, rollNo: 'UMY-T-001', type: 'Milky', size: '24 inches', gm: 12, gWt: 190, nWt: 190, meter: 1500, rate: 88.11, avg: 12, status: 'in_unit', createdAt: iso() });
     // Unit 2 (Navkar): consumes 400 kg of its OWN 2-inch tape (made in the Tape Plant,
     // sitting in the Tape Log), 10 kg wasted → 390 kg fabric; roll NAV-T-001 → Roll Count.
     const tapeEntry2 = loomEntriesDb.create({ unitId: 'unit-2', entryId: 'LM-B-001', date: today(), shift: 'Morning', loomNo: 'Loom B1', width: 20, widthUnit: 'inches', gm: 14, meters: 1200, quality: 3, weightKg: 390, rollCount: 1, downtimeMin: 0, tapeSize: '2 inch', tapeUsedKg: 400, wastageKg: 10, fabricMadeKg: 390, tapeRate: 91, tapeCost: 36400, rollNo: 'NAV-T-001', rollType: 'Natural', createdAt: iso(), updatedAt: iso() });
@@ -80,18 +98,16 @@ export function seedSampleData(): void {
     const uses = ppU1 && fillerU1
       ? [{ itemId: ppU1.id, itemName: ppU1.name, type: 'P.P.', qtyKg: 800 }, { itemId: fillerU1.id, itemName: fillerU1.name, type: 'Filler', qtyKg: 200 }]
       : [];
-    if (uses.length) applyGranuleUses(uses, -1);
     fabricBatchesDb.create({ unitId: 'unit-1', batchId: 'HIRA-A-001', date: today(), shift: 'Morning', line: 'Line 1', uses, outputMeters: 1500, outputKg: 1000, status: 'Closed', createdAt: iso(), updatedAt: iso() });
 
-    // Unit 2 (Navkar) TAPE PLANT run: consumes 1,000 kg granules → 950 kg tape, then
-    // TRANSFERRED into the Tape Log as a '2 inch' lot (party Hira Packaging, rate =
-    // computed cost/kg). The Unit 2 loom above consumes 400 kg of it → 550 kg remains.
+    // Unit 2 (Navkar) TAPE PLANT run: consumes P.P. 800 kg @ avg ₹100 + Filler 200 kg
+    // @ ₹40 = ₹88,000 granule cost → 950 kg tape, TRANSFERRED into the Tape Log as a
+    // '2 inch' lot. The Unit 2 loom above consumes 400 kg of it → 550 kg remains.
     const uses2 = ppU2 && fillerU2
       ? [{ itemId: ppU2.id, itemName: ppU2.name, type: 'P.P.', qtyKg: 800 }, { itemId: fillerU2.id, itemName: fillerU2.name, type: 'Filler', qtyKg: 200 }]
       : [];
-    if (uses2.length) applyGranuleUses(uses2, -1);
     const tapeKg2 = 950;
-    const rate2 = Math.round((800 * 98 + 200 * 40) / tapeKg2);   // granule cost/kg ≈ ₹91
+    const rate2 = Math.round((800 * 100 + 200 * 40) / tapeKg2);   // granule cost/kg ≈ ₹93
     const rec2 = tapeReceiptsDb.create({ unitId: 'unit-2', size: '2 inch', qty: tapeKg2, rate: rate2, party: 'Hira Packaging', billNo: 'TP-B-001', date: today(), createdAt: iso() });
     fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: uses2, outputMeters: 900, outputKg: tapeKg2, status: 'Closed', tapeLogReceiptId: rec2.id, tapeLogSize: '2 inch', tapeLogQtyKg: tapeKg2, tapeTransferredAt: iso(), createdAt: iso(), updatedAt: iso() });
   }
@@ -314,5 +330,33 @@ export function seedSampleData(): void {
     // Dispatch record mirrors the job-card dispatch: 9,400 pcs / 376 kg + bill no.
     dispatchesDb.create({ type: 'Bag', jobCardId: jc.id, jobNo: jc.jobNo, orderRef: order.id, orderNo: order.orderId, party: 'Bale Demo', brand: 'BOPP', qtyPieces: 9400, qtyKg: 376, billNo: 'HPB-9001', date: today(), createdAt: now });
     ordersDb.update(order.id, { jobCardId: jc.id });
+  }
+
+  // Metalize-film demo: a Metalized-finish card where PRINTING consumes a Matte film
+  // (with ink auto-calc) and METALIZE consumes a Metalized film (no ink). Proves the
+  // finish-filtered selectors: Printing shows Matte/Glossy, Metalize shows Metalized.
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9007')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    const inkMat = rawMaterialsDb.getAll().find((m) => m.name === 'Gravure ink');
+    const matte = boppFilmsDb.getAll().find((f) => f.filmNo === 'F-480mm-1');       // Matte
+    const metz = boppFilmsDb.getAll().find((f) => f.filmNo === 'F-480mm-2');        // Metalized
+    const filmUse = (f: typeof matte, qty: number) => f ? [{
+      rollId: f.id, rollNo: f.filmNo, kind: 'film' as const, type: f.finish, size: f.size, gm: f.gm,
+      qtyKg: qty, rate: f.rate ?? null, lineCost: +(qty * (f.rate ?? 0)).toFixed(2), finished: false, balanceKg: (f.nWt ?? 0) - qty,
+    }] : [];
+    // Printing consumes 150 kg Matte film → ink auto = 15 kg (10%).
+    const inkUse = inkMat ? [{ materialId: inkMat.id, materialName: 'Gravure ink', unit: 'kg', qty: 15, avgRate: null, cost: 0 }] : [];
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9007', cardType: 'BOPP', makingType: 'Bag', client: 'Metalize Demo',
+      header: { brand: 'Metalize Demo', qty: 5000, size: '25 × 30', finish: 'Metalized', date: today() },
+      printing: { na: false, consumption: [], materials: inkUse, rollUses: filmUse(matte, 150), inputKg: 150, meter: 3800, boppSize: '480mm' },
+      // Metalize consumes 100 kg Metalized film — costed, NO ink auto-calc.
+      metalize: { na: false, consumption: [], materials: [], rollUses: filmUse(metz, 100), boppInputKg: 100 },
+      slitting: { ...emptyStage, rolls: [] }, lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 100 }] },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 4000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [] },
+      status: 'In Progress', currentStage: 'Metalize', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
   }
 }

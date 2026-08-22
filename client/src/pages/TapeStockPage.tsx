@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, Fragment } from 'react';
-import { Plus, Pencil, Trash2, Search, Layers, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Layers, ChevronRight, ChevronDown, AlertTriangle, Recycle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { tapeReceiptsDb } from '../lib/db';
+import { tapeReceiptsDb, tapeWastageDb } from '../lib/db';
 import { tapePools } from '../lib/tape';
 import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
@@ -9,7 +9,7 @@ import { canViewCosts } from '../lib/roles';
 import {
   DEFAULT_TAPE_SIZES, TAPE_SIZES_KEY, DEFAULT_PARTIES, PARTIES_KEY, unitMakesTape,
 } from '../config';
-import type { TapeReceipt } from '../types/models';
+import type { TapeReceipt, TapeWastage } from '../types/models';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatCard } from '../components/ui/StatCard';
@@ -63,8 +63,104 @@ function TapeForm({ initial, fixedSize, editing, onSave, onClose }: {
   );
 }
 
+// ── Manual tape wastage entry — date, tape size, qty (kg), note. ────────────────
+function WastageForm({ onSave, onClose }: {
+  onSave: (d: Omit<TapeWastage, 'id' | 'unitId' | 'createdAt'>) => void; onClose: () => void;
+}) {
+  const [size, setSize] = useState('');
+  const [qtyText, setQtyText] = useState('');
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState('');
+  function submit() {
+    if (!size.trim()) { toast.error('Tape size is required'); return; }
+    if (num(qtyText) <= 0) { toast.error('Wastage qty is required'); return; }
+    rememberTypeAhead(TAPE_SIZES_KEY, size, DEFAULT_TAPE_SIZES);
+    onSave({ size: size.trim(), qty: num(qtyText), date, note: note.trim() || undefined });
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div><label className="label">Tape Size *</label><TypeAhead value={size} onChange={setSize} listKey={TAPE_SIZES_KEY} defaults={DEFAULT_TAPE_SIZES} placeholder="e.g. 2.5 inch" /></div>
+        <div><label className="label">Wastage (kg) *</label><input className="input-field font-mono" type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} placeholder="e.g. ~1% of the batch" /></div>
+        <div><label className="label">Date</label><input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div><label className="label">Note</label><input className="input-field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional" /></div>
+      </div>
+      <p className="text-muted text-xs">Recorded only — this is not deducted from Tape Stock (the deduction rule is undecided; it stays a figure to act on later).</p>
+      <div className="flex gap-3 pt-1">
+        <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center">Add Wastage</button>
+      </div>
+    </div>
+  );
+}
+
+// Manual tape wastage log beside Tape Stock — a list + running total per size. No
+// auto-deduction (record-only for now).
+function WastageSection({ unitId }: { unitId: string }) {
+  const [tick, setTick] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
+  const reload = () => setTick((t) => t + 1);
+  const rows = useMemo(() => { void tick; return tapeWastageDb.getAll().filter((w) => w.unitId === unitId)
+    .sort((a, b) => (b.date !== a.date ? (b.date < a.date ? -1 : 1) : (b.createdAt || '').localeCompare(a.createdAt || ''))); }, [tick, unitId]);
+  const bySize = useMemo(() => { const m: Record<string, number> = {}; rows.forEach((w) => { m[w.size] = +( (m[w.size] || 0) + (w.qty || 0)).toFixed(3); }); return m; }, [rows]);
+  const total = rows.reduce((s, w) => s + (w.qty || 0), 0);
+
+  function handleAdd(d: Omit<TapeWastage, 'id' | 'unitId' | 'createdAt'>) {
+    tapeWastageDb.create({ ...d, unitId, createdAt: new Date().toISOString() });
+    toast.success(`Wastage recorded — ${d.qty} kg ${d.size}`); setAddOpen(false); reload();
+  }
+  function handleDelete(id: string) { tapeWastageDb.delete(id); toast.success('Wastage entry deleted'); reload(); }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-muted text-sm">Manually recorded tape wastage (≈1% after making). Record-only — not deducted from stock yet.</p>
+        <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Wastage</button>
+      </div>
+
+      {/* Running total per size */}
+      <div className="flex flex-wrap gap-2">
+        <span className="badge bg-primary/15 text-accent border border-primary/30 text-xs">Total wasted: {total.toLocaleString('en-IN')} kg</span>
+        {Object.entries(bySize).map(([s, q]) => (
+          <span key={s} className="badge bg-white/5 text-white/70 border border-white/10 text-xs">{s}: {q.toLocaleString('en-IN')} kg</span>
+        ))}
+      </div>
+
+      <div className="glass-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className="border-b border-white/5">
+              {['Date', 'Tape Size', 'Wastage (kg)', 'Note', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={5}><EmptyState icon={Recycle} title="No wastage recorded" action={{ label: 'Add Wastage', onClick: () => setAddOpen(true) }} /></td></tr>
+              ) : rows.map((w) => (
+                <tr key={w.id} className="table-row">
+                  <td className="table-cell text-white/70 whitespace-nowrap">{formatDate(w.date)}</td>
+                  <td className="table-cell font-mono text-white/90">{w.size}</td>
+                  <td className="table-cell font-mono text-white/80">{w.qty.toLocaleString('en-IN')}</td>
+                  <td className="table-cell text-muted text-xs">{w.note || '—'}</td>
+                  <td className="table-cell"><button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {addOpen && (
+        <Modal open onClose={() => setAddOpen(false)} title="Record tape wastage" size="md">
+          <WastageForm onSave={handleAdd} onClose={() => setAddOpen(false)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 export function TapeStockPage() {
   const { activeUnit } = useUnit();
+  const [tab, setTab] = useState<'stock' | 'wastage'>('stock');
   const [tick, setTick] = useState(0);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -111,9 +207,22 @@ export function TapeStockPage() {
             ? 'Tape made in the Tape Plant, stocked by size — moving-average rate per size, consumed by the loom.'
             : 'Purchased tape, stocked by size — moving-average rate per size, consumed by the loom.'}</p>
         </div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Tape</button>
+        {tab === 'stock' && <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Tape</button>}
       </div>
 
+      {/* Stock / Wastage tabs */}
+      <div className="flex gap-1 p-1 bg-navy/60 rounded-xl border border-accent/10 w-fit">
+        {([['stock', label], ['wastage', 'Wastage']] as const).map(([k, lbl]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={'flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ' + (tab === k ? 'bg-primary text-white shadow' : 'text-muted hover:text-white')}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'wastage' && <WastageSection unitId={activeUnit} />}
+
+      {tab === 'stock' && (<>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Tape Sizes" value={pools.length} icon={Layers} iconColor="text-accent" mono />
         <StatCard label="Total Stock (kg)" value={totalKg.toLocaleString('en-IN')} icon={Layers} iconColor="text-green-400" mono />
@@ -196,6 +305,7 @@ export function TapeStockPage() {
           </table>
         </div>
       </div>
+      </>)}
 
       {addOpen && (
         <Modal open onClose={() => setAddOpen(false)} title={`Add Tape — ${unitName(activeUnit)}`} size="md">

@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, GranuleUse, Supplier, GRN, FactoryMachine, UnitRoll, TapeReceipt } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, PPGranuleReceipt, Supplier, GRN, FactoryMachine, UnitRoll, TapeReceipt, TapeWastage } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -398,16 +398,80 @@ export const ppGranulesDb = {
   update:  (id: string, p: Partial<PPGranuleItem>) => dbUpdate<PPGranuleItem>('inv_pp_granules', id, p),
   delete:  (id: string) => dbDelete('inv_pp_granules', id),
 };
+// Receipt log for granules — the audit trail (mirrors inv_raw_material_receipts).
+export const ppGranuleReceiptsDb = {
+  getAll:  () => dbGetAll<PPGranuleReceipt>('inv_pp_granule_receipts'),
+  create:  (r: Omit<PPGranuleReceipt, 'id'>) => dbCreate<PPGranuleReceipt>('inv_pp_granule_receipts', r),
+  update:  (id: string, p: Partial<PPGranuleReceipt>) => dbUpdate<PPGranuleReceipt>('inv_pp_granule_receipts', id, p),
+  delete:  (id: string) => dbDelete('inv_pp_granule_receipts', id),
+};
 
-// Apply (sign -1 to deduct, +1 to restore) a set of granule uses to item stock.
-export function applyGranuleUses(uses: GranuleUse[], sign: 1 | -1): void {
+// Moving-average granule pools — identical mechanism to syncMaterialPools, but the
+// consumption events are the Tape Plant (fabric_batches.uses) and any legacy loom
+// granule uses. Derives each granule's qty / value / avg rate / unrated qty (also
+// mirrored into currentStockKg + costPerKg for existing consumers). Edit-safe (full
+// recompute), rated stock never goes negative. Call after any receipt or Tape Plant
+// change, or on boot.
+export function syncGranulePools(): void {
+  const receipts = dbGetAll<PPGranuleReceipt>('inv_pp_granule_receipts');
   const items = dbGetAll<PPGranuleItem>('inv_pp_granules');
-  let changed = false;
-  for (const u of uses) {
-    const it = items.find((x) => x.id === u.itemId);
-    if (it) { it.currentStockKg = +(it.currentStockKg + sign * (u.qtyKg || 0)).toFixed(3); it.updatedAt = new Date().toISOString(); changed = true; }
+  const batches = dbGetAll<FabricBatch>('fabric_batches');
+  const looms = dbGetAll<LoomEntry>('loom_entries');
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const money = (n: number) => Math.round(n * 100) / 100;
+  const dpart = (s?: string) => (s ? s.slice(0, 10) : '');
+
+  type Ev =
+    | { kind: 'receipt'; date: string; seq: string; qty: number; rate: number | null }
+    | { kind: 'consume'; date: string; seq: string; qty: number };
+  const byItem = new Map<string, Ev[]>();
+  const push = (id: string, ev: Ev) => { const l = byItem.get(id) ?? []; l.push(ev); byItem.set(id, l); };
+
+  for (const r of receipts) {
+    push(r.granuleItemId, { kind: 'receipt', date: dpart(r.date) || dpart(r.createdAt), seq: r.createdAt || r.id, qty: round(r.qty || 0), rate: r.rate ?? null });
   }
-  if (changed) setAll('inv_pp_granules', items);
+  for (const b of [...batches].sort((a, b2) => (a.createdAt || '').localeCompare(b2.createdAt || ''))) {
+    for (const u of b.uses ?? []) {
+      if (u.itemId && (u.qtyKg || 0) > 0) push(u.itemId, { kind: 'consume', date: dpart(b.date) || dpart(b.createdAt), seq: b.createdAt || b.id, qty: round(u.qtyKg || 0) });
+    }
+  }
+  for (const e of [...looms].sort((a, b2) => (a.createdAt || '').localeCompare(b2.createdAt || ''))) {
+    for (const u of e.granuleUses ?? []) {
+      if (u.itemId && (u.qtyKg || 0) > 0) push(u.itemId, { kind: 'consume', date: dpart(e.date) || dpart(e.createdAt), seq: e.createdAt || e.id, qty: round(u.qtyKg || 0) });
+    }
+  }
+
+  const poolByItem = new Map<string, { qty: number; value: number; unrated: number }>();
+  for (const [id, evs] of byItem) {
+    evs.sort((a, b) =>
+      a.date !== b.date ? (a.date < b.date ? -1 : 1)
+      : a.kind !== b.kind ? (a.kind === 'receipt' ? -1 : 1)
+      : (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0));
+    let qty = 0, value = 0, unrated = 0;
+    for (const ev of evs) {
+      if (ev.kind === 'receipt') {
+        if (ev.rate != null) { qty = round(qty + ev.qty); value = money(value + ev.qty * ev.rate); }
+        else unrated = round(unrated + ev.qty);
+      } else {
+        const avg = qty > 0 ? value / qty : 0;   // consumption never changes the average
+        const take = round(Math.min(ev.qty, qty));
+        qty = round(qty - take);
+        value = money(value - take * avg);
+      }
+    }
+    poolByItem.set(id, { qty, value, unrated });
+  }
+
+  for (const it of items) {
+    const p = poolByItem.get(it.id) ?? { qty: 0, value: 0, unrated: 0 };
+    it.quantity = +p.qty.toFixed(3);
+    it.totalValue = +p.value.toFixed(2);
+    it.avgRate = p.qty > 0 ? money(p.value / p.qty) : null;
+    it.unratedQty = +p.unrated.toFixed(3);
+    it.currentStockKg = it.quantity;                 // rated stock — read by shortfall checks
+    it.costPerKg = it.avgRate ?? undefined;          // avg — read by granuleUsesCost / tape price
+  }
+  setAll('inv_pp_granules', items);
 }
 
 // Apply (sign +1) or REVERSE (sign -1) one roll/film consumption line against
@@ -527,6 +591,13 @@ export const tapeReceiptsDb = {
   create:  (r: Omit<TapeReceipt, 'id'>) => dbCreate<TapeReceipt>('tape_receipts', r),
   update:  (id: string, p: Partial<TapeReceipt>) => dbUpdate<TapeReceipt>('tape_receipts', id, p),
   delete:  (id: string) => dbDelete('tape_receipts', id),
+};
+// Manual tape wastage log (Unit 1) — record-only, no auto-deduction from stock.
+export const tapeWastageDb = {
+  getAll:  () => dbGetAll<TapeWastage>('tape_wastage'),
+  create:  (r: Omit<TapeWastage, 'id'>) => dbCreate<TapeWastage>('tape_wastage', r),
+  update:  (id: string, p: Partial<TapeWastage>) => dbUpdate<TapeWastage>('tape_wastage', id, p),
+  delete:  (id: string) => dbDelete('tape_wastage', id),
 };
 
 // Rolls made inside a Loom/P.P. unit (per-unit stock), transferred to Inventory
@@ -666,6 +737,31 @@ export function migrateToMovingAvgOnce(): void {
       }
     }
     if (changed) setAll('job_cards', cards);
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
+// One-time migration: granules → moving-average receipts. Each existing granule
+// item's stored stock/rate becomes its opening receipt so syncGranulePools can
+// derive the pool (and the receipt history shows the opening balance).
+export function migrateGranulesToReceiptsOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}granules_movavg_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    const receipts = getAll<PPGranuleReceipt>('inv_pp_granule_receipts');
+    const items = getAll<PPGranuleItem>('inv_pp_granules');
+    if (!receipts.length && items.length) {
+      const now = new Date().toISOString();
+      const seeded: PPGranuleReceipt[] = items
+        .filter((it) => (it.currentStockKg ?? 0) > 0 || it.costPerKg != null)
+        .map((it) => ({
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+          granuleItemId: it.id, unitId: it.unitId, qty: it.currentStockKg ?? 0,
+          rate: it.costPerKg ?? null, date: (it.dateReceived || it.createdAt || now).slice(0, 10),
+          note: 'Opening balance', createdAt: it.createdAt || now,
+        }));
+      if (seeded.length) setAll('inv_pp_granule_receipts', seeded);
+    }
     localStorage.setItem(FLAG, new Date().toISOString());
   } catch { /* ignore */ }
 }

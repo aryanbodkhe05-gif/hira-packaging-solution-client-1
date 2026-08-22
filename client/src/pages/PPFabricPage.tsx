@@ -5,7 +5,7 @@ import {
   Boxes, Percent, FolderOpen, Trash, ArrowRightLeft, Undo2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, applyGranuleUses, tapeReceiptsDb } from '../lib/db';
+import { fabricBatchesDb, fabricWastageDb, ppGranulesDb, syncGranulePools, tapeReceiptsDb } from '../lib/db';
 import { useUnit } from '../context/UnitContext';
 import { getActiveUnit, unitName } from '../lib/units';
 import {
@@ -129,7 +129,7 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
             <div key={i} className="flex gap-2 items-start">
               <select className="input-field flex-1" value={u.itemId} onChange={(e) => pickItem(i, e.target.value)}>
                 <option value="">Select granule item…</option>
-                {granuleItems.map((g) => <option key={g.id} value={g.id}>{g.type} · {g.name} — {g.currentStockKg.toLocaleString('en-IN')}kg</option>)}
+                {granuleItems.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.currentStockKg.toLocaleString('en-IN')}kg{g.avgRate != null ? ` @ ₹${g.avgRate}` : g.costPerKg != null ? ` @ ₹${g.costPerKg}` : ' (no rate)'}</option>)}
               </select>
               <div className="w-32">
                 <input className={cn('input-field font-mono', over && 'border-red-500/60')} type="number" min="0" step="any" value={u.qtyKg || ''} onChange={(e) => setUse(i, { qtyKg: toNum(e.target.value) })} placeholder="kg" />
@@ -374,25 +374,23 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
   function handleSave(data: Omit<FabricBatch, 'id'>) {
     const now = new Date().toISOString();
     if (modal?.type === 'edit' && modal.batch) {
-      applyGranuleUses(modal.batch.uses ?? [], 1);   // restore old consumption
-      applyGranuleUses(data.uses, -1);                // deduct new consumption
       fabricBatchesDb.update(modal.batch.id, { ...data, updatedAt: now });
       toast.success('Batch updated — granule stock adjusted');
     } else {
       const ids = fabricBatchesDb.getAll().map((b) => b.batchId);
-      applyGranuleUses(data.uses, -1);                // deduct from stock
       fabricBatchesDb.create({ ...data, unitId: getActiveUnit(), batchId: genDailyId('HIRA', ids, data.date), createdAt: now, updatedAt: now });
       toast.success('Batch saved — granule stock deducted');
     }
+    syncGranulePools();   // re-derive granule pools (moving-average) from receipts − consumption
     setGranuleItems(byUnit(ppGranulesDb.getAll()));
     setModal(null);
     onChanged();
   }
   function handleDelete(b: FabricBatch) {
-    applyGranuleUses(b.uses ?? [], 1);                 // restore consumed stock
     fabricBatchesDb.delete(b.id);
     // Cascade: remove wastage linked to this batch
     fabricWastageDb.getAll().filter((w) => w.batchRef === b.id).forEach((w) => fabricWastageDb.delete(w.id));
+    syncGranulePools();   // consumption removed → granule stock restored
     setGranuleItems(byUnit(ppGranulesDb.getAll()));
     toast.success('Batch deleted — granule stock restored');
     onChanged();
