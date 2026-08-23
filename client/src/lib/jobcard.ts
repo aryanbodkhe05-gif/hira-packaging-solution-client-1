@@ -160,10 +160,16 @@ export function laminationBalanceKg(j: JobCard): number {
 // carried output equals the input.) Dispatch is terminal: its "output" is shipped qty.
 export function stagePrimary(j: JobCard, key: StageKey): { input: number; output: number; rejection: number } {
   const calc = (input: number, rejection: number) => ({ input, output: Math.max(0, +(input - rejection).toFixed(3)), rejection });
+  // Whatever is typed in a stage's "Output (kg)" box IS the output that carries to the
+  // next stage's input; when blank it falls back to input − wastage (calculated).
+  const withOutput = (input: number, rejection: number, typedOut?: number) => {
+    const t = num(typedOut);
+    return { input, output: t > 0 ? t : Math.max(0, +(input - rejection).toFixed(3)), rejection };
+  };
   switch (key) {
-    case 'printing': { const s = j.printing; return calc(num(s.inputKg), num(s.rejectionKg)); }
-    case 'metalize': { const s = j.metalize; return calc(num(s.boppInputKg) || num(s.metalizeInputKg), num(s.rejectionKg)); }
-    case 'slitting': { const s = j.slitting; return calc(num(s.inputKg) || num(s.grossInputKg), num(s.rejectionKg)); }
+    case 'printing': { const s = j.printing; return withOutput(num(s.inputKg), num(s.rejectionKg), s.outputKg); }
+    case 'metalize': { const s = j.metalize; return withOutput(num(s.boppInputKg) || num(s.metalizeInputKg), num(s.rejectionKg), s.outputKg); }
+    case 'slitting': { const s = j.slitting; return withOutput(num(s.inputKg) || num(s.grossInputKg), num(s.rejectionKg), s.outputKg); }
     // Lamination ADDS mass (fabric + LD/granule), so its output is the Total KG (full
     // laminated weight), not input − wastage.
     case 'lamination': { const s = j.lamination; return { input: laminationBoppIn(j), output: laminationOutputKg(j), rejection: num(s.rejectionKg) }; }

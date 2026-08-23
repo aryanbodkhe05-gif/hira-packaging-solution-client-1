@@ -359,4 +359,37 @@ export function seedSampleData(): void {
       status: 'In Progress', currentStage: 'Metalize', ratesAsOf: now, createdAt: now, updatedAt: now,
     });
   }
+
+  // Carry-forward chain demo. 9008: Metalize ON — Slitting input = Metalize output
+  // (100 − 5 wastage = 95), NOT the Printing output (100). 9009: Metalize OFF —
+  // Slitting input = Printing output (120) directly (Metalize bypassed).
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9008')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9008', cardType: 'BOPP', makingType: 'Bag', client: 'Chain — Metalize ON',
+      header: { brand: 'Chain — Metalize ON', qty: 4000, size: '25 × 30', finish: 'Metalized', date: today() },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 100, meter: 2600 },
+      // Metalize ON: input 100 (carried from Printing), 5 wastage, Output (kg) 94 typed.
+      metalize: { na: false, consumption: [], materials: [], rollUses: [], boppInputKg: 100, rejectionKg: 5, outputKg: 94 },
+      // Slitting input = Metalize Output (kg) box (94), NOT Printing output (100).
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 94 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 94 }], sentToCuttingKg: 94 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 3000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [] },
+      status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9009', cardType: 'BOPP', makingType: 'Bag', client: 'Chain — Metalize OFF',
+      header: { brand: 'Chain — Metalize OFF', qty: 4000, size: '25 × 30', finish: 'Glossy', date: today() },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 120, meter: 3000 },
+      metalize: { ...emptyStage },   // OFF (Glossy) — bypassed in the chain
+      // Slitting input = Printing output (120) directly.
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 120 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 120 }], sentToCuttingKg: 120 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 3500, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [] },
+      status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+  }
 }

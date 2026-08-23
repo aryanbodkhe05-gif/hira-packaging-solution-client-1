@@ -86,10 +86,13 @@ function stageForward(j: JobCard, key: StageKey): { kg: number; meter: number } 
   }
 }
 
-// Land a carried {kg, meter} into a stage's input, only where the field is empty
-// (never clobber a value the operator already entered).
+// Land a carried {kg, meter} into a stage's input. An explicit carry click OVERWRITES
+// the target with the previous active stage's output (when positive) — so re-carrying
+// after the chain changes (e.g. Metalize turned ON after Slitting was already fed from
+// Printing) updates Slitting to the Metalize output instead of keeping the stale value.
+// A zero carried value never wipes an existing entry.
 function applyStageInput(j: JobCard, key: StageKey, v: { kg: number; meter: number }): JobCard {
-  const put = (cur: number | undefined, val: number) => (cur == null || cur === 0) && val > 0 ? val : cur;
+  const put = (cur: number | undefined, val: number) => (val > 0 ? val : cur);
   switch (key) {
     case 'printing': return { ...j, printing: { ...j.printing, inputKg: put(j.printing.inputKg, v.kg) } };
     case 'metalize': return { ...j, metalize: { ...j.metalize, boppInputKg: put(j.metalize.boppInputKg, v.kg) } };
@@ -642,9 +645,15 @@ export function JobCardDetailPage() {
               <Field label="Date"><DateInput value={card.metalize.date} onChange={(v) => patchStage('metalize', { date: v })} /></Field>
               <Field label="Roll No"><Txt value={card.metalize.rollNo} onChange={(v) => patchStage('metalize', { rollNo: v })} /></Field>
               <Field label="Size"><Txt value={card.metalize.size} onChange={(v) => patchStage('metalize', { size: v })} /></Field>
-              <Field label="Balance (roll)"><Txt value={card.metalize.rollBalance} onChange={(v) => patchStage('metalize', { rollBalance: v })} placeholder="balance roll no" /></Field>
+              <Field label="Roll"><Txt value={card.metalize.rollBalance} onChange={(v) => patchStage('metalize', { rollBalance: v })} placeholder="roll no" /></Field>
               <Field label="BOPP Input (kg)"><Num value={card.metalize.boppInputKg} onChange={(v) => patchStage('metalize', { boppInputKg: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.metalize.rejectionKg} onChange={(v) => patchStage('metalize', { rejectionKg: v })} /></Field>
+              {/* Output (kg): what's typed here IS the Slitting input (carried forward). Defaults to input − wastage. */}
+              <Field label="Output (kg)">
+                <input className="input-field font-mono" type="number" min="0" step="any"
+                  value={card.metalize.outputKg ?? ''} placeholder={String(Math.max(0, cnum(card.metalize.boppInputKg) - cnum(card.metalize.rejectionKg)))}
+                  onChange={(e) => patchStage('metalize', { outputKg: e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0) })} />
+              </Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
             {/* Metalize consumes METALIZED BOPP film — same consume/finished-balance/costing
@@ -693,6 +702,14 @@ export function JobCardDetailPage() {
                 <select className="input-field" value={card.lamination.fabricType ?? ''} onChange={(e) => patchStage('lamination', { fabricType: (e.target.value || undefined) as FabricType | undefined })}>
                   <option value="">—</option>{FABRIC_TYPES.map((t) => <option key={t}>{t}</option>)}
                 </select>
+              </Field>
+              {/* Input (kg): the output carried in from the previous stage (Slitting). Feeds Total KG. */}
+              <Field label="Input (kg) — from last stage">
+                <Num value={card.lamination.rows[0]?.boppInKg} onChange={(v) => {
+                  const rows = card.lamination.rows.length ? [...card.lamination.rows] : [{}];
+                  rows[0] = { ...rows[0], boppInKg: v };
+                  patchStage('lamination', { rows });
+                }} />
               </Field>
               <Field label="Roll No"><Txt value={card.lamination.rollNo} onChange={(v) => patchStage('lamination', { rollNo: v })} /></Field>
               <Field label="Size"><Txt value={card.lamination.size} onChange={(v) => patchStage('lamination', { size: v })} /></Field>
