@@ -4,7 +4,7 @@
 // running average = its items' rates weighted by current stock. Tape is priced like
 // a job card: granules consumed (avg-costed) + labour/overhead (₹/kg × tape kg).
 
-import { ppGranulesDb, rateMasterDb } from './db';
+import { ppGranulesDb } from './db';
 import type { GranuleUse, PPGranuleItem } from '../types/models';
 
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -52,31 +52,17 @@ export function granuleUsesCost(uses: GranuleUse[], items: PPGranuleItem[] = ppG
   return { total, byType, hasUnrated };
 }
 
-export interface TapeLabourLine { name: string; rate: number | null; cost: number; }
-// Labour/overhead for tape — every active Rate Master rate × the tape kg produced
-// (same mechanism as the job card). Unpriced rates are shown but excluded.
-export function tapeLabour(tapeKg: number): { lines: TapeLabourLine[]; total: number; hasUnset: boolean } {
-  const lines = rateMasterDb.getAll().filter((m) => m.active).map((m) => ({
-    name: m.name, rate: m.rate, cost: m.rate != null ? money(m.rate * tapeKg) : 0,
-  }));
-  const total = money(lines.reduce((s, l) => s + l.cost, 0));
-  const hasUnset = tapeKg > 0 && lines.some((l) => l.rate == null);
-  return { lines, total, hasUnset };
-}
-
 export interface TapePrice {
   granuleCost: number; granuleByType: Record<string, number>; granuleUnrated: boolean;
-  labour: TapeLabourLine[]; labourCost: number; labourUnset: boolean;
   totalCost: number; tapeKg: number; pricePerKg: number;
 }
-// Full tape price for a batch: granules (avg-costed) + labour/overhead, per kg.
+// Full tape price for a batch: granules (FIFO batch-costed), per kg. No labour /
+// overhead — the Rate Master was retired; costing is batch rates only.
 export function tapePrice(uses: GranuleUse[], tapeKg: number, items: PPGranuleItem[] = ppGranulesDb.getAll()): TapePrice {
   const g = granuleUsesCost(uses, items);
-  const l = tapeLabour(tapeKg);
-  const totalCost = money(g.total + l.total);
+  const totalCost = g.total;
   return {
     granuleCost: g.total, granuleByType: g.byType, granuleUnrated: g.hasUnrated,
-    labour: l.lines, labourCost: l.total, labourUnset: l.hasUnset,
     totalCost, tapeKg, pricePerKg: tapeKg > 0 ? money(totalCost / tapeKg) : 0,
   };
 }

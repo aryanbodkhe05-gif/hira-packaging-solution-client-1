@@ -1123,30 +1123,8 @@ export function JobCardDetailPage() {
                 </tbody>
               </table>
 
-              {/* Auto labour & overhead — Rate Master (₹/kg) × final output kg */}
-              <div className="rounded-lg border border-accent/10 overflow-hidden">
-                <div className="px-3 py-1.5 bg-navy/40 text-[11px] text-muted uppercase tracking-wide">
-                  Labour &amp; overhead · auto on {cost.finalOutputKg.toLocaleString('en-IN')} kg output
-                </div>
-                <table className="w-full text-xs">
-                  <tbody>
-                    {cost.labourLines.length === 0 ? (
-                      <tr><td className="px-3 py-2 text-muted">No labour/overhead rates set in Rate Master.</td></tr>
-                    ) : cost.labourLines.map((l) => (
-                      <tr key={l.name} className="border-t border-white/5">
-                        <td className="px-3 py-1.5 text-white/75">{l.name} <span className="text-muted">@ {l.rate == null ? '—' : `₹${l.rate}/kg`}</span></td>
-                        <td className="px-3 py-1.5 text-right font-mono text-white/70">
-                          {l.rate == null ? <span className="text-yellow-300">rate not set</span> : formatINR(l.cost)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot><tr className="border-t border-accent/20 bg-navy/40">
-                    <td className="px-3 py-1.5 text-muted">Labour subtotal</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-white/80">{formatINR(cost.labourCost)}</td>
-                  </tr></tfoot>
-                </table>
-              </div>
+              {/* Costing is material/roll batch rates only — no labour/overhead. */}
+              <p className="text-[11px] text-muted">All costing is from the batch rates of the stock consumed — no labour or overhead.</p>
 
               <table className="w-full text-sm">
                 <tfoot>

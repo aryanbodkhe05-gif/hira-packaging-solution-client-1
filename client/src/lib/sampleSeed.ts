@@ -3,12 +3,12 @@
 // therefore never pollutes the live shared database).
 import {
   factoryMachinesDb, ppGranulesDb, ppGranuleReceiptsDb, syncGranulePools, invRollsDb, boppFilmsDb, ordersDb,
-  rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
+  rawMaterialsDb, rawMaterialReceiptsDb, syncMaterialPools,
   jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
   loomsDb, tapeReceiptsDb, tapeWastageDb,
 } from './db';
 import {
-  RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
+  ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
 } from '../config';
 import { saveUnits, getUnits } from './units';
 
@@ -187,10 +187,6 @@ export function seedSampleData(): void {
     // Left unpriced on purpose — shows "unrated" and stays out of the average/value.
     mat('Hot melt glue', 'kg', [{ qty: 90, rate: null, date: daysAgo(6), note: 'Awaiting invoice — price later' }]);
     syncMaterialPools();
-  }
-
-  if (rateMasterDb.getAll().length === 0) {
-    for (const r of RATE_MASTER_SEED) rateMasterDb.create({ ...r, active: true, createdAt: iso(), updatedAt: iso() });
   }
 
   if (ordersDb.getAll().length === 0) {

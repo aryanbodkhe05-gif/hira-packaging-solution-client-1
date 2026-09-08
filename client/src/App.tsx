@@ -15,7 +15,6 @@ import { PPFabricPage }     from './pages/PPFabricPage';
 import { LoomProductionPage } from './pages/LoomProductionPage';
 import { JobCardListPage }   from './pages/JobCardListPage';
 import { JobCardDetailPage } from './pages/JobCardDetailPage';
-import { RateMasterPage }    from './pages/RateMasterPage';
 import { DispatchRegisterPage } from './pages/DispatchRegisterPage';
 import { InventoryRollsPage } from './pages/InventoryRollsPage';
 import { RawMaterialsPage }  from './pages/RawMaterialsPage';
@@ -103,7 +102,6 @@ function AppRoutes() {
         <Route path="grn"           element={<Guard allow={canAccessSupplier(role)} home={home}><GrnPage /></Guard>} />
 
         {/* Master */}
-        <Route path="rate-master"   element={<Guard allow={canEditRates(role)} home={home}><RateMasterPage /></Guard>} />
         <Route path="machines"      element={<Guard allow={canEditRates(role)} home={home}><MachinesPage /></Guard>} />
         <Route path="users"         element={<Guard allow={canManageUsers(role)} home={home}><UsersPage /></Guard>} />
         <Route path="settings"      element={<Guard allow={canAccessSettings(role)} home={home}><SettingsPage /></Guard>} />

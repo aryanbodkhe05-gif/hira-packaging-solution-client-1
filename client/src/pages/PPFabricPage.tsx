@@ -179,7 +179,7 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
             <span>Tape price calculator</span>
             <span className="text-white/60 normal-case">over {tapeKg.toLocaleString('en-IN')} kg tape</span>
           </p>
-          <div className="flex justify-between text-sm"><span className="text-muted">Granules (avg-costed)</span><span className="font-mono text-white/85">{formatINR(price.granuleCost)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-muted">Granules (FIFO batch-costed)</span><span className="font-mono text-white/85">{formatINR(price.granuleCost)}</span></div>
           {Object.entries(price.granuleByType).length > 0 && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-2">
               {Object.entries(price.granuleByType).map(([t, c]) => (
@@ -187,11 +187,10 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
               ))}
             </div>
           )}
-          <div className="flex justify-between text-sm"><span className="text-muted">Labour &amp; overhead</span><span className="font-mono text-white/85">{formatINR(price.labourCost)}</span></div>
           <div className="flex justify-between border-t border-white/10 pt-2 text-sm"><span className="text-white/80">Total tape cost</span><span className="font-mono text-white font-semibold">{formatINR(price.totalCost)}</span></div>
           <div className="flex justify-between text-base"><span className="text-white font-semibold">Tape price / kg</span><span className="font-mono text-accent font-bold">{formatINR(price.pricePerKg)}</span></div>
-          {(price.granuleUnrated || price.labourUnset) && (
-            <p className="text-[11px] text-yellow-300/90">Some granules/rates are unpriced — excluded from the total until set.</p>
+          {price.granuleUnrated && (
+            <p className="text-[11px] text-yellow-300/90">Some granule batches are unpriced — excluded from the total until set.</p>
           )}
         </div>
       )}
@@ -333,7 +332,7 @@ function TapeTransferForm({ batch, granuleItems, onSave, onClose }: {
         <div>
           <label className="label">Rate (₹/kg)</label>
           <input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="auto from cost/kg" />
-          {showCosts && price.pricePerKg > 0 && <p className="text-[10px] mt-0.5 text-muted">plant cost/kg ≈ {formatINR(price.pricePerKg)}{price.granuleUnrated || price.labourUnset ? ' (some inputs unpriced)' : ''}</p>}
+          {showCosts && price.pricePerKg > 0 && <p className="text-[10px] mt-0.5 text-muted">plant cost/kg ≈ {formatINR(price.pricePerKg)}{price.granuleUnrated ? ' (some batches unpriced)' : ''}</p>}
         </div>
         <div><label className="label">Party Name</label><TypeAhead value={party} onChange={setParty} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="party" /></div>
         <div className="col-span-2"><label className="label">Bill No.</label><input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="optional" /></div>

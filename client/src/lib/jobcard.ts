@@ -1,10 +1,10 @@
 // ── Job Card helpers: empty factories, metrics, carry-forward, costing ─────────
 import type {
-  JobCard, RateMasterItem, Consumption, JobCardHeader, Order,
+  JobCard, Consumption, JobCardHeader, Order,
   PrintingStage, MetalizeStage, SlittingStage, LaminationStage, CuttingStage, DispatchStage,
 } from '../types/models';
 import { JOB_STAGES } from '../config';
-import { getSettings, rateMasterDb } from './db';
+import { getSettings } from './db';
 import type { JobStage, Finish, CardType, MakingType } from '../config';
 
 export const STAGE_KEYS = ['printing', 'metalize', 'slitting', 'lamination', 'cutting', 'dispatch'] as const;
@@ -228,15 +228,12 @@ export function nextActiveStage(j: JobCard, key: StageKey): StageKey | null {
 }
 
 // ── Costing ────────────────────────────────────────────────────────────────────
-// One auto-applied labour/overhead line: rate (₹/kg) × the job's final output kg.
-export interface LabourLine { name: string; unit: string; rate: number | null; kg: number; cost: number; }
-
+// All costing comes from material / roll / granule BATCH RATES — there is no
+// labour or overhead line (the Rate Master was retired).
 export interface CostingResult {
   stageCosts: Record<StageKey, number>;
   materialCost: number;         // stage material + roll consumption only
-  labourLines: LabourLine[];    // auto labour/overhead (Rate Master × output kg)
-  labourCost: number;
-  totalJobCost: number;
+  totalJobCost: number;         // = materialCost (batch rates only)
   totalBags: number;
   costPerBag: number;
   finalOutputKg: number;
@@ -246,9 +243,8 @@ export interface CostingResult {
   hasUnsetRates: boolean;       // some consumed material had no rate
 }
 
-// Stage cost = moving-average material consumption + per-roll consumption. Labour /
-// overhead is auto-applied globally against the job's final output kg (see
-// computeCosting), not per stage.
+// Stage cost = moving-average material consumption + per-roll consumption. There is
+// no per-stage or global labour/overhead — costing is batch-rate only.
 export function stageCost(j: JobCard, key: StageKey): number {
   if (!isStageActive(j, key)) return 0;
   return sum((j[key].materials ?? []).map((m) => num(m.cost)))
@@ -270,22 +266,6 @@ export function finalOutputKg(j: JobCard): number {
     if (out > 0) return out;
   }
   return 0;
-}
-
-// Auto labour/overhead lines: every active Rate Master rate (₹/kg) multiplied by
-// the job's final output kg. No one enters kg. Unpriced rates are shown but
-// excluded from the total.
-export function labourLines(j: JobCard): LabourLine[] {
-  const kg = finalOutputKg(j);
-  return rateMasterDb.getAll()
-    .filter((m) => m.active)
-    .map((m) => ({
-      name: m.name,
-      unit: m.unit,
-      rate: m.rate,
-      kg,
-      cost: m.rate != null ? +(m.rate * kg).toFixed(2) : 0,
-    }));
 }
 
 // Any active stage that consumes more of a material than is in stock (blocks save).
@@ -335,17 +315,12 @@ export function computeCosting(j: JobCard): CostingResult {
     sum(activeStageKeys(j).map((k) => stagePrimary(j, k).rejection)) +
     (isStageActive(j, 'slitting') ? num(j.slitting.trimKg) : 0);
 
-  // Auto labour/overhead — Rate Master (₹/kg) × final output kg.
-  const labour = labourLines(j);
-  const labourCost = sum(labour.map((l) => l.cost));
-  if (outKg > 0 && labour.some((l) => l.rate == null)) hasUnset = true;
-  const total = materialCost + labourCost;
+  // Batch rates only — no labour/overhead.
+  const total = materialCost;
 
   return {
     stageCosts,
     materialCost,
-    labourLines: labour,
-    labourCost,
     totalJobCost: total,
     totalBags: bags,
     costPerBag: bags > 0 ? total / bags : 0,
@@ -358,34 +333,6 @@ export function computeCosting(j: JobCard): CostingResult {
 }
 
 // ── Consumption helpers ────────────────────────────────────────────────────────
-// Labour/overhead lines relevant to a stage = active rate items of that category
-// (+ 'Any'). Materials are NOT sourced here — they come from inventory batches.
-export function materialsForStage(items: RateMasterItem[], stage: JobStage): RateMasterItem[] {
-  return items.filter((m) => m.active && (m.category === stage || m.category === 'Any'));
-}
-
-// Build the labour consumption rows for a stage, preserving any quantity already
-// entered and snapshotting the current rate for each line.
-export function buildLabourConsumption(items: RateMasterItem[], stage: JobStage, existing: Consumption[]): Consumption[] {
-  const byId = new Map(existing.map((c) => [c.materialId, c]));
-  return materialsForStage(items, stage).map((m) => {
-    const prev = byId.get(m.id);
-    const qty = prev ? num(prev.qty) : 0;
-    // Rate stays snapshotted once entered, so later Rate Master edits don't
-    // rewrite historical job costs.
-    const rate = prev && prev.qty > 0 && prev.rateSnapshot != null ? prev.rateSnapshot : m.rate;
-    return {
-      materialId: m.id,
-      materialName: m.name,
-      unit: m.unit,
-      qty,
-      rateSnapshot: rate,
-      lineCost: rate != null ? qty * rate : 0,
-      source: 'labour' as const,
-    };
-  });
-}
-
 // Total value of a stage's per-roll consumption lines (each at its own rate).
 export function rollUsesCost(j: JobCard, key: StageKey): number {
   return sum((j[key].rollUses ?? []).map((r) => num(r.lineCost)));

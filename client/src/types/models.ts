@@ -1,4 +1,4 @@
-import type { ProductType, ConsumableCategory, OrderStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, RateCategory, MakingType, CardType, CuttingMethod, DispatchType, GrnDestination } from '../config';
+import type { ProductType, ConsumableCategory, OrderStatus, POStatus, MachineType, MachineStatus, JobStatus, DowntimeReason, RollStatus, Shift, BatchStatus, WastageType, WastageAction, QualityGrade, LoomStatus, WidthUnit, Finish, JobStage, JobCardStatus, FabricType, CoatingSide, MakingType, CardType, CuttingMethod, DispatchType, GrnDestination } from '../config';
 
 export interface Roll {
   id: string;
@@ -134,6 +134,11 @@ export interface TapeWastage {
   qty: number;              // kg wasted
   date: string;             // yyyy-mm-dd
   note?: string;
+  // Batch (tape receipt lot) this wastage was taken from. When set, the qty is
+  // DEDUCTED from that lot's remaining stock (and the size pool); legacy entries
+  // without a receiptId stay record-only.
+  receiptId?: string;
+  rateSnapshot?: number | null;  // the lot's ₹/kg at entry — used for the wastage value impact
   createdAt: string;
 }
 
@@ -174,16 +179,7 @@ export interface LoomEntry {
 }
 
 // ── Module 13 — Job Card (Order Traveler + Live Costing) ───────────────────────
-export interface RateMasterItem {
-  id: string;
-  name: string;
-  unit: string;            // e.g. ₹/kg, ₹/pc, ₹/roll, ₹/bale
-  rate: number | null;     // null => "rate not set"
-  category: RateCategory;  // which stage uses it
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+// (Rate Master removed — costing is batch-rate only, no labour/overhead.)
 
 // One slice of a consumption row drawn from a single raw-material batch. A row
 // spanning two batches (300 kg needed, oldest batch has 200) produces two lots,
@@ -278,6 +274,9 @@ export interface PrintingStage extends StageBase {
   colour?: string;             // Other card printing — colour of print
   ink?: number;                // Other card printing — ink consumption (kg)
   thinner?: number;            // Other card printing — thinner consumption (kg)
+  // Printing leftover (kg) moved in from a sibling job of the SAME order — the
+  // previous job's Printing balance, fed into this job's Printing (mirrors dispatch.carriedIn).
+  carriedIn?: CarriedIn[];
 }
 
 export interface MetalizeStage extends StageBase {
@@ -290,6 +289,8 @@ export interface MetalizeStage extends StageBase {
   outputMtr?: number;
   rejectionKg?: number;
   balanceKg?: number;
+  // Metalize leftover (kg) moved in from a sibling job of the SAME order (mirrors dispatch.carriedIn).
+  carriedIn?: CarriedIn[];
 }
 
 export interface SlittingRoll { outputKg?: number; desc?: string; core?: string; meter?: number; }
@@ -305,6 +306,8 @@ export interface SlittingStage extends StageBase {
   inputCoreKg?: number;
   rolls: SlittingRoll[];        // legacy per-roll outputs, kept for old cards
   trimKg?: number;
+  // Slitting leftover (kg) moved in from a sibling job of the SAME order (mirrors dispatch.carriedIn).
+  carriedIn?: CarriedIn[];
 }
 
 export interface LaminationRow { boppInKg?: number; fabricInKg?: number; meter?: number; outKg?: number; }
@@ -624,12 +627,23 @@ export interface PPGranuleReceipt {
   createdAt: string;
 }
 
+// One granule batch (receipt) a consumption row drained, at that batch's own rate.
+// The Tape Plant consumes granules FIFO (oldest receipt first), so a single row can
+// split across several batches — one lot per batch, each priced at its receipt rate.
+export interface GranuleLot {
+  receiptId: string;
+  batchDate: string;            // receipt date — shown in the FIFO cost breakdown
+  qty: number;                  // kg drawn from this batch
+  rate: number | null;          // ₹/kg snapshotted from the receipt; null => unrated
+  lineCost: number;             // qty × rate (0 when rate not set)
+}
 // One granule item consumed by a PP Fabric batch (qty deducted from its stock).
 export interface GranuleUse {
   itemId: string;
   itemName: string;
   type: string;
   qtyKg: number;
+  lots?: GranuleLot[];          // FIFO breakdown — one entry per batch (receipt) consumed
 }
 
 // Incoming BOPP film raw stock (before printing).
