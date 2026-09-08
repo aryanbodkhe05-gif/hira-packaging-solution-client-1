@@ -10,6 +10,7 @@ import {
 import {
   ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
 } from '../config';
+import { allocateGranuleFifo } from './granules';
 import { saveUnits, getUnits } from './units';
 
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -34,6 +35,7 @@ export function seedSampleData(): void {
   let fillerU1: { id: string; name: string } | undefined;
   let ppU2: { id: string; name: string } | undefined;
   let fillerU2: { id: string; name: string } | undefined;
+  let raffleU2: { id: string; name: string } | undefined;
   if (ppGranulesDb.getAll().length === 0) {
     // Granules are moving-average pools (like Raw Materials): a named item + a receipt
     // log; the pool (qty/value/avg) is derived by syncGranulePools.
@@ -52,6 +54,14 @@ export function seedSampleData(): void {
     // 1000 kg worth ₹100,000 at avg ₹100/kg (proves the moving average).
     ppU2 = g('P.P.', 'unit-2', [{ qty: 500, rate: 98, date: daysAgo(10) }, { qty: 500, rate: 102, date: daysAgo(3) }]);
     fillerU2 = g('Filler', 'unit-2', [{ qty: 300, rate: 40 }]);
+    // FIFO demo (Part 4): "Raffle" has THREE batches. A 200 kg draw drains the two
+    // OLDEST first: 100 @ ₹100 + 100 @ ₹110 = ₹21,000; the newest 300 @ ₹120 is
+    // untouched. (Batch age = receipt date — oldest is the earliest date.)
+    raffleU2 = g('Raffle', 'unit-2', [
+      { qty: 100, rate: 100, date: daysAgo(20) },   // Batch 1 — oldest, drained first
+      { qty: 100, rate: 110, date: daysAgo(12) },   // Batch 2 — drained next
+      { qty: 300, rate: 120, date: daysAgo(4) },    // Batch 3 — newest, untouched by a 200 kg draw
+    ]);
   }
 
   // Loom machines: one loom per unit (proves per-unit isolation — Unit 1's loom must
@@ -110,6 +120,16 @@ export function seedSampleData(): void {
     const rate2 = Math.round((800 * 100 + 200 * 40) / tapeKg2);   // granule cost/kg ≈ ₹93
     const rec2 = tapeReceiptsDb.create({ unitId: 'unit-2', size: '2 inch', qty: tapeKg2, rate: rate2, party: 'Hira Packaging', billNo: 'TP-B-001', date: today(), createdAt: iso() });
     fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: uses2, outputMeters: 900, outputKg: tapeKg2, status: 'Closed', tapeLogReceiptId: rec2.id, tapeLogSize: '2 inch', tapeLogQtyKg: tapeKg2, tapeTransferredAt: iso(), createdAt: iso(), updatedAt: iso() });
+
+    // Unit 2 FIFO run (Part 4): consumes 200 kg Raffle → FIFO splits into two batch
+    // lots (100 @ ₹100 + 100 @ ₹110 = ₹21,000); the newest 300 @ ₹120 batch stays.
+    // Not transferred to the Tape Log so the "Tape Log" transfer button is visible.
+    if (raffleU2) {
+      const raffleLots = allocateGranuleFifo(raffleU2.id, 200).lots;
+      fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-002', date: today(), shift: 'Afternoon', line: 'Line 2',
+        uses: [{ itemId: raffleU2.id, itemName: raffleU2.name, type: 'Raffle', qtyKg: 200, lots: raffleLots }],
+        outputMeters: 400, outputKg: 200, status: 'Closed', createdAt: iso(), updatedAt: iso() });
+    }
   }
 
   // Roll Count: extra rolls sitting in Unit 1 stock (manual roll nos), ready to
