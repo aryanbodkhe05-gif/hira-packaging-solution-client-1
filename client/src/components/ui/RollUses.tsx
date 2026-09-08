@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, AlertTriangle, CheckCircle2, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invRollsDb, boppFilmsDb } from '../../lib/db';
 import { canViewCosts } from '../../lib/roles';
@@ -28,7 +28,7 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
   title?: string;
 }) {
   const showCosts = canViewCosts();
-  const [picking, setPicking] = useState('');
+  const [filter, setFilter] = useState('');   // search box for the roll/film picker
 
   // Rolls already committed by this card stay selectable so the line can be edited.
   const stock = useMemo(() => {
@@ -56,7 +56,7 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
       rollId: s.id, rollNo: s.no, kind: s.kind, type: s.type, size: s.size, gm: s.gm,
       qtyKg: 0, rate: s.rate, lineCost: 0, finished: false, balanceKg: s.available,
     }]);
-    setPicking('');
+    setFilter('');
   }
 
   function patch(i: number, p: Partial<RollUse>) {
@@ -152,18 +152,43 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
           );
         })}
 
-        <div className="flex items-center gap-2">
-          <Plus className="w-3.5 h-3.5 text-muted" />
-          <select className="input-field py-1 text-sm w-auto" value={picking} onChange={(e) => addRoll(e.target.value)}>
-            <option value="">Add a roll…</option>
-            {stock.filter((s) => !value.some((u) => u.rollId === s.id)).map((s) => (
-              <option key={s.key} value={s.key}>
-                {/* BOPP: size type rollno qty rate · Roll: size gm type rollno qty rate */}
-                {fmtSize(s.size)} {s.kind === 'roll' ? `${s.gm ?? '—'}GM ` : ''}{s.type ?? (s.kind === 'film' ? 'film' : '')} {s.no} · {s.available}kg{s.rate == null ? ' (no rate)' : ` @ ₹${s.rate}`}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Searchable picker — filter stock by roll no, size, type or GM instead of
+            scrolling a long dropdown, then click to add. */}
+        {(() => {
+          const avail = stock.filter((s) => !value.some((u) => u.rollId === s.id));
+          const q = filter.trim().toLowerCase();
+          const matches = q
+            ? avail.filter((s) => `${s.no} ${fmtSize(s.size)} ${s.size ?? ''} ${s.type ?? ''} ${s.gm ?? ''} ${s.kind}`.toLowerCase().includes(q))
+            : avail;
+          return (
+            <div className="pt-1 space-y-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                <input className="input-field pl-9 py-1.5 text-sm" placeholder="Search stock by roll no, size, type or GM…"
+                  value={filter} onChange={(e) => setFilter(e.target.value)} />
+              </div>
+              {avail.length === 0 ? (
+                <p className="text-muted text-xs">No more stock available to add.</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-white/10 divide-y divide-white/5">
+                  {matches.length === 0 ? (
+                    <p className="text-muted text-xs px-3 py-2">No stock matches “{filter}”.</p>
+                  ) : matches.map((s) => (
+                    <button key={s.key} type="button" onClick={() => addRoll(s.key)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-primary/10 transition-colors">
+                      <Plus className="w-3.5 h-3.5 text-muted shrink-0" />
+                      <span className="font-mono text-white/90">{fmtSize(s.size)}</span>
+                      {s.kind === 'roll' && <span className="text-muted text-xs">{s.gm ?? '—'}GM</span>}
+                      <span className="text-muted text-xs">{s.type ?? (s.kind === 'film' ? 'film' : '')}</span>
+                      <span className="font-mono text-accent">{s.no}</span>
+                      <span className="ml-auto text-muted text-xs whitespace-nowrap">{s.available.toLocaleString('en-IN')}kg{s.rate == null ? ' · no rate' : ` · ₹${s.rate}`}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

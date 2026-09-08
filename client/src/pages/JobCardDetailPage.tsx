@@ -22,19 +22,22 @@ import type { JobCard, DispatchRecord, RollUse, MaterialUse, CarriedIn } from '.
 import { MaterialUsePanel, type Suggestion } from '../components/ui/MaterialUsePanel';
 import { RollUsesPanel } from '../components/ui/RollUses';
 import { CommitNumberInput } from '../components/ui/CommitNumberInput';
+import { Modal } from '../components/ui/Modal';
 import {
   emptyJobCard, normalizeJobCard, genJobNo, STAGE_KEYS, STAGE_LABEL,
   stageMetrics, stageCost, computeCosting, formatINR,
   prevActiveStage, nextActiveStage, stagePrimary, stageLossAccounted, visibleStageKeys, totalBags,
   autoPct, autoQty, jobCardLabel, firstMaterialShortfall,
   laminationAutoTotalKg, laminationOutputKg, laminationSentToCuttingKg, laminationBalanceKg, cuttingCarriedInKg,
-  baleTotals, dispatchShipped,
+  stageCarriedInKg, baleTotals, dispatchShipped,
 } from '../lib/jobcard';
 import {
   cardReadyToDispatch, siblingsWithReady, moveCarriedBalance,
   siblingsWithLaminationBalance, moveLaminationBalance,
+  groupedStageBalanceOffers, moveStageBalance, BALANCE_STAGE_LABEL,
 } from '../lib/dispatch';
 import type { StageKey } from '../lib/jobcard';
+import type { BalanceStageKey } from '../lib/dispatch';
 import { canViewCosts, staffScope } from '../lib/roles';
 import { useBranding } from '../lib/branding';
 import { cn } from '../lib/utils';
@@ -209,6 +212,18 @@ export function JobCardDetailPage() {
 
   const cost = useMemo(() => (card ? computeCosting(card) : null), [card]);
 
+  // Grouped balance carry-over pop-up (Printing/Metalize/Slitting). Auto-opens ONCE
+  // per card when a previous job of the same order still holds a stage balance.
+  const [carryModalOpen, setCarryModalOpen] = useState(false);
+  const carryOfferedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!card?.id || isScoped) return;
+    if (carryOfferedRef.current === card.id) return;   // offer only once per card
+    carryOfferedRef.current = card.id;
+    if (groupedStageBalanceOffers(card, jobCardsDb.getAll()).length > 0) setCarryModalOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card?.id, isScoped]);
+
   const persist = useCallback((c: JobCard, silent = false) => {
     // Block a save that consumes more of a material than is in stock.
     const short = firstMaterialShortfall(c);
@@ -360,6 +375,32 @@ export function JobCardDetailPage() {
       return { ...p, cutting };
     });
   }
+
+  // ── Grouped balance carry-over (Printing / Metalize / Slitting) ────────────────
+  // A previous job of the SAME order can leave a balance at Printing, Metalize and/or
+  // Slitting. This is the single grouped pop-up that offers all of them at once, each
+  // with its own Add button; adding one feeds it into THIS job's matching stage and
+  // deducts it from the source (mirrors the lamination-leftover / ready-bag carry).
+  function carryStageFromSibling(key: BalanceStageKey, sibling: JobCard) {
+    if (!card?.id) { toast.error('Save the job card first'); return; }
+    const ci = moveStageBalance(sibling, key, jobCardsDb.getAll());
+    if (!ci) return;
+    setCard((p) => {
+      if (!p) return p;
+      const stage = { ...p[key], carriedIn: [...(p[key].carriedIn ?? []), ci] };
+      jobCardsDb.update(p.id, { [key]: stage, updatedAt: new Date().toISOString() } as Partial<JobCard>);
+      return { ...p, [key]: stage } as JobCard;
+    });
+    toast.success(`Moved ${(ci.kg ?? 0).toLocaleString('en-IN')} kg ${BALANCE_STAGE_LABEL[key]} balance from ${ci.fromLabel} into ${BALANCE_STAGE_LABEL[key]}`);
+  }
+  function removeStageCarried(key: BalanceStageKey, id: string) {
+    setCard((p) => {
+      if (!p) return p;
+      const stage = { ...p[key], carriedIn: (p[key].carriedIn ?? []).filter((c) => c.id !== id) };
+      if (p.id) jobCardsDb.update(p.id, { [key]: stage, updatedAt: new Date().toISOString() } as Partial<JobCard>);
+      return { ...p, [key]: stage } as JobCard;
+    });
+  }
   function setPrintingInput(v: number | undefined) { patchStage('printing', { inputKg: v }); }
 
   // ── Bale groups (dispatch) — pieces-per-bale × count, each with its weight ──────
@@ -445,6 +486,9 @@ export function JobCardDetailPage() {
   const h = card.header;
   const brand = h.brand;
 
+  // Sibling-balance offers for the grouped carry-over pop-up (Printing/Metalize/Slitting).
+  const carryOffers = !isScoped && card.id ? groupedStageBalanceOffers(card, jobCardsDb.getAll()) : [];
+
   // Ink auto-calc: % of the BOPP FILM actually consumed in Printing (Σ film rollUses),
   // not the input box (Part 1). The Other/Flexo card has no film step, so it falls
   // back to its printing input kg. Default % from Settings, editable per card.
@@ -456,6 +500,29 @@ export function JobCardDetailPage() {
   const threadQty = autoQty(stagePrimary(card, 'cutting').input, threadPct);
   // Effective cutting method — forced for a Cutting-BCS / Back Seal scoped staffer.
   const cutMethod = lockedMethod ?? card.cutting.method ?? 'BCS';
+
+  // Balances carried into an upstream stage (Printing/Metalize/Slitting) from a
+  // sibling job of the same order — shown per stage, each removable (returns to source).
+  const StageCarry = ({ k }: { k: BalanceStageKey }) => {
+    const carried = card[k].carriedIn ?? [];
+    if (carried.length === 0) return null;
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-3 space-y-2">
+        <p className="text-amber-300 text-xs font-semibold uppercase tracking-wide">{BALANCE_STAGE_LABEL[k]} balance carried in from previous job</p>
+        {carried.map((c) => (
+          <div key={c.id} className="flex items-center gap-2 text-sm">
+            <span className="text-white/85 font-mono">{(c.kg ?? 0).toLocaleString('en-IN')} kg</span>
+            <span className="text-muted text-xs">from {c.fromLabel}</span>
+            <button type="button" onClick={() => removeStageCarried(k, c.id)}
+              className="ml-auto p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400" title="Return to source card">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <p className="text-[11px] text-amber-300/70">Added to this job's {BALANCE_STAGE_LABEL[k]} input.</p>
+      </div>
+    );
+  };
 
   // Prominent carry-forward button — carries the stage's output (kg + meter) into
   // the next active stage's input.
@@ -516,10 +583,44 @@ export function JobCardDetailPage() {
           <span className="text-xs text-muted min-w-16 text-right" title="Entries auto-save a moment after you stop typing">
             {saveState === 'dirty' ? <span className="text-yellow-300">saving…</span> : saveState === 'saved' ? <span className="text-green-300">✓ saved</span> : ''}
           </span>
+          {carryOffers.length > 0 && (
+            <button onClick={() => setCarryModalOpen(true)} className="btn-secondary border-amber-500/40 text-amber-200 hover:bg-amber-500/15">
+              <ArrowRight className="w-4 h-4" /> Carry balances ({carryOffers.reduce((s, g) => s + g.offers.length, 0)})
+            </button>
+          )}
           <button onClick={() => window.print()} className="btn-secondary"><Printer className="w-4 h-4" /> Print</button>
           <button onClick={() => persist(card)} className="btn-primary"><Save className="w-4 h-4" /> Save</button>
         </div>
       </div>
+
+      {/* Grouped balance carry-over pop-up — Printing / Metalize / Slitting balances
+          from previous jobs of the SAME order, each with its own Add button. */}
+      <Modal open={carryModalOpen} onClose={() => setCarryModalOpen(false)} title="Carry balances from previous jobs" size="md">
+        {carryOffers.length === 0 ? (
+          <p className="text-muted text-sm">No outstanding Printing, Metalize or Slitting balances on this order's other jobs.</p>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-muted text-sm">A previous job of this order left these balances. Add any into this job — each flows into its matching stage's input and is deducted from the source so it isn't counted twice.</p>
+            {carryOffers.map((g) => (
+              <div key={g.key} className="rounded-lg border border-accent/15 overflow-hidden">
+                <div className="px-3 py-2 bg-navy/50 text-xs uppercase tracking-wide text-accent font-semibold">{g.label} balance</div>
+                <div className="p-3 space-y-2">
+                  {g.offers.map(({ card: sib, label, bal }) => (
+                    <div key={sib.id} className="flex items-center gap-3 text-sm">
+                      <span className="font-mono text-white/90">{bal.leftoverKg.toLocaleString('en-IN')} kg</span>
+                      <span className="text-muted text-xs">from {label}</span>
+                      <button type="button" onClick={() => carryStageFromSibling(g.key, sib)}
+                        className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200 font-medium text-xs hover:bg-amber-500/25 transition-colors">
+                        <Plus className="w-3.5 h-3.5" /> Add to {g.label}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       {/* Made vs dispatched — produced vs shipped, with ready-to-dispatch balance */}
       {card.id && (!isScoped || staffStage === 'dispatch') && (() => {
@@ -620,6 +721,7 @@ export function JobCardDetailPage() {
               <Field label="Output (meter)"><Num value={card.printing.meter} onChange={(v) => patchStage('printing', { meter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.printing.rejectionKg} onChange={(v) => patchStage('printing', { rejectionKg: v })} /></Field>
             </div>
+            <StageCarry k="printing" />
             {/* Printing consumes BOPP FILM only — Matte/Glossy films (Metalized is used at Metalize) */}
             <RollUsesPanel value={card.printing.rollUses ?? []} onChange={(u) => patchStage('printing', { rollUses: u })}
               kinds={['film']} filmFinishes={['Matte', 'Glossy']} title="BOPP film consumed — one line per film (Matte / Glossy)" />
@@ -656,6 +758,7 @@ export function JobCardDetailPage() {
               </Field>
               <Field label="Balance (kg)"><Num value={card.metalize.balanceKg} onChange={(v) => patchStage('metalize', { balanceKg: v })} /></Field>
             </div>
+            <StageCarry k="metalize" />
             {/* Metalize consumes METALIZED BOPP film — same consume/finished-balance/costing
                 as Printing, but no ink auto-calc (ink is Printing-only). */}
             <RollUsesPanel value={card.metalize.rollUses ?? []} onChange={(u) => patchStage('metalize', { rollUses: u })}
@@ -677,6 +780,7 @@ export function JobCardDetailPage() {
               <Field label="Balance (meter)"><Num value={card.slitting.balanceMeter} onChange={(v) => patchStage('slitting', { balanceMeter: v })} /></Field>
               <Field label="Wastage (kg)"><Num value={card.slitting.rejectionKg} onChange={(v) => patchStage('slitting', { rejectionKg: v })} /></Field>
             </div>
+            <StageCarry k="slitting" />
             <CarryBtn from="slitting" />
           </StageCard>
 

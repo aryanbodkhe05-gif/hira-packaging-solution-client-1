@@ -137,6 +137,12 @@ export function laminationSentToCuttingKg(j: JobCard): number {
 export function cuttingCarriedInKg(j: JobCard): number {
   return sum((j.cutting.carriedIn ?? []).map((c) => num(c.kg)));
 }
+// kg carried into an upstream stage (Printing/Metalize/Slitting) from a sibling job's
+// balance of the SAME stage — added to that stage's input (mirrors cutting.carriedIn).
+export function stageCarriedInKg(j: JobCard, key: StageKey): number {
+  const st = j[key] as { carriedIn?: { kg?: number }[] };
+  return sum((st.carriedIn ?? []).map((c) => num(c.kg)));
+}
 // This card's OWN cutting input (excludes carried-in material). When Lamination
 // directly feeds Cutting, it is exactly the Lamination "Sent to Cutting" value; on
 // cards where Lamination doesn't precede Cutting, it falls back to the cutting rows.
@@ -167,9 +173,9 @@ export function stagePrimary(j: JobCard, key: StageKey): { input: number; output
     return { input, output: t > 0 ? t : Math.max(0, +(input - rejection).toFixed(3)), rejection };
   };
   switch (key) {
-    case 'printing': { const s = j.printing; return withOutput(num(s.inputKg), num(s.rejectionKg), s.outputKg); }
-    case 'metalize': { const s = j.metalize; return withOutput(num(s.boppInputKg) || num(s.metalizeInputKg), num(s.rejectionKg), s.outputKg); }
-    case 'slitting': { const s = j.slitting; return withOutput(num(s.inputKg) || num(s.grossInputKg), num(s.rejectionKg), s.outputKg); }
+    case 'printing': { const s = j.printing; return withOutput(num(s.inputKg) + stageCarriedInKg(j, 'printing'), num(s.rejectionKg), s.outputKg); }
+    case 'metalize': { const s = j.metalize; return withOutput((num(s.boppInputKg) || num(s.metalizeInputKg)) + stageCarriedInKg(j, 'metalize'), num(s.rejectionKg), s.outputKg); }
+    case 'slitting': { const s = j.slitting; return withOutput((num(s.inputKg) || num(s.grossInputKg)) + stageCarriedInKg(j, 'slitting'), num(s.rejectionKg), s.outputKg); }
     // Lamination ADDS mass (fabric + LD/granule), so its output is the Total KG (full
     // laminated weight), not input − wastage.
     case 'lamination': { const s = j.lamination; return { input: laminationBoppIn(j), output: laminationOutputKg(j), rejection: num(s.rejectionKg) }; }

@@ -388,4 +388,43 @@ export function seedSampleData(): void {
       status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
     });
   }
+
+  // Grouped balance carry-over demo (Part 1): one order, two jobs. JC-1 holds a
+  // balance at Printing (30 kg), Metalize (20 kg) AND Slitting (15 kg). Open JC-2 of
+  // the same order and the single grouped pop-up offers all three — Add any/all and
+  // each flows into JC-2's matching stage (deducted from JC-1 so it isn't double-counted).
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9010')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0006', brandName: 'Grouped Carry Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], metalizeSize: '480', length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 20000, quantityKg: 800, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
+    // JC-1 — Metalized card (so Metalize is active); leaves a balance at each of the
+    // three upstream stages that the next job can pull in.
+    const jc1 = jobCardsDb.create({
+      jobNo: 'HPS-2026-9010', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Grouped Carry Demo',
+      header: { brand: 'Grouped Carry Demo', qty: 12000, size: '25 × 30', finish: 'Metalized', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 300, outputKg: 270, balanceKg: 30, meter: 4000 },
+      metalize: { na: false, consumption: [], materials: [], rollUses: [], boppInputKg: 270, outputKg: 250, balanceKg: 20 },
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 250, outputKg: 235, balanceKg: 15 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 235 }], sentToCuttingKg: 235 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 235, noOfBags: 12000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    // JC-2 — fresh; opening it pops the grouped carry-over dialog offering JC-1's
+    // Printing 30 / Metalize 20 / Slitting 15 kg balances.
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9011', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 2, client: 'Grouped Carry Demo',
+      header: { brand: 'Grouped Carry Demo', qty: 8000, size: '25 × 30', finish: 'Metalized', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 120 },
+      metalize: { na: false, consumption: [], materials: [], rollUses: [], boppInputKg: 108 },
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 100 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 100 }] },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 8000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Printing', ratesAsOf: now, createdAt: iso(), updatedAt: now,
+    });
+    ordersDb.update(order.id, { jobCardId: jc1.id });
+  }
 }
