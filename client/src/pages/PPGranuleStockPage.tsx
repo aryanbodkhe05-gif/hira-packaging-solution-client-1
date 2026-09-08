@@ -15,6 +15,7 @@ import { Pagination } from '../components/ui/Pagination';
 import { TypeAhead, rememberTypeAhead } from '../components/ui/TypeAhead';
 import { formatDate, cn } from '../lib/utils';
 import { formatINR } from '../lib/jobcard';
+import { granuleBatches } from '../lib/granules';
 
 const PAGE_SIZE = 20;
 const today = () => new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
@@ -203,7 +204,7 @@ export function PPGranuleStockPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="page-header">P.P. Granule Stock</h1>
-          <p className="text-muted text-sm mt-1">P.P., Filler, Master Batch, Colour, Enhancer — one moving-average pool per granule; deducts when consumed in the Tape Plant</p>
+          <p className="text-muted text-sm mt-1">P.P., Filler, Master Batch, Colour, Enhancer — separate batches per granule (each at its own receipt rate); consumed FIFO (oldest batch first) in the Tape Plant</p>
         </div>
         <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Item</button>
       </div>
@@ -272,42 +273,52 @@ export function PPGranuleStockPage() {
                       <tr>
                         <td colSpan={showCosts ? 9 : 7} className="px-5 py-3 bg-navy/40">
                           {rs.length === 0 ? (
-                            <p className="text-muted text-xs">No receipts yet — receive stock to give this granule quantity and a rate.</p>
-                          ) : (
+                            <p className="text-muted text-xs">No batches yet — receive stock to give this granule quantity and a rate.</p>
+                          ) : (() => {
+                            // FIFO batches (oldest receipt first) with remaining + running total.
+                            const byId = Object.fromEntries(rs.map((r) => [r.id, r]));
+                            const batches = granuleBatches(m.id, { receipts: rs });
+                            return (
                             <table className="w-full text-xs">
                               <thead><tr className="text-muted">
+                                <th className="text-left py-1 font-medium">Batch (received)</th>
                                 <th className="text-left py-1 font-medium">Received</th>
-                                <th className="text-left py-1 font-medium">Qty</th>
                                 <th className="text-left py-1 font-medium">Rate</th>
-                                {showCosts && <th className="text-left py-1 font-medium">Value</th>}
+                                <th className="text-left py-1 font-medium">Remaining</th>
+                                <th className="text-left py-1 font-medium">Running total</th>
+                                {showCosts && <th className="text-left py-1 font-medium">Batch value</th>}
                                 <th className="text-left py-1 font-medium">Party</th>
                                 <th className="text-left py-1 font-medium">Bill No</th>
-                                <th className="text-left py-1 font-medium">Note</th>
                                 <th></th>
                               </tr></thead>
                               <tbody>
-                                {rs.map((r) => (
-                                  <tr key={r.id} className="border-t border-white/5">
-                                    <td className="py-1.5 font-mono text-white/70 whitespace-nowrap">{formatDate(r.date)}</td>
-                                    <td className="py-1.5 font-mono text-white/70">{r.qty.toLocaleString('en-IN')}</td>
+                                {batches.map((b, bi) => {
+                                  const r = byId[b.receiptId];
+                                  return (
+                                  <tr key={b.receiptId} className={cn('border-t border-white/5', b.remaining <= 0 && 'opacity-45')}>
+                                    <td className="py-1.5 font-mono text-white/70 whitespace-nowrap">Batch {bi + 1} · {formatDate(b.date)}</td>
+                                    <td className="py-1.5 font-mono text-white/70">{b.received.toLocaleString('en-IN')}</td>
                                     <td className="py-1.5 font-mono">
-                                      {r.rate == null
+                                      {b.rate == null
                                         ? <span className="badge bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 text-[10px]">rate not set</span>
-                                        : <span className="text-white/90">₹{r.rate.toLocaleString('en-IN')}/{m.unit ?? 'kg'}</span>}
+                                        : <span className="text-white/90">₹{b.rate.toLocaleString('en-IN')}/{m.unit ?? 'kg'}</span>}
                                     </td>
-                                    {showCosts && <td className="py-1.5 font-mono text-white/70">{r.rate == null ? '—' : formatINR(r.qty * r.rate)}</td>}
-                                    <td className="py-1.5 text-white/70">{r.party || '—'}</td>
-                                    <td className="py-1.5 font-mono text-white/60">{r.billNo || '—'}</td>
-                                    <td className="py-1.5 text-muted">{r.note ?? r.grnRef ?? '—'}</td>
+                                    <td className="py-1.5 font-mono text-white/90">{b.remaining.toLocaleString('en-IN')}{b.remaining <= 0 && <span className="text-muted"> · drained</span>}</td>
+                                    <td className="py-1.5 font-mono text-accent">{b.runningTotal.toLocaleString('en-IN')}</td>
+                                    {showCosts && <td className="py-1.5 font-mono text-white/70">{b.rate == null ? '—' : formatINR(b.remaining * b.rate)}</td>}
+                                    <td className="py-1.5 text-white/70">{r?.party || '—'}</td>
+                                    <td className="py-1.5 font-mono text-white/60">{r?.billNo || '—'}</td>
                                     <td className="py-1.5"><div className="flex gap-1 justify-end">
-                                      <button onClick={() => setReceiptModal({ item: m, receipt: r })} title={r.rate == null ? 'Set rate' : 'Edit'} className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent"><Pencil className="w-3 h-3" /></button>
-                                      <button onClick={() => handleReceiptDelete(r.id)} className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+                                      {r && <button onClick={() => setReceiptModal({ item: m, receipt: r })} title={r.rate == null ? 'Set rate' : 'Edit'} className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent"><Pencil className="w-3 h-3" /></button>}
+                                      {r && <button onClick={() => handleReceiptDelete(r.id)} className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3 h-3" /></button>}
                                     </div></td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
-                          )}
+                            );
+                          })()}
                         </td>
                       </tr>
                     )}

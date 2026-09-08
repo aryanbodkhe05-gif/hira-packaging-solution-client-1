@@ -18,7 +18,7 @@ import type {
 import type { FabricBatch, FabricWastage, GranuleUse, PPGranuleItem } from '../types/models';
 import { canViewCosts } from '../lib/roles';
 import { formatINR } from '../lib/jobcard';
-import { tapePrice, granuleTypeRates } from '../lib/granules';
+import { tapePrice, granuleTypeRates, allocateGranuleFifo } from '../lib/granules';
 import { TypeAhead, rememberTypeAhead } from '../components/ui/TypeAhead';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -58,9 +58,10 @@ const emptyBatch: Omit<FabricBatch, 'id'> = {
   status: 'Open', notes: '', createdAt: '', updatedAt: '',
 };
 
-function BatchForm({ initial, granuleItems, onSave, onClose }: {
+function BatchForm({ initial, granuleItems, editingBatchId, onSave, onClose }: {
   initial: Omit<FabricBatch, 'id'>;
   granuleItems: PPGranuleItem[];
+  editingBatchId?: string;      // set when editing — excluded from FIFO so the run doesn't see its own draw
   onSave: (d: Omit<FabricBatch, 'id'>) => void;
   onClose: () => void;
 }) {
@@ -90,7 +91,9 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
   // to the granule input mass when an explicit output kg isn't entered.
   const showCosts = canViewCosts();
   const tapeKg = f.outputKg || total;
-  const price = useMemo(() => tapePrice(uses.filter((u) => u.itemId && u.qtyKg > 0), tapeKg, granuleItems), [uses, tapeKg, granuleItems]);
+  const price = useMemo(() => tapePrice(uses.filter((u) => u.itemId && u.qtyKg > 0), tapeKg, granuleItems, { excludeConsumerId: editingBatchId }), [uses, tapeKg, granuleItems, editingBatchId]);
+  // FIFO split preview per row — one lot per batch drained, oldest first.
+  const fifoFor = (u: GranuleUse) => (u.itemId && u.qtyKg > 0 ? allocateGranuleFifo(u.itemId, u.qtyKg, { excludeConsumerId: editingBatchId }) : { lots: [], shortfall: 0 });
 
   function submit() {
     if (!f.line.trim()) { toast.error('Machine / Line No. is required'); return; }
@@ -104,7 +107,9 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
       }
     }
     if (!f.outputMeters || f.outputMeters < 1) { toast.error('Total fabric output must be at least 1 meter'); return; }
-    onSave({ ...f, line: f.line.trim(), uses: valid });
+    // Snapshot the FIFO split onto each row so the run remembers which batches it drained.
+    const withLots = valid.map((u) => ({ ...u, lots: allocateGranuleFifo(u.itemId, u.qtyKg, { excludeConsumerId: editingBatchId }).lots }));
+    onSave({ ...f, line: f.line.trim(), uses: withLots });
   }
 
   return (
@@ -125,17 +130,34 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
         {uses.map((u, i) => {
           const avail = u.itemId ? availableFor(u.itemId) : 0;
           const over = u.itemId && u.qtyKg > avail + 1e-6;
+          const fifo = fifoFor(u);
           return (
-            <div key={i} className="flex gap-2 items-start">
-              <select className="input-field flex-1" value={u.itemId} onChange={(e) => pickItem(i, e.target.value)}>
-                <option value="">Select granule item…</option>
-                {granuleItems.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.currentStockKg.toLocaleString('en-IN')}kg{g.avgRate != null ? ` @ ₹${g.avgRate}` : g.costPerKg != null ? ` @ ₹${g.costPerKg}` : ' (no rate)'}</option>)}
-              </select>
-              <div className="w-32">
-                <input className={cn('input-field font-mono', over && 'border-red-500/60')} type="number" min="0" step="any" value={u.qtyKg || ''} onChange={(e) => setUse(i, { qtyKg: toNum(e.target.value) })} placeholder="kg" />
-                {u.itemId && <p className={cn('text-[10px] mt-0.5', over ? 'text-red-300' : 'text-muted')}>avail {avail.toLocaleString('en-IN')}kg</p>}
+            <div key={i} className="space-y-1.5">
+              <div className="flex gap-2 items-start">
+                <select className="input-field flex-1" value={u.itemId} onChange={(e) => pickItem(i, e.target.value)}>
+                  <option value="">Select granule item…</option>
+                  {granuleItems.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.currentStockKg.toLocaleString('en-IN')}kg in stock</option>)}
+                </select>
+                <div className="w-32">
+                  <input className={cn('input-field font-mono', over && 'border-red-500/60')} type="number" min="0" step="any" value={u.qtyKg || ''} onChange={(e) => setUse(i, { qtyKg: toNum(e.target.value) })} placeholder="kg" />
+                  {u.itemId && <p className={cn('text-[10px] mt-0.5', over ? 'text-red-300' : 'text-muted')}>avail {avail.toLocaleString('en-IN')}kg</p>}
+                </div>
+                <button type="button" onClick={() => removeRow(i)} className="p-2 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
-              <button type="button" onClick={() => removeRow(i)} className="p-2 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              {/* FIFO split — one line per batch drained (oldest first), each at its rate */}
+              {fifo.lots.length > 0 && (
+                <div className="ml-1 pl-2 border-l border-accent/20 space-y-0.5">
+                  {fifo.lots.map((lot, li) => (
+                    <div key={li} className="flex items-center gap-2 text-[11px] font-mono text-muted">
+                      <span className="text-white/70">{lot.qty.toLocaleString('en-IN')} kg</span>
+                      <span>@ {lot.rate == null ? <span className="text-yellow-300">no rate</span> : `₹${lot.rate}`}</span>
+                      <span className="text-white/40">· batch {formatDate(lot.batchDate)}</span>
+                      {showCosts && lot.rate != null && <span className="ml-auto text-white/70">{formatINR(lot.lineCost)}</span>}
+                    </div>
+                  ))}
+                  {fifo.shortfall > 1e-6 && <p className="text-[11px] text-red-300">Short {fifo.shortfall.toLocaleString('en-IN')} kg — no batch stock to cover it.</p>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -179,7 +201,7 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
             <span>Tape price calculator</span>
             <span className="text-white/60 normal-case">over {tapeKg.toLocaleString('en-IN')} kg tape</span>
           </p>
-          <div className="flex justify-between text-sm"><span className="text-muted">Granules (avg-costed)</span><span className="font-mono text-white/85">{formatINR(price.granuleCost)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-muted">Granules (FIFO batch-costed)</span><span className="font-mono text-white/85">{formatINR(price.granuleCost)}</span></div>
           {Object.entries(price.granuleByType).length > 0 && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-2">
               {Object.entries(price.granuleByType).map(([t, c]) => (
@@ -187,11 +209,10 @@ function BatchForm({ initial, granuleItems, onSave, onClose }: {
               ))}
             </div>
           )}
-          <div className="flex justify-between text-sm"><span className="text-muted">Labour &amp; overhead</span><span className="font-mono text-white/85">{formatINR(price.labourCost)}</span></div>
           <div className="flex justify-between border-t border-white/10 pt-2 text-sm"><span className="text-white/80">Total tape cost</span><span className="font-mono text-white font-semibold">{formatINR(price.totalCost)}</span></div>
           <div className="flex justify-between text-base"><span className="text-white font-semibold">Tape price / kg</span><span className="font-mono text-accent font-bold">{formatINR(price.pricePerKg)}</span></div>
-          {(price.granuleUnrated || price.labourUnset) && (
-            <p className="text-[11px] text-yellow-300/90">Some granules/rates are unpriced — excluded from the total until set.</p>
+          {price.granuleUnrated && (
+            <p className="text-[11px] text-yellow-300/90">Some granule batches are unpriced — excluded from the total until set.</p>
           )}
         </div>
       )}
@@ -333,7 +354,7 @@ function TapeTransferForm({ batch, granuleItems, onSave, onClose }: {
         <div>
           <label className="label">Rate (₹/kg)</label>
           <input className="input-field font-mono" type="number" min="0" step="any" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder="auto from cost/kg" />
-          {showCosts && price.pricePerKg > 0 && <p className="text-[10px] mt-0.5 text-muted">plant cost/kg ≈ {formatINR(price.pricePerKg)}{price.granuleUnrated || price.labourUnset ? ' (some inputs unpriced)' : ''}</p>}
+          {showCosts && price.pricePerKg > 0 && <p className="text-[10px] mt-0.5 text-muted">plant cost/kg ≈ {formatINR(price.pricePerKg)}{price.granuleUnrated ? ' (some batches unpriced)' : ''}</p>}
         </div>
         <div><label className="label">Party Name</label><TypeAhead value={party} onChange={setParty} listKey={PARTIES_KEY} defaults={DEFAULT_PARTIES} placeholder="party" /></div>
         <div className="col-span-2"><label className="label">Bill No.</label><input className="input-field font-mono" value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="optional" /></div>
@@ -535,6 +556,7 @@ function BatchesSection({ batches, wastageByBatch, openNew, onChanged }: {
           <BatchForm
             initial={modal.batch ?? { ...emptyBatch, date: today() }}
             granuleItems={granuleItems}
+            editingBatchId={modal.batch?.id}
             onSave={handleSave}
             onClose={() => setModal(null)}
           />
@@ -735,7 +757,7 @@ export function PPFabricPage() {
       <div>
         <h1 className="page-header">{makeTape ? `Tape Plant — ${unitName(activeUnit)}` : 'PP Fabric Production'}</h1>
         <p className="text-muted text-sm mt-1">{makeTape
-          ? 'Extrude tape from granules (moving-average cost), then transfer each run into the Tape Log for the loom.'
+          ? 'Extrude tape from granules (FIFO batch cost — oldest batch first), then transfer each run into the Tape Log for the loom.'
           : 'Log raw material batches and track wastage for PP tape / fabric'}</p>
       </div>
 

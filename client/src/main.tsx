@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import { migrateStorage, purgeBusinessDataOnce, hydrateFromServer, migrateRenamesOnce, migrateOrderFieldsOnce, migrateToMovingAvgOnce, migrateGranulesToReceiptsOnce, migrateUnitsOnce, syncMaterialPools, syncGranulePools } from './lib/db';
+import { migrateStorage, purgeBusinessDataOnce, hydrateFromServer, migrateRenamesOnce, migrateOrderFieldsOnce, migrateToMovingAvgOnce, migrateGranulesToReceiptsOnce, migrateUnitsOnce, removeRateMasterOnce, syncMaterialPools, syncGranulePools } from './lib/db';
 import { seedSampleData } from './lib/sampleSeed';
 
 // PWA auto-update: the service worker (registerType 'autoUpdate') installs a new
@@ -33,6 +33,7 @@ async function boot() {
   migrateToMovingAvgOnce(); // FIFO batches → moving-average receipts + pooled costing
   migrateGranulesToReceiptsOnce(); // granule stock/rate → opening receipts (moving-average pools)
   migrateUnitsOnce();       // assign existing loom/pp/granule data to Unit 1
+  removeRateMasterOnce();   // drop the retired Rate Master (labour/overhead) table
   if (import.meta.env.DEV) seedSampleData(); // localhost-only sample data (never in the deployed build)
   syncMaterialPools(); // derive each material's pool + snapshot avg rates from receipts + consumption
   syncGranulePools();  // derive each granule's moving-average pool from receipts − consumption

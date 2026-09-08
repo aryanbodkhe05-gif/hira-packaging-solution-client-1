@@ -3,13 +3,14 @@
 // therefore never pollutes the live shared database).
 import {
   factoryMachinesDb, ppGranulesDb, ppGranuleReceiptsDb, syncGranulePools, invRollsDb, boppFilmsDb, ordersDb,
-  rawMaterialsDb, rawMaterialReceiptsDb, rateMasterDb, syncMaterialPools,
+  rawMaterialsDb, rawMaterialReceiptsDb, syncMaterialPools,
   jobCardsDb, dispatchesDb, loomEntriesDb, fabricBatchesDb, unitRollsDb, addToList,
   loomsDb, tapeReceiptsDb, tapeWastageDb,
 } from './db';
 import {
-  RATE_MASTER_SEED, ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
+  ROLL_SIZEGM_KEY, DEFAULT_ROLL_SIZEGM, ROLL_GM_KEY, DEFAULT_ROLL_GM,
 } from '../config';
+import { allocateGranuleFifo } from './granules';
 import { saveUnits, getUnits } from './units';
 
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -34,6 +35,7 @@ export function seedSampleData(): void {
   let fillerU1: { id: string; name: string } | undefined;
   let ppU2: { id: string; name: string } | undefined;
   let fillerU2: { id: string; name: string } | undefined;
+  let raffleU2: { id: string; name: string } | undefined;
   if (ppGranulesDb.getAll().length === 0) {
     // Granules are moving-average pools (like Raw Materials): a named item + a receipt
     // log; the pool (qty/value/avg) is derived by syncGranulePools.
@@ -52,6 +54,14 @@ export function seedSampleData(): void {
     // 1000 kg worth ₹100,000 at avg ₹100/kg (proves the moving average).
     ppU2 = g('P.P.', 'unit-2', [{ qty: 500, rate: 98, date: daysAgo(10) }, { qty: 500, rate: 102, date: daysAgo(3) }]);
     fillerU2 = g('Filler', 'unit-2', [{ qty: 300, rate: 40 }]);
+    // FIFO demo (Part 4): "Raffle" has THREE batches. A 200 kg draw drains the two
+    // OLDEST first: 100 @ ₹100 + 100 @ ₹110 = ₹21,000; the newest 300 @ ₹120 is
+    // untouched. (Batch age = receipt date — oldest is the earliest date.)
+    raffleU2 = g('Raffle', 'unit-2', [
+      { qty: 100, rate: 100, date: daysAgo(20) },   // Batch 1 — oldest, drained first
+      { qty: 100, rate: 110, date: daysAgo(12) },   // Batch 2 — drained next
+      { qty: 300, rate: 120, date: daysAgo(4) },    // Batch 3 — newest, untouched by a 200 kg draw
+    ]);
   }
 
   // Loom machines: one loom per unit (proves per-unit isolation — Unit 1's loom must
@@ -61,19 +71,22 @@ export function seedSampleData(): void {
     loomsDb.create({ unitId: 'unit-2', loomNo: 'Loom B1', maxRpm: 160, status: 'Active', createdAt: iso(), updatedAt: iso() });
   }
 
-  // Unit 1 (Umay) buys tape — stocked by size, moving-average per size (Part 1).
+  // Unit 1 (Umay) buys tape — stocked by size, each receipt a batch/lot (Part 3).
+  let tapeLot25: { id: string; date: string } | undefined;
   if (tapeReceiptsDb.getAll().length === 0) {
-    const tr = (size: string, qty: number, rate: number | null, party: string, bill: string) =>
-      tapeReceiptsDb.create({ unitId: 'unit-1', size, qty, rate, party, billNo: bill, date: daysAgo(6), createdAt: iso() });
-    tr('2.5 inch', 500, 85, 'Balaji Tapes', 'BT-101');
-    tr('2.5 inch', 400, 92, 'Balaji Tapes', 'BT-140');    // blends to ~₹88.11/kg avg
-    tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22');
+    const tr = (size: string, qty: number, rate: number | null, party: string, bill: string, dAgo = 6) =>
+      tapeReceiptsDb.create({ unitId: 'unit-1', size, qty, rate, party, billNo: bill, date: daysAgo(dAgo), createdAt: iso() });
+    const lot1 = tr('2.5 inch', 500, 85, 'Balaji Tapes', 'BT-101', 8);
+    tr('2.5 inch', 400, 92, 'Balaji Tapes', 'BT-140', 3);    // blends to ~₹88.11/kg avg
+    tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22', 5);
+    tapeLot25 = { id: lot1.id, date: lot1.date };
   }
 
-  // Manual tape wastage (Unit 1) — record-only, ~1% after making. Not deducted.
+  // Tape wastage (Unit 1). Part 3: a batch-linked entry DEDUCTS from that specific
+  // lot's stock; the older record-only entries (no receiptId) are left as-is.
   if (tapeWastageDb.getAll().length === 0) {
-    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 5, date: daysAgo(4), note: '~1% after making', createdAt: iso() });
-    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 3, date: daysAgo(1), note: 'edge trim', createdAt: iso() });
+    if (tapeLot25) tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 6, date: tapeLot25.date, note: '~1% after making — deducted from Batch 1', receiptId: tapeLot25.id, rateSnapshot: 85, createdAt: iso() });
+    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 3, date: daysAgo(1), note: 'edge trim (record-only, legacy)', createdAt: iso() });
     tapeWastageDb.create({ unitId: 'unit-1', size: '3 inch', qty: 2, date: daysAgo(2), createdAt: iso() });
   }
 
@@ -110,6 +123,16 @@ export function seedSampleData(): void {
     const rate2 = Math.round((800 * 100 + 200 * 40) / tapeKg2);   // granule cost/kg ≈ ₹93
     const rec2 = tapeReceiptsDb.create({ unitId: 'unit-2', size: '2 inch', qty: tapeKg2, rate: rate2, party: 'Hira Packaging', billNo: 'TP-B-001', date: today(), createdAt: iso() });
     fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-001', date: today(), shift: 'Morning', line: 'Line 1', uses: uses2, outputMeters: 900, outputKg: tapeKg2, status: 'Closed', tapeLogReceiptId: rec2.id, tapeLogSize: '2 inch', tapeLogQtyKg: tapeKg2, tapeTransferredAt: iso(), createdAt: iso(), updatedAt: iso() });
+
+    // Unit 2 FIFO run (Part 4): consumes 200 kg Raffle → FIFO splits into two batch
+    // lots (100 @ ₹100 + 100 @ ₹110 = ₹21,000); the newest 300 @ ₹120 batch stays.
+    // Not transferred to the Tape Log so the "Tape Log" transfer button is visible.
+    if (raffleU2) {
+      const raffleLots = allocateGranuleFifo(raffleU2.id, 200).lots;
+      fabricBatchesDb.create({ unitId: 'unit-2', batchId: 'HIRA-B-002', date: today(), shift: 'Afternoon', line: 'Line 2',
+        uses: [{ itemId: raffleU2.id, itemName: raffleU2.name, type: 'Raffle', qtyKg: 200, lots: raffleLots }],
+        outputMeters: 400, outputKg: 200, status: 'Closed', createdAt: iso(), updatedAt: iso() });
+    }
   }
 
   // Roll Count: extra rolls sitting in Unit 1 stock (manual roll nos), ready to
@@ -187,10 +210,6 @@ export function seedSampleData(): void {
     // Left unpriced on purpose — shows "unrated" and stays out of the average/value.
     mat('Hot melt glue', 'kg', [{ qty: 90, rate: null, date: daysAgo(6), note: 'Awaiting invoice — price later' }]);
     syncMaterialPools();
-  }
-
-  if (rateMasterDb.getAll().length === 0) {
-    for (const r of RATE_MASTER_SEED) rateMasterDb.create({ ...r, active: true, createdAt: iso(), updatedAt: iso() });
   }
 
   if (ordersDb.getAll().length === 0) {
@@ -391,5 +410,44 @@ export function seedSampleData(): void {
       dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [] },
       status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
     });
+  }
+
+  // Grouped balance carry-over demo (Part 1): one order, two jobs. JC-1 holds a
+  // balance at Printing (30 kg), Metalize (20 kg) AND Slitting (15 kg). Open JC-2 of
+  // the same order and the single grouped pop-up offers all three — Add any/all and
+  // each flows into JC-2's matching stage (deducted from JC-1 so it isn't double-counted).
+  if (!jobCardsDb.getAll().some((c) => c.jobNo === 'HPS-2026-9010')) {
+    const now = iso();
+    const emptyStage = { na: true, consumption: [], materials: [], rollUses: [] };
+    const order = ordersDb.create({ orderId: 'HPS-20260702-0006', brandName: 'Grouped Carry Demo', productType: 'BOPP', makingType: 'Bag', bagType: 'Handle', boppFilmSizes: ['520'], metalizeSize: '480', length: 25, width: 30, grm: 0.96, sizeDisplay: '25 × 30 + 0.96 gm', quantityNos: 20000, quantityKg: 800, quantityUnit: 'Both', status: 'In Production', createdAt: iso() });
+    // JC-1 — Metalized card (so Metalize is active); leaves a balance at each of the
+    // three upstream stages that the next job can pull in.
+    const jc1 = jobCardsDb.create({
+      jobNo: 'HPS-2026-9010', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 1, client: 'Grouped Carry Demo',
+      header: { brand: 'Grouped Carry Demo', qty: 12000, size: '25 × 30', finish: 'Metalized', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 300, outputKg: 270, balanceKg: 30, meter: 4000 },
+      metalize: { na: false, consumption: [], materials: [], rollUses: [], boppInputKg: 270, outputKg: 250, balanceKg: 20 },
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 250, outputKg: 235, balanceKg: 15 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 235 }], sentToCuttingKg: 235 },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ inputKg: 235, noOfBags: 12000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Slitting', ratesAsOf: now, createdAt: now, updatedAt: now,
+    });
+    // JC-2 — fresh; opening it pops the grouped carry-over dialog offering JC-1's
+    // Printing 30 / Metalize 20 / Slitting 15 kg balances.
+    jobCardsDb.create({
+      jobNo: 'HPS-2026-9011', cardType: 'BOPP', makingType: 'Bag',
+      orderRef: order.id, orderNo: order.orderId, orderJobSeq: 2, client: 'Grouped Carry Demo',
+      header: { brand: 'Grouped Carry Demo', qty: 8000, size: '25 × 30', finish: 'Metalized', date: today(), boppFilmSizes: ['520'] },
+      printing: { na: false, consumption: [], materials: [], rollUses: [], inputKg: 120 },
+      metalize: { na: false, consumption: [], materials: [], rollUses: [], boppInputKg: 108 },
+      slitting: { na: false, consumption: [], materials: [], rollUses: [], rolls: [], inputKg: 100 },
+      lamination: { na: false, consumption: [], materials: [], rollUses: [], rows: [{ boppInKg: 100 }] },
+      cutting: { na: false, consumption: [], materials: [], rollUses: [], gusset: false, perforation: false, rows: [{ noOfBags: 8000, machine: 'Cutting-1' }] },
+      dispatch: { na: false, consumption: [], materials: [], rollUses: [], lines: [{}], bagsPerBale: 100 },
+      status: 'In Progress', currentStage: 'Printing', ratesAsOf: now, createdAt: iso(), updatedAt: now,
+    });
+    ordersDb.update(order.id, { jobCardId: jc1.id });
   }
 }

@@ -236,20 +236,5 @@ export const PROCESSES_KEY = 'list_staff_processes';
 export const DEFAULT_BAG_TYPES = ['Handle', 'Laminated', 'Non-laminated'];
 export const BAG_TYPES_KEY = 'list_bag_types';
 
-// Rate Master categories — a labour/overhead line belongs to one stage (or 'Any')
-export const RATE_CATEGORIES = ['Printing', 'Metalize', 'Slitting', 'Lamination', 'Cutting', 'Dispatch', 'Any'] as const;
-export type RateCategory = typeof RATE_CATEGORIES[number];
-
-// The Rate Master no longer prices materials — raw materials, rolls and BOPP film
-// are costed from the rate of the batch actually consumed (see lib/batches.ts).
-// What remains here is labour and machine/overhead conversion cost per stage.
-export const RATE_MASTER_SEED: { name: string; unit: string; rate: number | null; category: RateCategory }[] = [
-  { name: 'Printing labour',        unit: '₹/kg',   rate: 6,    category: 'Printing' },
-  { name: 'Printing machine hour',  unit: '₹/kg',   rate: 4,    category: 'Printing' },
-  { name: 'Metalize conversion',    unit: '₹/kg',   rate: 12,   category: 'Metalize' },
-  { name: 'Slitting labour',        unit: '₹/kg',   rate: 3,    category: 'Slitting' },
-  { name: 'Lamination labour',      unit: '₹/kg',   rate: 5,    category: 'Lamination' },
-  { name: 'Cutting labour',         unit: '₹/kg',   rate: 4,    category: 'Cutting' },
-  { name: 'Packing labour',         unit: '₹/bale', rate: 10,   category: 'Dispatch' },
-  { name: 'Factory overhead',       unit: '₹/kg',   rate: null, category: 'Any' },
-];
+// Rate Master removed — costing is material/roll/granule batch rates only, with no
+// labour or overhead lines. (Kept intentionally empty; nothing seeds a rate table.)

@@ -146,6 +146,70 @@ export function moveLaminationBalance(sibling: JobCard, allCards: JobCard[]): Ca
   };
 }
 
+// ── Printing / Metalize / Slitting balance — carries to the SAME ORDER's next job ──
+// Mirrors the lamination-leftover flow exactly, generalised over the three upstream
+// stages. Each stage carries the operator-entered "Balance (kg)" of a sibling job
+// into THIS job's SAME stage (stage.carriedIn); the transfer nets out of the source
+// (its leftover → 0) so a balance is never counted twice.
+export type BalanceStageKey = 'printing' | 'metalize' | 'slitting';
+export const BALANCE_STAGE_LABEL: Record<BalanceStageKey, string> = {
+  printing: 'Printing', metalize: 'Metalize', slitting: 'Slitting',
+};
+
+export interface StageBalance { declaredKg: number; transferredOutKg: number; leftoverKg: number; }
+
+// A stage's outstanding balance on a card = its entered Balance (kg) minus whatever
+// has already been carried out of it onto sibling cards' same stage.
+export function cardStageBalance(card: JobCard, key: BalanceStageKey, allCards: JobCard[]): StageBalance {
+  const st = card[key];
+  if (st.na) return { declaredKg: 0, transferredOutKg: 0, leftoverKg: 0 };
+  const declaredKg = num(st.balanceKg);
+  let transferredOutKg = 0;
+  for (const c of allCards) {
+    if (c.id === card.id) continue;
+    for (const ci of c[key].carriedIn ?? []) {
+      if (ci.fromCardId === card.id) transferredOutKg += num(ci.kg);
+    }
+  }
+  const leftoverKg = Math.max(0, +(declaredKg - transferredOutKg).toFixed(2));
+  return { declaredKg, transferredOutKg, leftoverKg };
+}
+
+// Sibling cards of the same order that still hold a balance in `key` and haven't
+// already been carried onto `card`'s same stage — the stage carry-in options.
+export function siblingsWithStageBalance(card: JobCard, key: BalanceStageKey, allCards: JobCard[]): { card: JobCard; label: string; bal: StageBalance }[] {
+  if (!card.orderRef) return [];
+  const already = new Set((card[key].carriedIn ?? []).map((c) => c.fromCardId));
+  return allCards
+    .filter((c) => c.id !== card.id && c.orderRef === card.orderRef && !already.has(c.id))
+    .map((c) => ({ card: c, label: jobCardLabel(c).split(' / ').pop() || `JC-${c.orderJobSeq ?? ''}`, bal: cardStageBalance(c, key, allCards) }))
+    .filter(({ bal }) => bal.leftoverKg > 0);
+}
+
+// Build the carriedIn entry that moves a sibling's stage balance onto a card's same stage.
+export function moveStageBalance(sibling: JobCard, key: BalanceStageKey, allCards: JobCard[]): CarriedIn | null {
+  const bal = cardStageBalance(sibling, key, allCards);
+  if (bal.leftoverKg <= 0) return null;
+  return {
+    id: genId(), fromCardId: sibling.id,
+    fromLabel: jobCardLabel(sibling).split(' / ').pop() || `JC-${sibling.orderJobSeq ?? ''}`,
+    pieces: 0, kg: bal.leftoverKg, movedAt: new Date().toISOString(),
+  };
+}
+
+// One grouped offer per upstream stage (Printing / Metalize / Slitting) that has any
+// sibling balance available — the single grouped carry-over pop-up's data.
+export interface GroupedStageOffer {
+  key: BalanceStageKey;
+  label: string;
+  offers: { card: JobCard; label: string; bal: StageBalance }[];
+}
+export function groupedStageBalanceOffers(card: JobCard, allCards: JobCard[]): GroupedStageOffer[] {
+  return (['printing', 'metalize', 'slitting'] as BalanceStageKey[])
+    .map((key) => ({ key, label: BALANCE_STAGE_LABEL[key], offers: siblingsWithStageBalance(card, key, allCards) }))
+    .filter((g) => g.offers.length > 0);
+}
+
 // Order-level rollup across all its job cards.
 export interface OrderProduction {
   madePcs: number; madeKg: number;

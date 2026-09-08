@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Building2, Bell, Settings, UserCog, Cog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
-  ClipboardList, IndianRupee, Boxes, FileText, Archive, Rows3, Scroll,
+  ClipboardList, Boxes, FileText, Archive, Rows3, Scroll,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -52,7 +52,6 @@ const NAV: NavSection[] = [
     { label: 'GRN',             icon: FileText,      to: '/grn',       access: canAccessSupplier },
   ]},
   { section: 'Master', icon: Settings, items: [
-    { label: 'Rate Master',       icon: IndianRupee, to: '/rate-master', access: canEditRates },
     { label: 'Machines',          icon: Cog,         to: '/machines',    access: canEditRates },
     { label: 'Users & Roles',     icon: UserCog,     to: '/users',       access: canManageUsers },
     { label: 'Settings',          icon: Settings,    to: '/settings',    access: canAccessSettings },

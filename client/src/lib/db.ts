@@ -2,7 +2,7 @@
 // All data lives in localStorage under namespaced keys.
 // No backend required — works offline, persists across refreshes.
 
-import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, RateMasterItem, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, PPGranuleReceipt, Supplier, GRN, FactoryMachine, UnitRoll, TapeReceipt, TapeWastage } from '../types/models';
+import type { Roll, Consumable, Order, Vendor, PurchaseOrder, AppAlert, Machine, ProductionJob, DowntimeLog, FabricBatch, FabricWastage, Loom, LoomEntry, JobCard, DispatchRecord, InvRoll, RawMaterial, RawMaterialBatch, RawMaterialReceipt, MaterialUse, BoppFilm, FinishedRoll, FinishedFilm, PPGranuleItem, PPGranuleReceipt, Supplier, GRN, FactoryMachine, UnitRoll, TapeReceipt, TapeWastage } from '../types/models';
 import type { User } from '../types';
 
 // Single source of truth for the localStorage key prefix. Never hardcode the
@@ -92,6 +92,19 @@ export function purgeBusinessDataOnce(): void {
         localStorage.removeItem(key);
       }
     }
+    localStorage.setItem(FLAG, new Date().toISOString());
+  } catch { /* ignore quota / access errors */ }
+}
+
+// One-time removal of the retired Rate Master table (labour/overhead). Costing is
+// now material-batch-only, so the stored rate_master rows are dead data — drop them
+// (and clear the server mirror) once, guarded by a flag.
+export function removeRateMasterOnce(): void {
+  const FLAG = `${STORAGE_PREFIX}rate_master_removed_v1`;
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    localStorage.removeItem(getKey('rate_master'));
+    pushTable('rate_master', []);   // clear the shared server copy too
     localStorage.setItem(FLAG, new Date().toISOString());
   } catch { /* ignore quota / access errors */ }
 }
@@ -357,12 +370,9 @@ export const jobCardsDb = {
   get:     (id: string) => dbGetAll<JobCard>('job_cards').find((j) => j.id === id) ?? null,
 };
 
-export const rateMasterDb = {
-  getAll:  () => dbGetAll<RateMasterItem>('rate_master'),
-  create:  (r: Omit<RateMasterItem, 'id'>) => dbCreate<RateMasterItem>('rate_master', r),
-  update:  (id: string, p: Partial<RateMasterItem>) => dbUpdate<RateMasterItem>('rate_master', id, p),
-  delete:  (id: string) => dbDelete('rate_master', id),
-};
+// Rate Master removed — labour/overhead is no longer part of costing. All costing
+// now comes from material/roll/granule batch rates. The stale `rate_master` table
+// is purged once on boot (see removeRateMasterOnce).
 
 // Finished-goods dispatch register (fed by Job Card dispatch points, tagged Roll/Bag)
 export const dispatchesDb = {
