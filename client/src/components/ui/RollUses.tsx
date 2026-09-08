@@ -156,9 +156,12 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
             scrolling a long dropdown, then click to add. */}
         {(() => {
           const avail = stock.filter((s) => !value.some((u) => u.rollId === s.id));
-          const q = filter.trim().toLowerCase();
-          const matches = q
-            ? avail.filter((s) => `${s.no} ${fmtSize(s.size)} ${s.size ?? ''} ${s.type ?? ''} ${s.gm ?? ''} ${s.kind}`.toLowerCase().includes(q))
+          const tokens = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
+          const matches = tokens.length
+            ? avail.filter((s) => {
+                const hay = `${s.no} ${fmtSize(s.size)} ${s.size ?? ''} ${s.type ?? ''} ${s.gm ?? ''} ${s.kind}`.toLowerCase();
+                return tokens.every((t) => hay.includes(t));   // every word must match (roll no / size / type / GM)
+              })
             : avail;
           return (
             <div className="pt-1 space-y-2">
