@@ -71,19 +71,22 @@ export function seedSampleData(): void {
     loomsDb.create({ unitId: 'unit-2', loomNo: 'Loom B1', maxRpm: 160, status: 'Active', createdAt: iso(), updatedAt: iso() });
   }
 
-  // Unit 1 (Umay) buys tape — stocked by size, moving-average per size (Part 1).
+  // Unit 1 (Umay) buys tape — stocked by size, each receipt a batch/lot (Part 3).
+  let tapeLot25: { id: string; date: string } | undefined;
   if (tapeReceiptsDb.getAll().length === 0) {
-    const tr = (size: string, qty: number, rate: number | null, party: string, bill: string) =>
-      tapeReceiptsDb.create({ unitId: 'unit-1', size, qty, rate, party, billNo: bill, date: daysAgo(6), createdAt: iso() });
-    tr('2.5 inch', 500, 85, 'Balaji Tapes', 'BT-101');
-    tr('2.5 inch', 400, 92, 'Balaji Tapes', 'BT-140');    // blends to ~₹88.11/kg avg
-    tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22');
+    const tr = (size: string, qty: number, rate: number | null, party: string, bill: string, dAgo = 6) =>
+      tapeReceiptsDb.create({ unitId: 'unit-1', size, qty, rate, party, billNo: bill, date: daysAgo(dAgo), createdAt: iso() });
+    const lot1 = tr('2.5 inch', 500, 85, 'Balaji Tapes', 'BT-101', 8);
+    tr('2.5 inch', 400, 92, 'Balaji Tapes', 'BT-140', 3);    // blends to ~₹88.11/kg avg
+    tr('3 inch', 300, 78, 'Shree Tape Co', 'ST-22', 5);
+    tapeLot25 = { id: lot1.id, date: lot1.date };
   }
 
-  // Manual tape wastage (Unit 1) — record-only, ~1% after making. Not deducted.
+  // Tape wastage (Unit 1). Part 3: a batch-linked entry DEDUCTS from that specific
+  // lot's stock; the older record-only entries (no receiptId) are left as-is.
   if (tapeWastageDb.getAll().length === 0) {
-    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 5, date: daysAgo(4), note: '~1% after making', createdAt: iso() });
-    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 3, date: daysAgo(1), note: 'edge trim', createdAt: iso() });
+    if (tapeLot25) tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 6, date: tapeLot25.date, note: '~1% after making — deducted from Batch 1', receiptId: tapeLot25.id, rateSnapshot: 85, createdAt: iso() });
+    tapeWastageDb.create({ unitId: 'unit-1', size: '2.5 inch', qty: 3, date: daysAgo(1), note: 'edge trim (record-only, legacy)', createdAt: iso() });
     tapeWastageDb.create({ unitId: 'unit-1', size: '3 inch', qty: 2, date: daysAgo(2), createdAt: iso() });
   }
 

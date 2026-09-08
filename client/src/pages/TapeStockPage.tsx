@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, Fragment } from 'react';
 import { Plus, Pencil, Trash2, Search, Layers, ChevronRight, ChevronDown, AlertTriangle, Recycle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { tapeReceiptsDb, tapeWastageDb } from '../lib/db';
-import { tapePools } from '../lib/tape';
+import { tapePools, tapeReceiptRemaining } from '../lib/tape';
 import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
 import { canViewCosts } from '../lib/roles';
@@ -63,32 +63,76 @@ function TapeForm({ initial, fixedSize, editing, onSave, onClose }: {
   );
 }
 
-// ── Manual tape wastage entry — date, tape size, qty (kg), note. ────────────────
-function WastageForm({ onSave, onClose }: {
+// ── Tape wastage entry — pick the BATCH (receipt lot) it came from, enter qty; the
+// qty is DEDUCTED from that lot's stock (matching the Plant's batch-selection flow). ─
+function WastageForm({ receipts, onSave, onClose }: {
+  receipts: TapeReceipt[];
   onSave: (d: Omit<TapeWastage, 'id' | 'unitId' | 'createdAt'>) => void; onClose: () => void;
 }) {
+  const showCosts = canViewCosts();
+  const sizes = useMemo(() => [...new Set(receipts.map((r) => r.size))].sort(), [receipts]);
   const [size, setSize] = useState('');
+  const [receiptId, setReceiptId] = useState('');
   const [qtyText, setQtyText] = useState('');
-  const [date, setDate] = useState(today());
   const [note, setNote] = useState('');
+
+  // Lots (batches) for the chosen size, each with its remaining stock.
+  const lots = useMemo(() => receipts.filter((r) => r.size === size)
+    .map((r) => ({ r, remaining: tapeReceiptRemaining(r) }))
+    .sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : 0)), [receipts, size]);
+  const lot = lots.find((l) => l.r.id === receiptId);
+  const qty = num(qtyText);
+  const remaining = lot?.remaining ?? 0;
+  const over = qty > remaining + 1e-6;
+  const impactPct = lot && lot.r.qty > 0 ? (qty / lot.r.qty) * 100 : 0;
+  const impactValue = lot?.r.rate != null ? qty * lot.r.rate : null;
+
   function submit() {
-    if (!size.trim()) { toast.error('Tape size is required'); return; }
-    if (num(qtyText) <= 0) { toast.error('Wastage qty is required'); return; }
+    if (!size) { toast.error('Select the tape size'); return; }
+    if (!lot) { toast.error('Select the batch (lot) the wastage came from'); return; }
+    if (qty <= 0) { toast.error('Wastage qty is required'); return; }
+    if (over) { toast.error(`Only ${remaining.toLocaleString('en-IN')} kg left on this batch`); return; }
     rememberTypeAhead(TAPE_SIZES_KEY, size, DEFAULT_TAPE_SIZES);
-    onSave({ size: size.trim(), qty: num(qtyText), date, note: note.trim() || undefined });
+    onSave({ size, qty, date: lot.r.date, note: note.trim() || undefined, receiptId: lot.r.id, rateSnapshot: lot.r.rate ?? null });
   }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="label">Tape Size *</label><TypeAhead value={size} onChange={setSize} listKey={TAPE_SIZES_KEY} defaults={DEFAULT_TAPE_SIZES} placeholder="e.g. 2.5 inch" /></div>
-        <div><label className="label">Wastage (kg) *</label><input className="input-field font-mono" type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} placeholder="e.g. ~1% of the batch" /></div>
-        <div><label className="label">Date</label><input className="input-field" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div>
+          <label className="label">Tape Size *</label>
+          <select className="input-field font-mono" value={size} onChange={(e) => { setSize(e.target.value); setReceiptId(''); }}>
+            <option value="">Select size…</option>
+            {sizes.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Batch (lot) *</label>
+          <select className="input-field" value={receiptId} onChange={(e) => setReceiptId(e.target.value)} disabled={!size}>
+            <option value="">{size ? 'Select batch…' : 'pick a size first'}</option>
+            {lots.map(({ r, remaining }, i) => (
+              <option key={r.id} value={r.id} disabled={remaining <= 0}>
+                Batch {i + 1}: {r.qty.toLocaleString('en-IN')}kg {r.rate == null ? '(no rate)' : `@ ₹${r.rate}`}, {formatDate(r.date)} · {remaining.toLocaleString('en-IN')}kg left
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Wastage (kg) *</label>
+          <input className={'input-field font-mono' + (over ? ' border-red-500/60' : '')} type="number" min="0" step="any" value={qtyText} onChange={(e) => setQtyText(e.target.value)} placeholder="e.g. ~1% of the batch" />
+          {lot && <p className={'text-[10px] mt-0.5 ' + (over ? 'text-red-300' : 'text-muted')}>{remaining.toLocaleString('en-IN')} kg left on this batch</p>}
+        </div>
         <div><label className="label">Note</label><input className="input-field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional" /></div>
       </div>
-      <p className="text-muted text-xs">Recorded only — this is not deducted from Tape Stock (the deduction rule is undecided; it stays a figure to act on later).</p>
+      {lot && qty > 0 && !over && (
+        <div className="rounded-lg bg-navy/50 border border-accent/15 px-3 py-2 text-sm space-y-1">
+          <div className="flex justify-between"><span className="text-muted">Deducts from batch</span><span className="font-mono text-white/90">{qty.toLocaleString('en-IN')} kg → {(remaining - qty).toLocaleString('en-IN')} kg left</span></div>
+          <div className="flex justify-between"><span className="text-muted">Wastage impact</span><span className={'font-mono ' + (impactPct > 5 ? 'text-red-300' : 'text-white/90')}>{impactPct.toFixed(2)}% of the batch{showCosts && impactValue != null ? ` · ${formatINR(impactValue)}` : ''}</span></div>
+        </div>
+      )}
+      <p className="text-muted text-xs">The wastage qty is deducted from the selected batch's stock (and the size pool).</p>
       <div className="flex gap-3 pt-1">
         <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-        <button onClick={submit} className="btn-primary flex-1 justify-center">Add Wastage</button>
+        <button onClick={submit} className="btn-primary flex-1 justify-center" disabled={!lot || qty <= 0 || over}>Add Wastage</button>
       </div>
     </div>
   );
@@ -96,25 +140,27 @@ function WastageForm({ onSave, onClose }: {
 
 // Manual tape wastage log beside Tape Stock — a list + running total per size. No
 // auto-deduction (record-only for now).
-function WastageSection({ unitId }: { unitId: string }) {
+function WastageSection({ unitId, onStockChanged }: { unitId: string; onStockChanged: () => void }) {
   const [tick, setTick] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   const reload = () => setTick((t) => t + 1);
   const rows = useMemo(() => { void tick; return tapeWastageDb.getAll().filter((w) => w.unitId === unitId)
     .sort((a, b) => (b.date !== a.date ? (b.date < a.date ? -1 : 1) : (b.createdAt || '').localeCompare(a.createdAt || ''))); }, [tick, unitId]);
+  const receipts = useMemo(() => { void tick; return tapeReceiptsDb.getAll().filter((r) => r.unitId === unitId); }, [tick, unitId]);
+  const receiptById = useMemo(() => Object.fromEntries(receipts.map((r) => [r.id, r])), [receipts]);
   const bySize = useMemo(() => { const m: Record<string, number> = {}; rows.forEach((w) => { m[w.size] = +( (m[w.size] || 0) + (w.qty || 0)).toFixed(3); }); return m; }, [rows]);
   const total = rows.reduce((s, w) => s + (w.qty || 0), 0);
 
   function handleAdd(d: Omit<TapeWastage, 'id' | 'unitId' | 'createdAt'>) {
     tapeWastageDb.create({ ...d, unitId, createdAt: new Date().toISOString() });
-    toast.success(`Wastage recorded — ${d.qty} kg ${d.size}`); setAddOpen(false); reload();
+    toast.success(`Wastage recorded — ${d.qty} kg ${d.size} (deducted from batch)`); setAddOpen(false); reload(); onStockChanged();
   }
-  function handleDelete(id: string) { tapeWastageDb.delete(id); toast.success('Wastage entry deleted'); reload(); }
+  function handleDelete(id: string) { tapeWastageDb.delete(id); toast.success('Wastage entry deleted — batch stock restored'); reload(); onStockChanged(); }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-muted text-sm">Manually recorded tape wastage (≈1% after making). Record-only — not deducted from stock yet.</p>
+        <p className="text-muted text-sm">Tape wastage (≈1% after making). Pick the batch it came from — the qty is deducted from that lot's stock.</p>
         <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Wastage</button>
       </div>
 
@@ -130,20 +176,26 @@ function WastageSection({ unitId }: { unitId: string }) {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className="border-b border-white/5">
-              {['Date', 'Tape Size', 'Wastage (kg)', 'Note', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
+              {['Date', 'Tape Size', 'Batch', 'Wastage (kg)', 'Impact', 'Note', ''].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={5}><EmptyState icon={Recycle} title="No wastage recorded" action={{ label: 'Add Wastage', onClick: () => setAddOpen(true) }} /></td></tr>
-              ) : rows.map((w) => (
+                <tr><td colSpan={7}><EmptyState icon={Recycle} title="No wastage recorded" action={{ label: 'Add Wastage', onClick: () => setAddOpen(true) }} /></td></tr>
+              ) : rows.map((w) => {
+                const r = w.receiptId ? receiptById[w.receiptId] : undefined;
+                const pct = r && r.qty > 0 ? (w.qty / r.qty) * 100 : 0;
+                return (
                 <tr key={w.id} className="table-row">
                   <td className="table-cell text-white/70 whitespace-nowrap">{formatDate(w.date)}</td>
                   <td className="table-cell font-mono text-white/90">{w.size}</td>
+                  <td className="table-cell text-muted text-xs whitespace-nowrap">{r ? `${formatDate(r.date)}${r.rate != null ? ` @ ₹${r.rate}` : ''}` : <span className="text-yellow-300/80">record-only</span>}</td>
                   <td className="table-cell font-mono text-white/80">{w.qty.toLocaleString('en-IN')}</td>
+                  <td className="table-cell font-mono text-muted text-xs">{r ? `${pct.toFixed(1)}%` : '—'}</td>
                   <td className="table-cell text-muted text-xs">{w.note || '—'}</td>
                   <td className="table-cell"><button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -151,7 +203,7 @@ function WastageSection({ unitId }: { unitId: string }) {
 
       {addOpen && (
         <Modal open onClose={() => setAddOpen(false)} title="Record tape wastage" size="md">
-          <WastageForm onSave={handleAdd} onClose={() => setAddOpen(false)} />
+          <WastageForm receipts={receipts} onSave={handleAdd} onClose={() => setAddOpen(false)} />
         </Modal>
       )}
     </div>
@@ -220,7 +272,7 @@ export function TapeStockPage() {
         ))}
       </div>
 
-      {tab === 'wastage' && <WastageSection unitId={activeUnit} />}
+      {tab === 'wastage' && <WastageSection unitId={activeUnit} onStockChanged={reload} />}
 
       {tab === 'stock' && (<>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

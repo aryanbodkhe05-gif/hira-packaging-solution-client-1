@@ -5,10 +5,30 @@
 // never changes it. Pools are derived live from receipts − loom consumption, so
 // editing/deleting a loom entry adjusts stock automatically.
 
-import { tapeReceiptsDb, loomEntriesDb } from './db';
+import { tapeReceiptsDb, loomEntriesDb, tapeWastageDb } from './db';
 
 const money = (n: number) => Math.round(n * 100) / 100;
 const round = (n: number) => Math.round(n * 1000) / 1000;
+
+// kg wasted against a single tape receipt lot (deducted from that lot's stock).
+export function tapeWastedForReceipt(receiptId: string): number {
+  return round(tapeWastageDb.getAll().filter((w) => w.receiptId === receiptId).reduce((s, w) => s + (w.qty || 0), 0));
+}
+// Remaining stock on one tape lot = received − wastage taken from it.
+export function tapeReceiptRemaining(receipt: { id: string; qty: number }): number {
+  return round((receipt.qty || 0) - tapeWastedForReceipt(receipt.id));
+}
+// kg deducted from stock by wastage, per size — only wastage bound to a receipt lot
+// deducts (legacy record-only wastage, with no receiptId, is not deducted).
+function wastedBySize(unitId: string): Record<string, number> {
+  const acc: Record<string, number> = {};
+  for (const w of tapeWastageDb.getAll()) {
+    if ((w.unitId ?? 'unit-1') !== unitId) continue;
+    if (!w.receiptId || (w.qty || 0) <= 0) continue;
+    acc[w.size] = round((acc[w.size] || 0) + w.qty);
+  }
+  return acc;
+}
 
 export interface TapePool {
   size: string;
@@ -34,6 +54,7 @@ function consumedBySize(unitId: string, excludeEntryId?: string): Record<string,
 export function tapePools(unitId: string, excludeEntryId?: string): TapePool[] {
   const receipts = tapeReceiptsDb.getAll().filter((r) => r.unitId === unitId);
   const consumed = consumedBySize(unitId, excludeEntryId);
+  const wasted = wastedBySize(unitId);
   const bySize: Record<string, { recQty: number; ratedQty: number; ratedVal: number; unrated: number; count: number }> = {};
   for (const r of receipts) {
     const b = (bySize[r.size] ??= { recQty: 0, ratedQty: 0, ratedVal: 0, unrated: 0, count: 0 });
@@ -46,7 +67,7 @@ export function tapePools(unitId: string, excludeEntryId?: string): TapePool[] {
   for (const size of sizes) {
     const b = bySize[size] ?? { recQty: 0, ratedQty: 0, ratedVal: 0, unrated: 0, count: 0 };
     const avgRate = b.ratedQty > 0 ? money(b.ratedVal / b.ratedQty) : null;
-    const qty = round(b.recQty - (consumed[size] || 0));
+    const qty = round(b.recQty - (consumed[size] || 0) - (wasted[size] || 0));
     out.push({ size, qty, avgRate, value: avgRate != null ? money(Math.max(0, qty) * avgRate) : 0, unratedQty: b.unrated, receiptCount: b.count });
   }
   return out.sort((a, b) => (a.size < b.size ? -1 : a.size > b.size ? 1 : 0));
