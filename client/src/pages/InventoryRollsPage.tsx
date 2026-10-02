@@ -1,7 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Search, Boxes, PackageCheck, Truck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Boxes, PackageCheck, Truck, QrCode } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invRollsDb } from '../lib/db';
+import { RollQrLabel } from '../components/ui/RollQrLabel';
+import { newRollQrToken } from '../lib/rolls';
 import {
   DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY, DEFAULT_PARTIES, PARTIES_KEY,
   DEFAULT_ROLL_SIZEGM, ROLL_SIZEGM_KEY, DEFAULT_ROLL_GM, ROLL_GM_KEY,
@@ -147,6 +149,7 @@ export function InventoryRollsPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [editRoll, setEditRoll] = useState<InvRoll | null>(null);
+  const [labelRoll, setLabelRoll] = useState<InvRoll | null>(null);       // roll whose QR label is open
   const [receiveRoll, setReceiveRoll] = useState<InvRoll | null>(null);   // roll being received
   const [receiveNo, setReceiveNo] = useState('');                         // manual roll no on receive
   const [activeGroup, setActiveGroup] = useState<string>('all');
@@ -165,6 +168,24 @@ export function InventoryRollsPage() {
     setEditRoll(null); reload();
   }
   function handleDelete(id: string) { invRollsDb.delete(id); toast.success('Roll deleted'); reload(); }
+
+  // Open the roll's QR label — assign a token on first open if missing, then persist.
+  function openLabel(r: InvRoll) {
+    if (r.qrToken) { setLabelRoll(r); return; }
+    const qrToken = newRollQrToken();
+    invRollsDb.update(r.id, { qrToken });
+    reload();
+    setLabelRoll({ ...r, qrToken });
+  }
+  // Issue a fresh token (any previously printed label stops resolving).
+  function regenerateLabel() {
+    if (!labelRoll) return;
+    const qrToken = newRollQrToken();
+    invRollsDb.update(labelRoll.id, { qrToken });
+    reload();
+    setLabelRoll({ ...labelRoll, qrToken });
+    toast.success('New QR code generated');
+  }
 
   // Receive an in-transit roll: details auto-filled, but the Inventory person types
   // the roll no by hand. The stock entry is finalised only on confirm with a roll no.
@@ -275,6 +296,7 @@ export function InventoryRollsPage() {
                   </td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{formatDate(r.dateAdded)}</td>
                   <td className="table-cell"><div className="flex gap-1.5">
+                    <button onClick={() => openLabel(r)} title="QR label" className="p-1.5 rounded hover:bg-primary/20 text-muted hover:text-accent transition-colors"><QrCode className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setEditRoll(r)} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div></td>
@@ -294,6 +316,11 @@ export function InventoryRollsPage() {
       {editRoll && (
         <Modal open onClose={() => setEditRoll(null)} title="Edit Roll" size="lg">
           <EditRollForm initial={editRoll} onSave={handleEditSave} onClose={() => setEditRoll(null)} />
+        </Modal>
+      )}
+      {labelRoll && (
+        <Modal open onClose={() => setLabelRoll(null)} title={`QR label — ${labelRoll.rollNo || 'roll'}`} size="sm">
+          <RollQrLabel roll={labelRoll} onRegenerate={regenerateLabel} />
         </Modal>
       )}
       {/* Receive in-transit roll — details auto-filled, roll no typed by hand */}

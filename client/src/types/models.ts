@@ -479,6 +479,7 @@ export interface InvRoll {
   balanceUsed?: boolean;   // flagged when partially consumed in production
   dispatched?: boolean;    // flagged when dispatched directly from stock
   dispatchedAt?: string;
+  qrToken?: string;        // unguessable token printed in the roll's QR label (Phase 1). Generated client-side (crypto.randomUUID); assigned on first label / backfilled once on boot.
 }
 
 // Consumables: ink, thread, thinner, solvents, etc. Held as ONE moving-average
@@ -544,6 +545,7 @@ export interface UnitRoll {
   rate?: number | null;    // ₹/kg — carried from the loom (tape rate); flows to inventory on transfer
   status: 'in_unit' | 'in_transit';   // in_transit = sent out, awaiting Inventory Receive
   createdAt: string;
+  qrToken?: string;        // unguessable token printed in the roll's QR label (Phase 1). Generated client-side (crypto.randomUUID); assigned on first label / backfilled once on boot.
 }
 
 // Machines master (purpose-built) — the actual machines the factory has. Feeds
