@@ -220,6 +220,11 @@ export interface RollUse {
   lineCost: number;             // qtyKg × rate (0 when rate not set)
   finished: boolean;            // true => roll fully used, archived to Finished
   balanceKg?: number;           // weight left on the roll when not finished
+  // Audit trail (Phase 3): set only when this line was added by scanning the roll's QR
+  // label (left undefined when picked from the dropdown/search). Input method only —
+  // the consumption itself is identical to a manually-selected roll.
+  scannedAt?: string;
+  scannedBy?: string;
 }
 
 // (legacy) manual batch-pick line — superseded by auto-FIFO MaterialUse below.

@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, AlertTriangle, CheckCircle2, Search } from 'lucide-react';
+import { Plus, Trash2, AlertTriangle, CheckCircle2, Search, QrCode, ScanLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invRollsDb, boppFilmsDb } from '../../lib/db';
 import { canViewCosts } from '../../lib/roles';
+import { currentUser } from '../../lib/auth';
 import { formatINR } from '../../lib/jobcard';
 import { CommitNumberInput } from './CommitNumberInput';
+import { RollScanModal } from './ScanRollButton';
 import type { RollUse } from '../../types/models';
 import type { Finish } from '../../config';
 
@@ -29,6 +31,23 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
 }) {
   const showCosts = canViewCosts();
   const [filter, setFilter] = useState('');   // search box for the roll/film picker
+  const [scanOpen, setScanOpen] = useState(false);
+
+  // Scan-to-select: resolve the scanned roll by id in THIS picker's available stock and
+  // add it exactly like a manual pick (same row, same downstream validation + save path),
+  // tagging the line as scan-origin. Never mutates stock here — selection only.
+  function selectByScan(parsed: { id: string; token: string }) {
+    setScanOpen(false);
+    const s = stock.find((x) => x.id === parsed.id);
+    if (!s) { toast.error('That roll isn’t available to select here (dispatched, in transit, a film, or not this stage’s stock).'); return; }
+    if (value.some((u) => u.rollId === s.id)) { toast.error(`${s.label} is already added here.`); return; }
+    onChange([...value, {
+      rollId: s.id, rollNo: s.no, kind: s.kind, type: s.type, size: s.size, gm: s.gm,
+      qtyKg: 0, rate: s.rate, lineCost: 0, finished: false, balanceKg: s.available,
+      scannedAt: new Date().toISOString(), scannedBy: currentUser()?.name,
+    }]);
+    toast.success(`${s.no} selected by scan`);
+  }
 
   // Rolls already committed by this card stay selectable so the line can be edited.
   const stock = useMemo(() => {
@@ -87,6 +106,12 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
                 {u.kind === 'roll' && <span className="text-muted text-xs">{u.gm ?? '—'} GM</span>}
                 {u.type && <span className="text-muted text-xs">{u.type}</span>}
                 <span className="font-mono text-accent">{u.rollNo}</span>
+                {u.scannedAt && (
+                  <span title={`Selected by scan${u.scannedBy ? ` · ${u.scannedBy}` : ''} · ${new Date(u.scannedAt).toLocaleString('en-IN')}`}
+                    className="inline-flex items-center gap-1 badge bg-primary/15 text-accent border border-primary/30 text-[10px]">
+                    <QrCode className="w-3 h-3" /> scanned
+                  </span>
+                )}
                 <span className="text-muted text-xs">{available.toLocaleString('en-IN')}kg</span>
                 <span className="text-muted text-xs">{u.rate == null ? '—' : `₹${u.rate.toLocaleString('en-IN')}`}</span>
                 <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
@@ -165,10 +190,15 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
             : avail;
           return (
             <div className="pt-1 space-y-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-                <input className="input-field pl-9 py-1.5 text-sm" placeholder="Search stock by roll no, size, type or GM…"
-                  value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <input className="input-field pl-9 py-1.5 text-sm w-full" placeholder="Search stock by roll no, size, type or GM…"
+                    value={filter} onChange={(e) => setFilter(e.target.value)} />
+                </div>
+                {/* Scan-to-select — fills the roll field from a QR label; search stays available. */}
+                <button type="button" onClick={() => setScanOpen(true)} title="Scan a roll QR to select it"
+                  className="btn-secondary py-1.5 shrink-0"><ScanLine className="w-4 h-4" /> Scan</button>
               </div>
               {avail.length === 0 ? (
                 <p className="text-muted text-xs">No more stock available to add.</p>
@@ -193,6 +223,15 @@ export function RollUsesPanel({ value, onChange, kinds = ['roll', 'film'], filmF
           );
         })()}
       </div>
+
+      {scanOpen && (
+        <RollScanModal
+          title="Scan a roll to select"
+          hint="Point the camera at a roll’s QR label to add it to this stage. It only selects the roll — stock isn’t changed until you save."
+          onClose={() => setScanOpen(false)}
+          onDecode={selectByScan}
+        />
+      )}
     </div>
   );
 }
