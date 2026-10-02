@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Scroll, Truck, AlertTriangle, Send, QrCode } from
 import toast from 'react-hot-toast';
 import { unitRollsDb, invRollsDb } from '../lib/db';
 import { RollQrLabel } from '../components/ui/RollQrLabel';
+import { ScanRollButton } from '../components/ui/ScanRollButton';
 import { newRollQrToken } from '../lib/rolls';
 import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
@@ -133,7 +134,10 @@ export function RollCountPage() {
           <h1 className="page-header">Roll Count — {unitName(activeUnit)}</h1>
           <p className="text-muted text-sm mt-1">Rolls made in this unit. Select rolls to transfer into Inventory (two-step: transfer → receive).</p>
         </div>
-        <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <ScanRollButton />
+          <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

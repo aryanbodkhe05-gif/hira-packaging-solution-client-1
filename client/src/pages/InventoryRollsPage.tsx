@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Search, Boxes, PackageCheck, Truck, QrCode } from
 import toast from 'react-hot-toast';
 import { invRollsDb } from '../lib/db';
 import { RollQrLabel } from '../components/ui/RollQrLabel';
+import { ScanRollButton } from '../components/ui/ScanRollButton';
 import { newRollQrToken } from '../lib/rolls';
 import {
   DEFAULT_ROLL_TYPES, ROLL_TYPES_KEY, DEFAULT_PARTIES, PARTIES_KEY,
@@ -217,7 +218,10 @@ export function InventoryRollsPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div><h1 className="page-header">Rolls</h1><p className="text-muted text-sm mt-1">Normal roll / fabric stock — bought outside or transferred from a Loom/P.P. unit</p></div>
-        <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Rolls</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <ScanRollButton />
+          <button onClick={() => setAddOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Add Rolls</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
