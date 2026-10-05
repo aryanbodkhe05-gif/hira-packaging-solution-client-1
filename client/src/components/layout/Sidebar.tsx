@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Package, Factory, ShoppingCart, Truck,
   Building2, Bell, Settings, UserCog, Cog,
   ChevronLeft, ChevronRight, ChevronDown, Zap, Layers, Gauge,
-  ClipboardList, Boxes, FileText, Archive, Rows3, Scroll,
+  ClipboardList, Boxes, FileText, Archive, Rows3, Scroll, ScanLine,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -40,6 +40,7 @@ const NAV: NavSection[] = [
     { label: 'Raw Materials',  icon: Package,  to: '/inventory/raw-materials', access: canAccessGeneral },
     { label: 'BOPP Film',      icon: Layers,   to: '/inventory/bopp-film',     access: canAccessGeneral },
     { label: 'Finished Rolls', icon: Archive,  to: '/inventory/finished-rolls', access: canAccessGeneral },
+    { label: 'Scanner',        icon: ScanLine, to: '/scanner',                 access: canAccessGeneral },
   ]},
   // Separate unit — a different company, not correlated with the BOPP/bag flow.
   { section: 'Loom / P.P. Unit', icon: Gauge, items: [

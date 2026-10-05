@@ -69,6 +69,26 @@ export function findRollScanView(id: string): RollScanView | null {
   return null;
 }
 
+// Internal Scanner lookup: resolve a roll/film by a typed query — an exact id, a roll
+// no / film no (case-insensitive), or a pasted scan URL. For the owner-facing info view
+// (no QR token required). Returns the first match, rolls before films.
+export function findRollScanViewByQuery(query: string): RollScanView | null {
+  const q = query.trim();
+  if (!q) return null;
+  const fromUrl = parseRollScanUrl(q);
+  if (fromUrl) return findRollScanView(fromUrl.id);
+  const direct = findRollScanView(q);
+  if (direct) return direct;
+  const lc = q.toLowerCase();
+  const inv = invRollsDb.getAll().find((r) => r.rollNo.toLowerCase() === lc);
+  if (inv) return findRollScanView(inv.id);
+  const unit = unitRollsDb.getAll().find((r) => (r.rollNo ?? '').toLowerCase() === lc);
+  if (unit) return findRollScanView(unit.id);
+  const film = boppFilmsDb.getAll().find((f) => f.filmNo.toLowerCase() === lc);
+  if (film) return findRollScanView(film.id);
+  return null;
+}
+
 // Extract {kind, id, token} from a scanned QR's text (a /scan/roll/:id or /scan/film/:id
 // URL). Returns null for anything that isn't a roll/film scan URL.
 export function parseRollScanUrl(text: string): { kind: 'roll' | 'film'; id: string; token: string } | null {

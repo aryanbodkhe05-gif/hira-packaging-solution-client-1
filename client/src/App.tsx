@@ -18,6 +18,7 @@ import { JobCardDetailPage } from './pages/JobCardDetailPage';
 import { DispatchRegisterPage } from './pages/DispatchRegisterPage';
 import { InventoryRollsPage } from './pages/InventoryRollsPage';
 import { ScanRollPage }      from './pages/ScanRollPage';
+import { ScannerPage }       from './pages/ScannerPage';
 import { RawMaterialsPage }  from './pages/RawMaterialsPage';
 import { BoppFilmPage }      from './pages/BoppFilmPage';
 import { FinishedRollsPage } from './pages/FinishedRollsPage';
@@ -78,6 +79,9 @@ function AppRoutes() {
         <Route path="inventory/raw-materials"  element={<Guard allow={canAccessGeneral(role)} home={home}><RawMaterialsPage /></Guard>} />
         <Route path="inventory/bopp-film"      element={<Guard allow={canAccessGeneral(role)} home={home}><BoppFilmPage /></Guard>} />
         <Route path="inventory/finished-rolls" element={<Guard allow={canAccessGeneral(role)} home={home}><FinishedRollsPage /></Guard>} />
+
+        {/* Scanner info view — look up / scan a roll or BOPP film to see live specs. */}
+        <Route path="scanner"       element={<Guard allow={canAccessGeneral(role)} home={home}><ScannerPage /></Guard>} />
 
         {/* Scan-to-view card — any logged-in user. Opened by scanning a roll or BOPP
             film QR label; read-only, rate gated to cost-viewing roles. */}
