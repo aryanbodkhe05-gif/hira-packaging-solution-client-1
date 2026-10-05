@@ -109,6 +109,28 @@ export function removeRateMasterOnce(): void {
   } catch { /* ignore quota / access errors */ }
 }
 
+// One-time backfill: give every existing inventory + unit roll a `qrToken` so its QR
+// label can be printed and scanned (Phase 1 — QR roll tracking). New rolls get a
+// token when their label is first opened; this also assigns one to any roll still
+// missing it on later boots, so the set is always complete. Writes sync up via setAll.
+export function backfillRollQrTokensOnce(): void {
+  const newToken = () =>
+    (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : `${genId()}${genId()}`;   // fallback for very old browsers
+  try {
+    const inv = dbGetAll<InvRoll>('inv_rolls');
+    let changed = false;
+    for (const r of inv) if (!r.qrToken) { r.qrToken = newToken(); changed = true; }
+    if (changed) setAll('inv_rolls', inv);
+
+    const unit = dbGetAll<UnitRoll>('unit_rolls');
+    let changedU = false;
+    for (const r of unit) if (!r.qrToken) { r.qrToken = newToken(); changedU = true; }
+    if (changedU) setAll('unit_rolls', unit);
+  } catch { /* ignore quota / access errors */ }
+}
+
 // One-time rename of legacy values in stored data: UL → Milky, RP → Master Batch.
 // Rewrites records, granule mixes, and the reusable dropdown lists, then pushes
 // the changes to the server. Runs once (flagged).

@@ -9,6 +9,15 @@ export const COMPANY = {
   email:       'info@hirapackaging.com',
 } as const;
 
+// ── Roll QR tracking (Phase 1) ────────────────────────────────────────────────
+// Public base a printed roll QR opens to. This is the live Dokploy deployment,
+// which serves the SPA with a navigate-fallback so /scan/roll/... deep links load.
+// No trailing slash. The scan-view that handles this route arrives in Phase 2.
+export const SCAN_BASE = 'https://hirapackagingpackflow.online';
+export function rollScanUrl(rollId: string, qrToken: string): string {
+  return `${SCAN_BASE}/scan/roll/${rollId}?t=${qrToken}`;
+}
+
 // Order product types. Milky/Natural were removed here but remain valid roll
 // types in inventory (see DEFAULT_ROLL_TYPES) — they describe stock, not orders.
 export const PRODUCT_TYPES = ['BOPP', 'Laminated', 'Flexo', 'Plain'] as const;

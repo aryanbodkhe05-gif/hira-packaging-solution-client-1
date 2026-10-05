@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Scroll, Truck, AlertTriangle, Send } from 'lucide-react';
+import { Plus, Pencil, Trash2, Scroll, Truck, AlertTriangle, Send, QrCode } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { unitRollsDb, invRollsDb } from '../lib/db';
+import { RollQrLabel } from '../components/ui/RollQrLabel';
+import { ScanRollButton } from '../components/ui/ScanRollButton';
+import { newRollQrToken } from '../lib/rolls';
 import { useUnit } from '../context/UnitContext';
 import { unitName } from '../lib/units';
 import {
@@ -63,6 +66,7 @@ export function RollCountPage() {
   const { activeUnit } = useUnit();
   const [rolls, setRolls] = useState<UnitRoll[]>([]);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; roll?: UnitRoll } | null>(null);
+  const [labelRoll, setLabelRoll] = useState<UnitRoll | null>(null);   // roll whose QR label is open
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [recheck, setRecheck] = useState(false);   // step-1 confirm screen
 
@@ -83,6 +87,23 @@ export function RollCountPage() {
     setModal(null); reload();
   }
   function handleDelete(id: string) { unitRollsDb.delete(id); toast.success('Roll removed'); reload(); }
+
+  // QR label — assign a token on first open if missing, then persist.
+  function openLabel(r: UnitRoll) {
+    if (r.qrToken) { setLabelRoll(r); return; }
+    const qrToken = newRollQrToken();
+    unitRollsDb.update(r.id, { qrToken });
+    reload();
+    setLabelRoll({ ...r, qrToken });
+  }
+  function regenerateLabel() {
+    if (!labelRoll) return;
+    const qrToken = newRollQrToken();
+    unitRollsDb.update(labelRoll.id, { qrToken });
+    reload();
+    setLabelRoll({ ...labelRoll, qrToken });
+    toast.success('New QR code generated');
+  }
 
   const toggle = (id: string) => setSelected((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSelected((p) => (p.size === rolls.length ? new Set() : new Set(rolls.map((r) => r.id))));
@@ -113,7 +134,10 @@ export function RollCountPage() {
           <h1 className="page-header">Roll Count — {unitName(activeUnit)}</h1>
           <p className="text-muted text-sm mt-1">Rolls made in this unit. Select rolls to transfer into Inventory (two-step: transfer → receive).</p>
         </div>
-        <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <ScanRollButton />
+          <button onClick={() => setModal({ type: 'add' })} className="btn-primary"><Plus className="w-4 h-4" /> Add Roll</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -153,6 +177,7 @@ export function RollCountPage() {
                   <td className="table-cell font-mono text-white/70">{r.avg ?? '—'}</td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{r.createdAt?.slice(0, 10)}</td>
                   <td className="table-cell"><div className="flex gap-1.5">
+                    <button onClick={() => openLabel(r)} title="QR label" className="p-1.5 rounded hover:bg-primary/20 text-muted hover:text-accent transition-colors"><QrCode className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setModal({ type: 'edit', roll: r })} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div></td>
@@ -166,6 +191,11 @@ export function RollCountPage() {
       {modal && (
         <Modal open onClose={() => setModal(null)} title={`${modal.type === 'edit' ? 'Edit' : 'Add'} Roll — ${unitName(activeUnit)}`} size="lg">
           <RollForm initial={modal.roll} editing={modal.type === 'edit'} onSave={handleSave} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+      {labelRoll && (
+        <Modal open onClose={() => setLabelRoll(null)} title={`QR label — ${labelRoll.rollNo || 'roll'}`} size="sm">
+          <RollQrLabel roll={labelRoll} onRegenerate={regenerateLabel} />
         </Modal>
       )}
 
