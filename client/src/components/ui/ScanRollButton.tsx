@@ -30,7 +30,7 @@ export function ScanRollButton({ className, label = 'Scan a roll' }: { className
       {open && (
         <RollScanModal
           onClose={() => setOpen(false)}
-          onDecode={(p) => { setOpen(false); nav(`/scan/roll/${encodeURIComponent(p.id)}?t=${encodeURIComponent(p.token)}`); }}
+          onDecode={(p) => { setOpen(false); nav(`/scan/${p.kind}/${encodeURIComponent(p.id)}?t=${encodeURIComponent(p.token)}`); }}
         />
       )}
     </>
@@ -41,7 +41,7 @@ export function ScanRollButton({ className, label = 'Scan a roll' }: { className
 // that decodes a valid roll-label URL — nothing else fires, and it never writes stock.
 // Phase 2 uses it to navigate; Phase 3 uses it to fill a roll-selection field.
 export function RollScanModal({ onDecode, onClose, title = 'Scan a roll QR', hint }: {
-  onDecode: (parsed: { id: string; token: string }) => void;
+  onDecode: (parsed: { kind: 'roll' | 'film'; id: string; token: string }) => void;
   onClose: () => void;
   title?: string;
   hint?: string;

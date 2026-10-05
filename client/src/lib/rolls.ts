@@ -1,4 +1,4 @@
-import { invRollsDb, unitRollsDb } from './db';
+import { invRollsDb, unitRollsDb, boppFilmsDb } from './db';
 import type { InvRoll, UnitRoll } from '../types/models';
 
 // ── Roll QR tokens (Phase 1) ──────────────────────────────────────────────────
@@ -18,7 +18,7 @@ export function newRollQrToken(): string {
 // those are the two stores that carry a qrToken. Normalised into one read-only view.
 export interface RollScanView {
   id: string;
-  kind: 'inv' | 'unit';
+  kind: 'inv' | 'unit' | 'film';
   qrToken?: string;
   rollNo: string;
   type?: string;
@@ -58,17 +58,25 @@ export function findRollScanView(id: string): RollScanView | null {
       rate: unit.rate ?? null, status: unit.status === 'in_transit' ? 'In transit (unit)' : 'In unit',
     };
   }
+  const film = boppFilmsDb.getAll().find((f) => f.id === id);
+  if (film) {
+    return {
+      id: film.id, kind: 'film', qrToken: film.qrToken, rollNo: film.filmNo, type: film.finish,
+      size: film.size, gm: film.gm, gWt: film.gWt, nWt: film.nWt ?? film.kg, meter: film.meter,
+      rate: film.rate ?? null, status: film.balanceUsed ? 'Partially used' : 'In stock', party: film.party,
+    };
+  }
   return null;
 }
 
-// Extract {id, token} from a scanned roll QR's text (a full /scan/roll/:id?t= URL).
-// Returns null for anything that isn't a roll-scan URL.
-export function parseRollScanUrl(text: string): { id: string; token: string } | null {
+// Extract {kind, id, token} from a scanned QR's text (a /scan/roll/:id or /scan/film/:id
+// URL). Returns null for anything that isn't a roll/film scan URL.
+export function parseRollScanUrl(text: string): { kind: 'roll' | 'film'; id: string; token: string } | null {
   try {
     const u = new URL(text.trim());
-    const m = u.pathname.match(/\/scan\/roll\/([^/?#]+)/);
+    const m = u.pathname.match(/\/scan\/(roll|film)\/([^/?#]+)/);
     if (!m) return null;
-    return { id: decodeURIComponent(m[1]), token: u.searchParams.get('t') ?? '' };
+    return { kind: m[1] as 'roll' | 'film', id: decodeURIComponent(m[2]), token: u.searchParams.get('t') ?? '' };
   } catch {
     return null;
   }

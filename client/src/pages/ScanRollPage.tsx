@@ -76,7 +76,7 @@ export function ScanRollPage() {
                 <div className="w-10 h-10 rounded-lg bg-primary/15 grid place-items-center"><Scroll className="w-5 h-5 text-accent" /></div>
                 <div>
                   <p className="text-white font-semibold font-mono text-lg leading-tight">{roll.rollNo || '(no roll no)'}</p>
-                  <p className="text-muted text-xs">{roll.kind === 'unit' ? 'Loom / unit roll' : 'Inventory roll'}{roll.type ? ` · ${roll.type}` : ''}</p>
+                  <p className="text-muted text-xs">{roll.kind === 'film' ? 'BOPP film' : roll.kind === 'unit' ? 'Loom / unit roll' : 'Inventory roll'}{roll.type ? ` · ${roll.type}` : ''}</p>
                 </div>
               </div>
               {online

@@ -2,11 +2,12 @@ import { useEffect, useState, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { Printer, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { rollScanUrl, COMPANY } from '../../config';
+import { scanUrl, COMPANY, type ScanKind } from '../../config';
 
-// The subset of a roll (InvRoll / UnitRoll) a QR label needs.
+// The subset of a roll (InvRoll / UnitRoll) or BOPP film a QR label needs.
 export interface RollLabelData {
   id: string;
+  kind?: ScanKind;    // 'roll' (default) or 'film' — sets the scan URL path
   rollNo?: string;
   type?: string;
   size?: string;
@@ -25,7 +26,7 @@ function escapeHtml(s: string): string {
 export function RollQrLabel({ roll, onRegenerate }: { roll: RollLabelData; onRegenerate?: () => void }) {
   const [dataUrl, setDataUrl] = useState('');
   const token = roll.qrToken ?? '';
-  const url = token ? rollScanUrl(roll.id, token) : '';
+  const url = token ? scanUrl(roll.kind ?? 'roll', roll.id, token) : '';
   const rollNo = (roll.rollNo ?? '').trim() || '(no roll no)';
   const desc = [roll.type, roll.size, roll.gm != null ? `${roll.gm} GM` : ''].filter(Boolean).join('  ·  ');
 

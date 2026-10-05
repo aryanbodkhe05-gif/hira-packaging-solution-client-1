@@ -79,9 +79,10 @@ function AppRoutes() {
         <Route path="inventory/bopp-film"      element={<Guard allow={canAccessGeneral(role)} home={home}><BoppFilmPage /></Guard>} />
         <Route path="inventory/finished-rolls" element={<Guard allow={canAccessGeneral(role)} home={home}><FinishedRollsPage /></Guard>} />
 
-        {/* Scan-to-view roll card — any logged-in user (Phase 2). Opened by scanning a
-            roll's QR label; read-only, rate gated to cost-viewing roles. */}
+        {/* Scan-to-view card — any logged-in user. Opened by scanning a roll or BOPP
+            film QR label; read-only, rate gated to cost-viewing roles. */}
         <Route path="scan/roll/:id" element={<ScanRollPage />} />
+        <Route path="scan/film/:id" element={<ScanRollPage />} />
 
         {/* Loom / P.P. Unit — a separate company, independent of the BOPP flow */}
         <Route path="loom-unit"            element={<Navigate to="/loom-unit/loom" replace />} />
