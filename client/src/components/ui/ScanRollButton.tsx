@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
-import { QrCode, AlertTriangle } from 'lucide-react';
+import { QrCode, AlertTriangle, Camera, CameraOff } from 'lucide-react';
 import { Modal } from './Modal';
 import { parseRollScanUrl } from '../../lib/rolls';
 import { cn } from '../../lib/utils';
 
 const READER_ID = 'roll-qr-reader';
+const LIVE_READER_ID = 'roll-qr-live-reader';
 
 function cameraErrorMessage(e: unknown): string {
   const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
@@ -30,7 +31,7 @@ export function ScanRollButton({ className, label = 'Scan a roll' }: { className
       {open && (
         <RollScanModal
           onClose={() => setOpen(false)}
-          onDecode={(p) => { setOpen(false); nav(`/scan/roll/${encodeURIComponent(p.id)}?t=${encodeURIComponent(p.token)}`); }}
+          onDecode={(p) => { setOpen(false); nav(`/scan/${p.kind}/${encodeURIComponent(p.id)}?t=${encodeURIComponent(p.token)}`); }}
         />
       )}
     </>
@@ -41,7 +42,7 @@ export function ScanRollButton({ className, label = 'Scan a roll' }: { className
 // that decodes a valid roll-label URL — nothing else fires, and it never writes stock.
 // Phase 2 uses it to navigate; Phase 3 uses it to fill a roll-selection field.
 export function RollScanModal({ onDecode, onClose, title = 'Scan a roll QR', hint }: {
-  onDecode: (parsed: { id: string; token: string }) => void;
+  onDecode: (parsed: { kind: 'roll' | 'film'; id: string; token: string }) => void;
   onClose: () => void;
   title?: string;
   hint?: string;
@@ -86,5 +87,52 @@ export function RollScanModal({ onDecode, onClose, title = 'Scan a roll QR', hin
         <button onClick={onClose} className="btn-secondary w-full justify-center">Cancel</button>
       </div>
     </Modal>
+  );
+}
+
+// Persistent inline camera scanner (for the Scanner info view). Start it once and it
+// keeps scanning: every decoded roll/film label fires `onScan` immediately (the same
+// code is ignored for a couple of seconds so one label doesn't fire repeatedly).
+export function LiveRollScanner({ onScan }: { onScan: (parsed: { kind: 'roll' | 'film'; id: string; token: string }) => void }) {
+  const [on, setOn] = useState(false);
+  const [err, setErr] = useState('');
+  const last = useRef<{ id: string; at: number }>({ id: '', at: 0 });
+
+  useEffect(() => {
+    if (!on) return;
+    setErr('');
+    const scanner = new Html5Qrcode(LIVE_READER_ID, false);
+    const stop = async () => {
+      try { if (scanner.isScanning) await scanner.stop(); } catch { /* ignore */ }
+      try { scanner.clear(); } catch { /* ignore */ }
+    };
+    scanner
+      .start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (decodedText) => {
+          const parsed = parseRollScanUrl(decodedText);
+          if (!parsed) return;
+          const now = Date.now();
+          if (parsed.id === last.current.id && now - last.current.at < 2500) return;   // debounce same label
+          last.current = { id: parsed.id, at: now };
+          onScan(parsed);
+        },
+        () => { /* per-frame misses — ignore */ },
+      )
+      .catch((e) => { setErr(cameraErrorMessage(e)); setOn(false); });
+    return () => { void stop(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on]);
+
+  return (
+    <div className="space-y-2">
+      <button type="button" onClick={() => setOn((v) => !v)} className={on ? 'btn-secondary' : 'btn-primary'}>
+        {on ? <><CameraOff className="w-4 h-4" /> Stop camera</> : <><Camera className="w-4 h-4" /> Scan with camera</>}
+      </button>
+      {on && <div id={LIVE_READER_ID} className={cn('w-full max-w-sm min-h-[240px] rounded-lg overflow-hidden bg-black/40 grid place-items-center', '[&_video]:rounded-lg')} />}
+      {on && !err && <p className="text-muted text-xs">Camera on — scan any roll or BOPP film QR; its info opens below automatically.</p>}
+      {err && <p className="text-red-300 text-sm flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {err}</p>}
+    </div>
   );
 }

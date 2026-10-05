@@ -109,9 +109,9 @@ export function removeRateMasterOnce(): void {
   } catch { /* ignore quota / access errors */ }
 }
 
-// One-time backfill: give every existing inventory + unit roll a `qrToken` so its QR
-// label can be printed and scanned (Phase 1 — QR roll tracking). New rolls get a
-// token when their label is first opened; this also assigns one to any roll still
+// One-time backfill: give every existing inventory roll, unit roll AND BOPP film a
+// `qrToken` so its QR label can be printed and scanned (QR tracking). New items get a
+// token when their label is first opened; this also assigns one to anything still
 // missing it on later boots, so the set is always complete. Writes sync up via setAll.
 export function backfillRollQrTokensOnce(): void {
   const newToken = () =>
@@ -128,6 +128,11 @@ export function backfillRollQrTokensOnce(): void {
     let changedU = false;
     for (const r of unit) if (!r.qrToken) { r.qrToken = newToken(); changedU = true; }
     if (changedU) setAll('unit_rolls', unit);
+
+    const films = dbGetAll<BoppFilm>('inv_bopp_films');
+    let changedF = false;
+    for (const f of films) if (!f.qrToken) { f.qrToken = newToken(); changedF = true; }
+    if (changedF) setAll('inv_bopp_films', films);
   } catch { /* ignore quota / access errors */ }
 }
 

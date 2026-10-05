@@ -1,7 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Plus, Pencil, Trash2, Search, Layers } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Layers, QrCode } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { boppFilmsDb } from '../lib/db';
+import { RollQrLabel } from '../components/ui/RollQrLabel';
+import { newRollQrToken } from '../lib/rolls';
 import {
   FINISHES, DEFAULT_FILM_SIZES, FILM_SIZES_KEY, DEFAULT_PARTIES, PARTIES_KEY,
 } from '../config';
@@ -152,8 +154,26 @@ export function BoppFilmPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [editFilm, setEditFilm] = useState<BoppFilm | null>(null);
+  const [labelFilm, setLabelFilm] = useState<BoppFilm | null>(null);   // film whose QR label is open
   const [activeGroup, setActiveGroup] = useState<string>('all');
   const reload = useCallback(() => setFilms(boppFilmsDb.getAll()), []);
+
+  // Open the film's QR label — assign a token on first open if missing, then persist.
+  function openLabel(f: BoppFilm) {
+    if (f.qrToken) { setLabelFilm(f); return; }
+    const qrToken = newRollQrToken();
+    boppFilmsDb.update(f.id, { qrToken });
+    reload();
+    setLabelFilm({ ...f, qrToken });
+  }
+  function regenerateLabel() {
+    if (!labelFilm) return;
+    const qrToken = newRollQrToken();
+    boppFilmsDb.update(labelFilm.id, { qrToken });
+    reload();
+    setLabelFilm({ ...labelFilm, qrToken });
+    toast.success('New QR code generated');
+  }
 
   // Group by size (e.g. "520mm").
   const groupKey = (f: BoppFilm) => `${f.size || '—'}`;
@@ -237,6 +257,7 @@ export function BoppFilmPage() {
                   </td>
                   <td className="table-cell text-muted text-xs whitespace-nowrap">{formatDate(r.dateAdded)}</td>
                   <td className="table-cell"><div className="flex gap-1.5">
+                    <button onClick={() => openLabel(r)} title="QR label" className="p-1.5 rounded hover:bg-primary/20 text-muted hover:text-accent transition-colors"><QrCode className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setEditFilm(r)} className="p-1.5 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div></td>
@@ -248,6 +269,14 @@ export function BoppFilmPage() {
         <Pagination page={page} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </div>
 
+      {labelFilm && (
+        <Modal open onClose={() => setLabelFilm(null)} title={`QR label — ${labelFilm.filmNo || 'film'}`} size="sm">
+          <RollQrLabel
+            roll={{ id: labelFilm.id, kind: 'film', rollNo: labelFilm.filmNo, type: labelFilm.finish, size: labelFilm.size, gm: labelFilm.gm, qrToken: labelFilm.qrToken }}
+            onRegenerate={regenerateLabel}
+          />
+        </Modal>
+      )}
       {addOpen && (
         <Modal open onClose={() => setAddOpen(false)} title="Add BOPP Films (bulk by Size)" size="lg">
           <BulkFilmForm onSave={handleBulkSave} onClose={() => setAddOpen(false)} />

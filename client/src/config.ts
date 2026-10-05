@@ -14,8 +14,14 @@ export const COMPANY = {
 // which serves the SPA with a navigate-fallback so /scan/roll/... deep links load.
 // No trailing slash. The scan-view that handles this route arrives in Phase 2.
 export const SCAN_BASE = 'https://hirapackagingpackflow.online';
+export type ScanKind = 'roll' | 'film';
+// URL a printed QR opens to. Rolls use /scan/roll/:id, BOPP films /scan/film/:id — the
+// scan-result page resolves either by id. Existing printed roll labels keep working.
+export function scanUrl(kind: ScanKind, id: string, qrToken: string): string {
+  return `${SCAN_BASE}/scan/${kind}/${id}?t=${qrToken}`;
+}
 export function rollScanUrl(rollId: string, qrToken: string): string {
-  return `${SCAN_BASE}/scan/roll/${rollId}?t=${qrToken}`;
+  return scanUrl('roll', rollId, qrToken);
 }
 
 // Order product types. Milky/Natural were removed here but remain valid roll

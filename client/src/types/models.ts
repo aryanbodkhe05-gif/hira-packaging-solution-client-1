@@ -670,6 +670,7 @@ export interface BoppFilm {
   party?: string;          // supplier/party this film was bought from
   dateAdded: string;
   balanceUsed?: boolean;
+  qrToken?: string;        // unguessable token printed in the film's QR label (scannable like a roll). Generated client-side; backfilled once on boot.
 }
 
 // Archive of fully-consumed input rolls / films (moved here from stock).
